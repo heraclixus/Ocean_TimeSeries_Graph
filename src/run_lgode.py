@@ -74,58 +74,6 @@ elif args.extrap=="False":
     args.mode="interp"
 
 
-def plot_traj(true, pred, data_type='train'):
-    '''
-    true: [#traj #time, #feat]
-    pred: [#traj #time, #feat]
-    ''' 
-    n_traj, n_time, n_feat = true.shape 
-    print('true.shape', true.shape)
-    # heat map 
-     
-    t_lis = [0, n_time//2, n_time-1]
-    true = true.reshape(-1, args.n_balls, n_time, n_feat) 
-    pred = pred.reshape(-1, args.n_balls, n_time, n_feat)  
-    for i in range(len(t_lis)):
-        fig, axs = plt.subplots(1,2,figsize=(14,5)) 
-        p1 = axs[0].imshow(true[0,:,t_lis[i],0].reshape(args.H, args.W), cmap='seismic', interpolation='nearest')
-        p2 = axs[1].imshow(pred[0,:,t_lis[i],0].reshape(args.H, args.W), cmap='seismic', interpolation='nearest')
-        axs[0].set_title(f'Lead Time {(t_lis[i]+1)}hr\nTrue')
-        axs[1].set_title(f'Lead Time {(t_lis[i]+1)}hr\nLGODE') 
-        fig.colorbar(p1, ax=axs[0], shrink=0.7)
-        fig.colorbar(p2, ax=axs[1], shrink=0.7)
-        plt.savefig(f'./plot/{data_type}_heatmap_leadtime{(t_lis[i]+1)}.png') 
-        np.save(f'./plot/{data_type}_true{(t_lis[i]+1)}.npy', true[0,:,t_lis[i],0].reshape(args.H, args.W))
-        np.save(f'./plot/{data_type}_pred{(t_lis[i]+1)}.npy', pred[0,:,t_lis[i],0].reshape(args.H, args.W))
-
-    true = true.reshape(n_traj, n_time, n_feat) 
-    pred = pred.reshape(n_traj, n_time, n_feat)   
-    # line plot
-    fig, axs = plt.subplots(1,2,figsize=(4,2))
-    idx = random.sample(range(n_traj), 50)
-    for i in idx: 
-        axs[0].plot(true[i,:,0].reshape(-1), color='tab:blue')
-        axs[1].plot(pred[i,:,0].reshape(-1), color='tab:orange')
-    axs[0].set_title('Ground Truth')
-    axs[1].set_title('Prediction')
-    axs[0].set_xlabel('Time (hr)')
-    axs[1].set_xlabel('Time (hr)')
-    axs[0].set_ylabel('Geopotential (Z500)')
- 
-    fig.tight_layout()
-    plt.savefig(f'./plot/{data_type}_compare.png')
-
-    # scatter plot
-    t_lis = [0, n_time//2, n_time-1]
-    fig, axs = plt.subplots(1,3,figsize=(6,2))
-    for i in range(len(t_lis)):
-        axs[i].plot(true[:,t_lis[i]].reshape(-1), pred[:,t_lis[i]].reshape(-1), '.')
-        axs[i].set_xlabel('Ground Truth')
-        axs[i].set_title(f'Time = {t_lis[i]}')
-    axs[0].set_ylabel('Prediction')
-    fig.tight_layout()
-    plt.savefig(f'./plot/{data_type}_compare_scatter.png') 
- 
 
 
 #####################################################################################################

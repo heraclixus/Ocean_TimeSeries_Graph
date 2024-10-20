@@ -8,7 +8,8 @@ Currently, we use year 2010 as the cutoff for train and test split; for time ser
 
 # Models 
 We want to study the dynamical interaction between different ocean indices, using a Graph Neural Network (GNN) and perform __symbolic regression__ on the learned GNN to extract interpretable dynamical system information. Baselines: 
-- [] Latent Graph ODE
-- [] Fourier Neural Operator (FNO)
-- [] Spherical Fourier Neural Operator (SFNO)
-- [] Multivariate Linear Regression
+- [ ] Latent Graph ODE
+- [ ] Fourier Neural Operator (FNO)
+- [ ] Spherical Fourier Neural Operator (SFNO)
+- [ ] Multivariate Linear Regression
+- [ ] Traditional Time Series Methods (ARIMA, GARCH, etc.)
