@@ -59,8 +59,9 @@ class ParseData(object):
             X = X[:train_id]
         else:
             X = X[train_id:]
-         
-         
+        
+        if self.args.test == 1:
+            X = X[:72]
         T, N = X.shape
         ###### Chunk into shorter time series 
         seq_len = self.args.cond_len + self.args.pred_len  
@@ -70,11 +71,12 @@ class ParseData(object):
             subseq = subseq.reshape(N, seq_len, 1)
             time_series.append(subseq)
             edges.append(np.ones((N,N)))
-            time_obs.append(np.tile(list(range(seq_len)), (N,1)).reshape(N,-1))
+            time_obs.append(np.tile(np.linspace(0,5,seq_len), (N,1)).reshape(N,-1))
          
         time_series = np.stack(time_series)  # train: n_seq x N x T x 1
         edges = np.stack(edges)
-        time_obs = np.stack(time_obs) / (seq_len-1)
+        time_obs = np.stack(time_obs)  
+        
         
         original_max =  np.max(time_series, 2, keepdims=True)
         original_min =  np.min(time_series, 2, keepdims=True) 

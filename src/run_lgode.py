@@ -17,8 +17,8 @@ import datetime
 parser = argparse.ArgumentParser('Latent ODE')
 parser.add_argument('--n-balls', type=int, default=5,
                     help='Number of objects in the dataset.')
-parser.add_argument('--niters', type=int, default=5000)
-parser.add_argument('--lr',  type=float, default=5e-4, help="Starting learning rate.")
+parser.add_argument('--niters', type=int, default=100)
+parser.add_argument('--lr',  type=float, default=2e-4, help="Starting learning rate.")
 parser.add_argument('-b', '--batch-size', type=int, default=256)
 parser.add_argument('--save', type=str, default='experiments/', help="Path for save checkpoints") 
 parser.add_argument('--load', type=str, default=None, help="name of ckpt. If None, run a new experiment.")
@@ -47,6 +47,7 @@ parser.add_argument('--extrap_num', type=int, default=40, help='extrap num ')
 parser.add_argument('--rec_attention', type=str, default="attention")
 parser.add_argument('--cond_len', type=int, default=12)
 parser.add_argument('--pred_len', type=int, default=24)
+parser.add_argument('--test', type=int, default=0)
 
 #parser.add_argument('--alias', type=str, default="run")
 
@@ -102,6 +103,7 @@ if __name__ == '__main__':
                                                                               batch_size=args.batch_size,
                                                                               data_type="test")
     train_encoder,train_decoder, train_graph,train_batch, train_original_max, train_original_min = dataloader.load_data(sample_percent=args.sample_percent_train,batch_size=args.batch_size,data_type="train")
+     
     train_original_max = train_original_max.reshape(-1,1,1)
     train_original_min = train_original_min.reshape(-1,1,1)
     test_original_max = test_original_max.reshape(-1,1,1)
@@ -237,8 +239,13 @@ if __name__ == '__main__':
             np.mean(loss_list),  rmse, mape, np.mean(likelihood_list),
             np.mean(kl_first_p_list), np.mean(std_first_p_list))
         
-        return message_train, kl_coef, train_true_y, train_pred_y, [rmse, mape]
-  
+        return message_train, kl_coef, true, pred, [rmse, mape]
+    
+    np.save(f"results/{date}/test_original_max.npy", test_original_max)
+    np.save(f"results/{date}/test_original_min.npy", test_original_min)
+    np.save(f"results/{date}/train_original_max.npy", train_original_max)
+    np.save(f"results/{date}/train_original_min.npy", train_original_min)
+
     for epo in range(1, args.niters + 1):
 
         message_train, kl_coef, train_true_y, train_pred_y, train_metrics = train_epoch(epo)
@@ -249,12 +256,12 @@ if __name__ == '__main__':
                                                 n_batches=test_batch, device=device,
                                                 n_traj_samples=3, kl_coef=kl_coef)
             
-            true = inverse_normalize(test_true_y, test_original_max, test_original_min)
-            pred = inverse_normalize(test_pred_y, test_original_max, test_original_min)
+            test_true = inverse_normalize(test_true_y, test_original_max, test_original_min)
+            test_pred = inverse_normalize(test_pred_y, test_original_max, test_original_min)
             #true = test_true_y 
             #pred = test_pred_y
-            rmse = np.sqrt( np.mean( np.square(true - pred), axis=2 ) ).mean(1).mean()
-            mape = np.mean(np.abs( (true - pred) / true ), axis=2).mean(1).mean()
+            rmse = np.sqrt( np.mean( np.square(test_true - test_pred), axis=2 ) ).mean(1).mean()
+            mape = np.mean(np.abs( (test_true - test_pred) / test_true ), axis=2).mean(1).mean()
             message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | RMSE {:.6F} | MAPE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
                 epo,
                 test_res["loss"], rmse, mape, test_res["likelihood"],
@@ -278,8 +285,8 @@ if __name__ == '__main__':
                     'state_dict': model.state_dict(),
                 }, ckpt_path)
 
-                np.save(f"results/{date}/test_pred.npy", test_pred_y)
-                np.save(f"results/{date}/test_true.npy", test_true_y)
+                np.save(f"results/{date}/test_pred.npy", test_pred)
+                np.save(f"results/{date}/test_true.npy", test_true)
                 np.save(f"results/{date}/train_pred.npy", train_pred_y)
                 np.save(f"results/{date}/train_true.npy", train_true_y)
   

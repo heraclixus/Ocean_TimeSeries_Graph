@@ -32,8 +32,7 @@ class LatentGraphODE(VAE_Baseline):
 
 		first_point_std = first_point_std.abs()
 
-		time_steps_to_predict = batch_de["time_steps"]
-
+		time_steps_to_predict = batch_de["time_steps"] 
 
 
 		assert (torch.sum(first_point_std < 0) == 0.)
