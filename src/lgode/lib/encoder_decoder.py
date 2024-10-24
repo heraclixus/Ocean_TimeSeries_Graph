@@ -1,5 +1,5 @@
 import torch.nn as nn
-import lib.utils as utils
+import lgode.lib.utils as utils
 
 
 class Decoder(nn.Module):

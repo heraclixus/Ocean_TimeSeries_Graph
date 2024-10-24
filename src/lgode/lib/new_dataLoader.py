@@ -4,12 +4,14 @@ from torch_geometric.data import DataLoader,Data
 from torch.utils.data import DataLoader as Loader
 import scipy.sparse as sp
 from tqdm import tqdm
-import lib.utils as utils
+import lgode.lib.utils as utils
 from torch.nn.utils.rnn import pad_sequence
+ 
+def normalize(series, original_max, original_min):
+    return (series - original_min) / (original_max - original_min)
+def inverse_normalize(scaled_series, original_max, original_min):
+    return scaled_series * (original_max-original_min) + original_min
 
-total_step = 1095 # total number of time steps
-unit_len = 73 # chunk a sequence into subsequences of length unit_len (reason: predicting 1095 time steps at once is too much work)
-n_sub_seq = total_step // unit_len
  
 class ParseData(object):
 
@@ -21,7 +23,7 @@ class ParseData(object):
         self.args = args
         self.total_step = args.total_ode_step
         self.cutting_edge = args.cutting_edge
-        self.num_pre = args.extrap_num
+        self.num_pre = args.pred_len
 
         self.max_loc = None
         self.min_loc = None
@@ -30,95 +32,61 @@ class ParseData(object):
 
         torch.manual_seed(self.random_seed)
         np.random.seed(self.random_seed)
-
- 
-    def construct_grid(self, H, W):
-        '''
-        H: number of latitude (32)
-        W: number of longitude (64)
-        '''
-        adj = np.zeros((H*W,H*W)) # 
-        for r in range(H):
-            for c in range(W):
-                t = r * W + c 
-                up = (r+1) * W + c 
-                down = (r-1) * W + c 
-                left = r * W + (c-1)
-                right = r * W + (c+1)
-                
-                neighbor = [up, down, left, right]
-                for s in neighbor: 
-                    if s >= 0 and s <= (H*W-1):
-                        adj[t,s] = 1
-                        adj[s,t] = 1
-        return adj 
-                     
+  
     def preprocess(self, data_type):
         '''
         Output:
-            geopotential.npy: [#seq, #node, #timestep, #feature] (#feature=1)
-            edges.npy: [#seq, #node, #node]
-            times.npy: [#seq, #node, #timesteps] 
-        '''
-        if data_type == 'train':
-            start_year = 2015
-            end_year = 2015
-        elif data_type == 'val':
-            start_year = 2016
-            end_year = 2016
-        else:
-            start_year = 2017
-            end_year = 2017
+            timeseries: [#seq, #node, #timestep, #feature] (#feature=1)
+            edges: [#seq, #node, #node]
+            times: [#seq, #node, #timesteps] 
+        ''' 
         print('--> Generating graphs and time series')
-        print('    For testing purpose, we take a subgrid of size 5 x 5 and shrink the year range to [2015] for train\n')
         time_series = []
         edges = []
         time_obs = [] # observed timestamps (required for LGODE)
- 
-        for year in range(start_year, end_year+1):
-            print('processing', year)
-            for i in range(1):
-                data = np.load(f"../data/geopotential_6.526deg_np/{data_type}/{year}_{i}.npz")
-                ### Shrink total grid size (for testing purpose)
-                geopotential = data['geopotential'][:,:,:10,:20]
-                H, W = geopotential.shape[2], geopotential.shape[3]
-                self.args.H = H 
-                self.args.W = W
-                geopotential = geopotential.squeeze(1).reshape(total_step,-1)  
-                num_nodes = geopotential.shape[-1]  
-                  
-                geopotential = geopotential.reshape(n_sub_seq, unit_len, num_nodes) # slice
-                geopotential = geopotential.transpose(0,2,1) 
-                geopotential = np.expand_dims(geopotential, axis=3) # expand a dimension for feature
-                 
-                time_series.append(geopotential)  
-                adj = self.construct_grid(H, W)
-                adj = np.tile(adj, (n_sub_seq,1))
-                adj = adj.reshape(n_sub_seq,num_nodes,num_nodes) 
-                edges.append(adj)
-                time_obs.append(np.tile(list(range(unit_len)), (n_sub_seq*num_nodes,1)).reshape(n_sub_seq,num_nodes,-1))
-                 
-        time_series = np.concatenate(time_series, axis=0 )  # train: 4440 x 73 x 2048 x 1
-        edges = np.concatenate(edges, axis=0)
-        time_obs = np.concatenate(time_obs, axis=0)   
-        return time_series, edges, time_obs 
+
+        data = np.loadtxt(f"../data/indices_ocean_19_timeseries.csv", delimiter=',', dtype=str, skiprows=1)
+        
+        year_month = data[:, 0]                 
+        X = data[:, 1:].astype(float) # T x N  
+         
+        ###### Split train and test 
+        for i in range(len(year_month)):
+            if int(year_month[i][:4]) == 2010:
+                train_id = i - 1 
+                break  
+        if data_type == 'train':
+            X = X[:train_id]
+        else:
+            X = X[train_id:]
+         
+         
+        T, N = X.shape
+        ###### Chunk into shorter time series 
+        seq_len = self.args.cond_len + self.args.pred_len  
+        for i in range(T-seq_len):
+            subseq = X[i:i+seq_len] # T' x N 
+            subseq = subseq.T # N x T'
+            subseq = subseq.reshape(N, seq_len, 1)
+            time_series.append(subseq)
+            edges.append(np.ones((N,N)))
+            time_obs.append(np.tile(list(range(seq_len)), (N,1)).reshape(N,-1))
+         
+        time_series = np.stack(time_series)  # train: n_seq x N x T x 1
+        edges = np.stack(edges)
+        time_obs = np.stack(time_obs) / (seq_len-1)
+        
+        original_max =  np.max(time_series, 2, keepdims=True)
+        original_min =  np.min(time_series, 2, keepdims=True) 
+        
+        time_series = normalize(time_series, original_max, original_min)
+        print('\ntime series max min', np.max(time_series), np.min(time_series)) 
+        return time_series, edges, time_obs, original_max, original_min
 
     def load_data(self,sample_percent,batch_size,data_type="train"):
         self.batch_size = batch_size
-        self.sample_percent = sample_percent
-        if data_type == "train":
-            cut_num = 20000
-        else:
-            cut_num = 5000 
-
-        # Loading Data
-        #loc = np.load(self.dataset_path + '/loc_' + data_type + self.suffix + '.npy')[:cut_num]
-        #vel = np.load(self.dataset_path + '/vel_' + data_type + self.suffix + '.npy')[:cut_num]
-        #edges = np.load(self.dataset_path + '/edges_' + data_type + self.suffix + '.npy')  
-        #times = np.load(self.dataset_path + '/times_' + data_type + self.suffix + '.npy') 
-
-        timeseries, edges, times = self.preprocess(data_type) 
-         
+        self.sample_percent = sample_percent  
+        timeseries, edges, times, original_max, original_min = self.preprocess(data_type)  
         self.num_graph = timeseries.shape[0]
         self.num_atoms = timeseries.shape[1]
         self.args.n_balls = timeseries.shape[1]
@@ -128,15 +96,11 @@ class ParseData(object):
  
          
         self.timelength = timeseries.shape[2]
- 
-        # split data w.r.t interp and extrap, also normalize times
-        if self.mode=="interp":
-            timeseries_en,times_en = self.interp_extrap(timeseries,times,self.mode,data_type) 
-            timeseries_de = timeseries_en
-            times_de = times_en
-        elif self.mode == "extrap":
-            timeseries_en,times_en,timeseries_de,times_de = self.interp_extrap(timeseries,times,self.mode,data_type)
-        
+  
+        timeseries_en = timeseries[:,:,:self.args.cond_len]
+        times_en = times[:,:,:self.args.cond_len]
+        timeseries_de = timeseries[:,:,self.args.cond_len:]
+        times_de = times[:,:,self.args.cond_len:]
         #Encoder dataloader
         series_list_observed, timeseries_observed, times_observed = self.split_data(timeseries_en, times_en)
         if self.mode == "interp":
@@ -150,17 +114,13 @@ class ParseData(object):
         self.args.std = np.mean([timeseries_observed[i,:,0,:].std() for i in range(self.num_graph)])
         
         print('Decoder feature: (#seq, #nodes, #pred_timestep, #feat) =', timeseries_de.shape)
-
         print('Encoder time: (#seq, #nodes, #obs_timestep) =', times_observed.shape)
         print('Decoder time: (#seq, #nodes, #pred_timestep) =', times_de.shape)
-
         print('edges: (#seq, #nodes, #nodes) =', edges.shape, '\n')
          
-       
         encoder_data_loader, graph_data_loader = self.transfer_data(timeseries_observed, edges,
                                                                     times_observed, time_begin=time_begin)
-
-
+ 
         # Graph Dataloader --USING NRI
         edges = np.reshape(edges, [-1, self.num_atoms ** 2])
         edges = np.array((edges + 1) / 2, dtype=np.int64)
@@ -171,9 +131,8 @@ class ParseData(object):
             [self.num_atoms, self.num_atoms])
 
         edges = edges[:, off_diag_idx]
-        graph_data_loader = Loader(edges, batch_size=self.batch_size)
-
-
+        graph_data_loader = Loader(edges, batch_size=self.batch_size) 
+ 
         # Decoder Dataloader
         if self.mode=="interp":
             series_list_de = series_list_observed
@@ -182,71 +141,15 @@ class ParseData(object):
         decoder_data_loader = Loader(series_list_de, batch_size=self.batch_size * self.num_atoms, shuffle=False,
                                      collate_fn=lambda batch: self.variable_time_collate_fn_activity(
                                          batch))  # num_graph*num_ball [tt,vals,masks]
-
-
+ 
         num_batch = len(decoder_data_loader)
         encoder_data_loader = utils.inf_generator(encoder_data_loader)
         graph_data_loader = utils.inf_generator(graph_data_loader)
         decoder_data_loader = utils.inf_generator(decoder_data_loader)
          
-        return encoder_data_loader, decoder_data_loader, graph_data_loader, num_batch
+        return encoder_data_loader, decoder_data_loader, graph_data_loader, num_batch, original_max , original_min 
  
-
-    def interp_extrap(self,timeseries,times,mode,data_type): 
-        #timeseries_observed = np.ones_like(timeseries)
-        # times_observed = np.ones_like(times)
-        n_seq, n_node, total_time, n_feat = timeseries.shape  
-        
-        timeseries_observed = np.ones((n_seq, n_node, total_time-self.num_pre, n_feat)) 
-        times_observed = np.ones((n_seq, n_node, total_time-self.num_pre))
-        if mode =="interp":
-            if data_type== "test":
-                # get ride of the extra nodes in testing data.
-                for i in range(self.num_graph):
-                    for j in range(self.num_atoms): 
-                        timeseries_observed[i][j] = timeseries[i][j][:-self.num_pre]
-                        times_observed[i][j] = times[i][j][:-self.num_pre]
-
-                return timeseries_observed,times_observed/self.total_step
-            else:
-                return timeseries,times/self.total_step
  
-        elif mode == "extrap":# split into 2 parts and normalize t seperately 
-            timeseries_observed = np.ones_like(timeseries)
-            times_observed = np.ones_like(times)
-
-            timeseries_extrap = np.ones_like(timeseries) 
-            times_extrap = np.ones_like(times)
-
-            if data_type == "test":
-                for i in range(self.num_graph):
-                    for j in range(self.num_atoms): 
-                        timeseries_observed[i][j] = timeseries[i][j][:-self.num_pre]
-                        times_observed[i][j] = times[i][j][:-self.num_pre]
-
-                        timeseries_extrap[i][j] = timeseries[i][j][-self.num_pre:] 
-                        times_extrap[i][j] = times[i][j][-self.num_pre:]
-                times_observed = times_observed/self.total_step
-                times_extrap = (times_extrap - self.total_step)/self.total_step
-            else:
-                for i in range(self.num_graph):
-                    for j in range(self.num_atoms):
-                        times_current = times[i][j]
-                        times_current_mask = np.where(times_current<self.total_step//2,times_current,0)
-                        num_observe_current = np.argmax(times_current_mask)+1
- 
-                        timeseries_observed[i][j] = timeseries[i][j][:num_observe_current]
-                        times_observed[i][j] = times[i][j][:num_observe_current]
- 
-                        timeseries_extrap[i][j] = timeseries[i][j][num_observe_current:]
-                        times_extrap[i][j] = times[i][j][num_observe_current:]
-
-                times_observed = times_observed / self.total_step
-                times_extrap = (times_extrap - self.total_step//2) / self.total_step
-
-            return timeseries, times_observed,timeseries_extrap ,times_extrap
-
-
     def split_data(self,timeseries,times):
         # timeseries_observed = np.ones_like(timeseries) 
         # times_observed = np.ones_like(times)
@@ -260,8 +163,8 @@ class ParseData(object):
 
         for i in range(self.num_graph):
             for j in range(self.num_atoms):
-                timeseries_list.append(timeseries[i][j][1:])  # [2500] num_train * num_ball 
-                times_list.append(times[i][j][1:])
+                timeseries_list.append(timeseries[i][j]  )  # [2500] num_train * num_ball 
+                times_list.append(times[i][j]  )
 
  
         series_list = []
@@ -270,7 +173,7 @@ class ParseData(object):
             # for encoder data
             graph_index = i // self.num_atoms
             atom_index = i % self.num_atoms
-            length = len(loc_series)
+            length = len(loc_series) 
             preserved_idx = sorted(
                 np.random.choice(np.arange(length), int(length * self.sample_percent), replace=False))
             timeseries_observed[graph_index][atom_index] = loc_series[preserved_idx] 

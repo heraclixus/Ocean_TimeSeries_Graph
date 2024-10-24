@@ -1,4 +1,4 @@
-from lib.likelihood_eval import *
+from lgode.lib.likelihood_eval import *
 from torch.distributions.normal import Normal
 from torch.distributions import kl_divergence
 import torch.nn as nn
@@ -58,9 +58,7 @@ class VAE_Baseline(nn.Module):
 
 		pred_y, info,temporal_weights= self.get_reconstruction(batch_dict_encoder,batch_dict_decoder,batch_dict_graph,n_traj_samples = n_traj_samples)
 		# pred_y shape [n_traj_samples, n_traj, n_tp, n_dim]
-
-
-
+		 
 		#print("get_reconstruction done -- computing likelihood")
 		fp_mu, fp_std, fp_enc = info["first_point"]
 		fp_std = fp_std.abs()
@@ -91,16 +89,13 @@ class VAE_Baseline(nn.Module):
 		mse = self.get_mse(
 			batch_dict_decoder["data"], pred_y,
 			mask=batch_dict_decoder["mask"])  # [1]
-
-
+ 
 		# loss
 
 		loss = - torch.logsumexp(rec_likelihood -  kl_coef * kldiv_z0,0)
 		if torch.isnan(loss):
 			loss = - torch.mean(rec_likelihood - kl_coef * kldiv_z0,0)
-
-
-
+ 
 		results = {}
 		results["loss"] = torch.mean(loss)
 		results["likelihood"] = torch.mean(rec_likelihood).data.item()
@@ -108,12 +103,5 @@ class VAE_Baseline(nn.Module):
 		results["kl_first_p"] =  torch.mean(kldiv_z0).detach().data.item()
 		results["std_first_p"] = torch.mean(fp_std).detach().data.item()
 
-		return results
-
-
-
-
-
-
-
-
+		return results, pred_y.mean(0) 
+ 

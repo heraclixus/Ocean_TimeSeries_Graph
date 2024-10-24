@@ -6,7 +6,7 @@ from torch_geometric.nn import global_mean_pool
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.utils import softmax,add_remaining_self_loops
 import math
-import lib.utils as utils
+import lgode.lib.utils as utils
 
 
 class TemporalEncoding(nn.Module):

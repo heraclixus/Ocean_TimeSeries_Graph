@@ -183,7 +183,8 @@ def compute_loss_all_batches(model,
 	total["std_first_p"] = 0
 
 
-
+	total_pred_y = []
+	total_true_y = []
 	n_test_batches = 0
 
 	model.eval()
@@ -194,9 +195,10 @@ def compute_loss_all_batches(model,
 			batch_dict_graph = get_next_batch_new(graph, device)
 			batch_dict_decoder = get_next_batch(decoder, device)
 
-			results = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,
+			results, pred_y= model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,
 											   n_traj_samples=n_traj_samples, kl_coef=kl_coef)
-
+			total_pred_y.append(pred_y.detach().cpu().numpy())
+			total_true_y.append(batch_dict_decoder['data'].detach().cpu().numpy())
 			for key in total.keys():
 				if key in results:
 					var = results[key]
@@ -211,9 +213,8 @@ def compute_loss_all_batches(model,
 		if n_test_batches > 0:
 			for key, value in total.items():
 				total[key] = total[key] / n_test_batches
-
-
-	return total
+ 
+	return total, np.concatenate(total_true_y, axis=0), np.concatenate(total_pred_y, axis=0)
 
 
 

@@ -1,7 +1,7 @@
-from lib.gnn_models import GNN
-from lib.latent_ode import LatentGraphODE
-from lib.encoder_decoder import *
-from lib.diffeq_solver import DiffeqSolver,GraphODEFunc
+from lgode.lib.gnn_models import GNN
+from lgode.lib.latent_ode import LatentGraphODE
+from lgode.lib.encoder_decoder import *
+from lgode.lib.diffeq_solver import DiffeqSolver,GraphODEFunc
 
 
 

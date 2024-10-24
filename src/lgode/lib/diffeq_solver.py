@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torchdiffeq import odeint_adjoint as odeint
 import numpy as np
-import lib.utils as utils
+import lgode.lib.utils as utils
 
 
 
@@ -50,9 +50,7 @@ class DiffeqSolver(nn.Module):
         if time_steps_to_predict[0] != 0:
             ispadding = True
             time_steps_to_predict = torch.cat((torch.zeros(1,device=time_steps_to_predict.device),time_steps_to_predict))
-
-
-
+ 
         n_traj_samples, n_traj,feature = first_point.size()[0], first_point.size()[1],first_point.size()[2]
         first_point_augumented = first_point.view(-1,self.num_atoms,feature) #[n_sample*b, n_ball,d]
         if self.args.augment_dim > 0:

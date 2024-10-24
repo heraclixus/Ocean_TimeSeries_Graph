@@ -1,4 +1,4 @@
-from lib.likelihood_eval import *
+from lgode.lib.likelihood_eval import *
 import torch
 
 

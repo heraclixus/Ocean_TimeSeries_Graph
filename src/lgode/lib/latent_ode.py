@@ -1,5 +1,5 @@
-from lib.base_models import VAE_Baseline
-import lib.utils as utils
+from lgode.lib.base_models import VAE_Baseline
+import lgode.lib.utils as utils
 import torch
 
 class LatentGraphODE(VAE_Baseline):
