@@ -35,26 +35,20 @@ matrix.style.background_gradient()
 
 import pandas as pd
 
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import r2_score
 
+print(data.columns)
+# X = data.drop("nina1", "nina3", "nina34", "nina4") 
+# y = data['y']  
 
-X = data[['X1', 'X2', 'X3']]  # Input features (multiple columns)
-y = data['y']  # Target output (one column)
+# model = LinearRegression()
+# model.fit(X, y)
 
+# y_pred = model.predict(X)
 
+# # Evaluate the model
+# mse = mean_squared_error(y_test, y_pred)
+# r2 = r2_score(y_test, y_pred)
 
-# Initialize the Linear Regression model
-model = LinearRegression()
-
-# Train the model on the training data
-model.fit(X_train, y_train)
-
-# Make predictions on the test data
-y_pred = model.predict(X_test)
-
-# Evaluate the model
-mse = mean_squared_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
-
-print(f"Mean Squared Error: {mse}")
-print(f"R² Score: {r2}")
+# print(f"Mean Squared Error: {mse}")
+# print(f"R² Score: {r2}")
