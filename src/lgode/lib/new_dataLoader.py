@@ -6,11 +6,30 @@ import scipy.sparse as sp
 from tqdm import tqdm
 import lgode.lib.utils as utils
 from torch.nn.utils.rnn import pad_sequence
+import pandas as pd
+
+"""
+['pna', 'pacwarmpool', 'pacwarm', 'qbo', 'amon', 'ea', 
+'nina1', 'wp', 'nao', 'soi', 'ammsst', 'nina3', 'tsa', 
+'nina4', 'gmsst', 'tna', 'whwp', 'epo', 'solar', 'nina34', 
+'tni', 'noi']
+"""
+category_1_features = ["nina1", "nina3", "nina34", "nina4"]
+category_2_features = category_1_features + ["pacwarm", 'soi', "tni", "whwp"]
+category_3_features = category_2_features + ["ammsst", "tna", "tsa", 'amon']
+category_4_features = category_3_features + ["ea", "epo", "nao", "pna", "wp"]
+category_5_features = category_4_features + ["qbo", "solar"]
+
  
 def normalize(series, original_max, original_min):
     return (series - original_min) / (original_max - original_min)
 def inverse_normalize(scaled_series, original_max, original_min):
     return scaled_series * (original_max-original_min) + original_min
+
+# def normalize(series, original_max, original_min):
+#     return (series - original_max) / original_min
+# def inverse_normalize(scaled_series, original_max, original_min):
+#     return scaled_series * original_min + original_max
 
  
 class ParseData(object):
@@ -24,11 +43,12 @@ class ParseData(object):
         self.total_step = args.total_ode_step
         self.cutting_edge = args.cutting_edge
         self.num_pre = args.pred_len
-
+        self.args = args
         self.max_loc = None
         self.min_loc = None
         self.max_vel = None
         self.min_vel = None
+        self.feature_set = self.args.feature_set
 
         torch.manual_seed(self.random_seed)
         np.random.seed(self.random_seed)
@@ -45,11 +65,30 @@ class ParseData(object):
         edges = []
         time_obs = [] # observed timestamps (required for LGODE)
 
-        data = np.loadtxt(f"../data/indices_ocean_19_timeseries.csv", delimiter=',', dtype=str, skiprows=1)
+        # ../data/indices_ocean_19_timeseries.csv
+        data_np = np.loadtxt(self.args.input_file, delimiter=',', dtype=str, skiprows=1)
+        data = pd.read_csv(self.args.input_file)
+
+        if self.args.feature_set == 1:
+            data = data[category_1_features].to_numpy()
+            self.features = category_1_features
+        elif self.args.feature_set == 2:
+            data = data[category_2_features].to_numpy()
+            self.features = category_2_features
+        elif self.args.feature_set == 3:
+            data = data[category_3_features].to_numpy()
+            self.features = category_3_features
+        elif self.args.feature_set == 4:
+            data = data[category_4_features].to_numpy()
+            self.features = category_4_features
+        else:
+            data =data[category_5_features].to_numpy() 
+            self.features = category_5_features
         
-        year_month = data[:, 0]                 
-        X = data[:, 1:].astype(float) # T x N  
-         
+        self.nino_feature_index = self.features.index("nina34")
+
+        year_month = data_np[:, 0]                
+        X = data
         ###### Split train and test 
         for i in range(len(year_month)):
             if int(year_month[i][:4]) == 2010:
@@ -62,6 +101,7 @@ class ParseData(object):
         
         if self.args.test == 1:
             X = X[:72]
+        
         T, N = X.shape
         ###### Chunk into shorter time series 
         seq_len = self.args.cond_len + self.args.pred_len  
@@ -80,7 +120,7 @@ class ParseData(object):
         
         original_max =  np.max(time_series, 2, keepdims=True)
         original_min =  np.min(time_series, 2, keepdims=True) 
-        
+
         time_series = normalize(time_series, original_max, original_min)
         print('\ntime series max min', np.max(time_series), np.min(time_series)) 
         return time_series, edges, time_obs, original_max, original_min
@@ -149,7 +189,7 @@ class ParseData(object):
         graph_data_loader = utils.inf_generator(graph_data_loader)
         decoder_data_loader = utils.inf_generator(decoder_data_loader)
          
-        return encoder_data_loader, decoder_data_loader, graph_data_loader, num_batch, original_max , original_min 
+        return encoder_data_loader, decoder_data_loader, graph_data_loader, num_batch, original_max , original_min
  
  
     def split_data(self,timeseries,times):
