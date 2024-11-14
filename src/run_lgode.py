@@ -107,15 +107,15 @@ if __name__ == '__main__':
     ############ Loading Data
     print("Loading dataset: " + args.dataset)
     dataloader = ParseData(args.dataset,suffix=args.suffix,mode=args.mode, args =args)
-    test_encoder, test_decoder, test_graph, test_batch, test_original_mean, test_original_std = dataloader.load_data(sample_percent=args.sample_percent_test,
+    test_encoder, test_decoder, test_graph, test_batch, train_original_max, train_original_min = dataloader.load_data(sample_percent=args.sample_percent_test,
                                                                               batch_size=args.batch_size,
                                                                               data_type="test")
-    train_encoder,train_decoder, train_graph,train_batch, train_original_mean, train_original_std = dataloader.load_data(sample_percent=args.sample_percent_train,batch_size=args.batch_size,data_type="train")
+    train_encoder,train_decoder, train_graph,train_batch, train_original_max, train_original_min = dataloader.load_data(sample_percent=args.sample_percent_train,batch_size=args.batch_size,data_type="train")
      
-    train_original_mean = train_original_mean.reshape(-1,1,1)
-    train_original_std = train_original_std.reshape(-1,1,1)
-    test_original_mean = test_original_mean.reshape(-1,1,1)
-    test_original_std = test_original_std.reshape(-1,1,1)
+    train_original_max = train_original_max.reshape(-1,1,1)
+    train_original_min = train_original_min.reshape(-1,1,1)
+    train_original_max = train_original_max.reshape(-1,1,1)
+    train_original_min = train_original_min.reshape(-1,1,1)
 
 
     input_dim = dataloader.feature
@@ -238,8 +238,8 @@ if __name__ == '__main__':
         train_true_y, train_pred_y = np.concatenate(total_true_y, axis=0), np.concatenate(total_pred_y, axis=0)
 
         # n_seq x N x T
-        true = inverse_normalize(train_true_y, train_original_mean, train_original_std)
-        pred = inverse_normalize(train_pred_y, train_original_mean, train_original_std)
+        true = inverse_normalize(train_true_y, train_original_max, train_original_min)
+        pred = inverse_normalize(train_pred_y, train_original_max, train_original_min)
         #true = train_true_y 
         #pred = train_pred_y 
 
@@ -257,10 +257,10 @@ if __name__ == '__main__':
 
         return message_train, kl_coef, true, pred, [rmse]
     
-    np.save(f"results/{args.save_name}/test_original_mean.npy", test_original_mean)
-    np.save(f"results/{args.save_name}/test_original_std.npy", test_original_std)
-    np.save(f"results/{args.save_name}/train_original_mean.npy", train_original_mean)
-    np.save(f"results/{args.save_name}/train_original_std.npy", train_original_std)
+    np.save(f"results/{args.save_name}/train_original_max.npy", train_original_max)
+    np.save(f"results/{args.save_name}/train_original_min.npy", train_original_min)
+    np.save(f"results/{args.save_name}/train_original_max.npy", train_original_max)
+    np.save(f"results/{args.save_name}/train_original_min.npy", train_original_min)
 
 
 
@@ -279,8 +279,8 @@ if __name__ == '__main__':
                                                 n_batches=test_batch, device=device,
                                                 n_traj_samples=3, kl_coef=kl_coef)
             
-            test_true = inverse_normalize(test_true_y, test_original_mean, test_original_std)
-            test_pred = inverse_normalize(test_pred_y, test_original_mean, test_original_std)
+            test_true = inverse_normalize(test_true_y, train_original_max, train_original_min)
+            test_pred = inverse_normalize(test_pred_y, train_original_max, train_original_min)
             rmse_nino = np.sqrt(np.mean(np.square(test_true[:,nino_col,:]-test_pred[:, nino_col,:]), axis=-1)).mean()
             rmse = np.sqrt( np.mean( np.square(test_true - test_pred), axis=2 ) ).mean(1).mean()
             mape = np.mean(np.abs( (test_true[:,nino_col,:]-test_pred[:, nino_col,:]) / test_true[:,nino_col,:] ), axis=-1).mean()
