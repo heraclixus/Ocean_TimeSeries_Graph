@@ -151,10 +151,10 @@ if __name__ == '__main__':
     now = datetime.datetime.now()
     date = str(now) # str(uuid.uuid4())
      
-    log_path = f"results/{date}_{args.save_name}/output.log"
+    log_path = f"results/{args.save_name}/output.log"
 
-    if not os.path.exists(f"results/{date}_{args.save_name}"):
-        utils.makedirs(f"results/{date}_{args.save_name}")
+    if not os.path.exists(f"results/{args.save_name}"):
+        utils.makedirs(f"results/{args.save_name}")
     logger = utils.get_logger(logpath=log_path, filepath=os.path.abspath(__file__))
     logger.info(input_command)
     logger.info(str(args)) 
@@ -257,10 +257,10 @@ if __name__ == '__main__':
 
         return message_train, kl_coef, true, pred, [rmse]
     
-    np.save(f"results/{date}_{args.save_name}/test_original_mean.npy", test_original_mean)
-    np.save(f"results/{date}_{args.save_name}/test_original_std.npy", test_original_std)
-    np.save(f"results/{date}_{args.save_name}/train_original_mean.npy", train_original_mean)
-    np.save(f"results/{date}_{args.save_name}/train_original_std.npy", train_original_std)
+    np.save(f"results/{args.save_name}/test_original_mean.npy", test_original_mean)
+    np.save(f"results/{args.save_name}/test_original_std.npy", test_original_std)
+    np.save(f"results/{args.save_name}/train_original_mean.npy", train_original_mean)
+    np.save(f"results/{args.save_name}/train_original_std.npy", train_original_std)
 
 
 
@@ -306,7 +306,7 @@ if __name__ == '__main__':
                 message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best mse {:.6f}|'.format(epo,
                                                                                                         best_test_mse)
                 logger.info(message_best)
-                ckpt_path = os.path.join(f"results/{date}_{args.save_name}/model.ckpt")
+                ckpt_path = os.path.join(f"results/{args.save_name}/model.ckpt")
                 torch.save({
                     'args': args,
                     'state_dict': model.state_dict(),
@@ -315,10 +315,10 @@ if __name__ == '__main__':
                 # reset patience
                 cumulative_patience = 0 
 
-                np.save(f"results/{date}_{args.save_name}/test_pred.npy", test_pred)
-                np.save(f"results/{date}_{args.save_name}/test_true.npy", test_true)
-                np.save(f"results/{date}_{args.save_name}/train_pred.npy", train_pred_y)
-                np.save(f"results/{date}_{args.save_name}/train_true.npy", train_true_y)
+                np.save(f"results/{args.save_name}/test_pred.npy", test_pred)
+                np.save(f"results/{args.save_name}/test_true.npy", test_true)
+                np.save(f"results/{args.save_name}/train_pred.npy", train_pred_y)
+                np.save(f"results/{args.save_name}/train_true.npy", train_true_y)
 
             cumulative_patience += 1 
             if cumulative_patience >= args.patience:

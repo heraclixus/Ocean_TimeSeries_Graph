@@ -1,3 +1,4 @@
 *__pycache__*
 src/*.txt
-src/results/*
+src/results/*/*.npy
+src/results/*/*.ckpt

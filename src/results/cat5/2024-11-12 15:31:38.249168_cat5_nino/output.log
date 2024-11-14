@@ -1,0 +1,374 @@
+/local2/fredxu/Ocean_TimeSeries_Graph/src/run_lgode.py
+run_lgode.py --feature_set=5 --save_name=cat5_nino --eval_criterion=nino
+Namespace(n_balls=19, niters=100000, lr=5e-05, batch_size=64, save='experiments/', load=None, random_seed=1991, data='ocean', z0_encoder='GTrans', latents=32, rec_dims=64, ode_dims=128, rec_layers=2, n_heads=1, gen_layers=1, extrap='True', dropout=0.2, sample_percent_train=1, sample_percent_test=1, augment_dim=64, edge_types=2, odenet='NRI', solver='rk4', l2=0.0001, optimizer='AdamW', clip=10, cutting_edge=True, extrap_num=40, rec_attention='attention', cond_len=12, pred_len=24, test=0, patience=100, save_name='cat5_nino', input_file='../data/ocean_timeseries.csv', eval_criterion='nino', train_loss='all', feature_set=5, dataset='../data/ocean_timeseries.csv', total_ode_step=73, suffix='', mode='extrap', std=0.2845036602952383)
+Epoch 0001 [Train seq (cond on sampled tp)] | Loss 21.315783 | RMSE_NINO 35.466304  | RMSE 67.545825 | MAPE: 125627.819501 | Likelihood -22.614072 | KL fp 0.8014 | FP STD 0.4644|
+Epoch 0001 [Test seq (cond on sampled tp)] | Loss 13.356520 | RMSE 17.220789 | RMSE 38.639785 | MAPE: 279092.119950 | Likelihood -14.508021 | KL fp 1.0085 | FP STD 0.3564|
+KL coef: 0.0
+Epoch 0001 [Test seq (cond on sampled tp)] | Best mse 17.220789|
+Epoch 0002 [Train seq (cond on sampled tp)] | Loss 6.714605 | RMSE_NINO 24.227565  | RMSE 35.848474 | MAPE: 107932.165425 | Likelihood -7.838714 | KL fp 0.8261 | FP STD 0.4560|
+Epoch 0002 [Test seq (cond on sampled tp)] | Loss 3.543225 | RMSE 16.139695 | RMSE 19.111020 | MAPE: 144931.429516 | Likelihood -4.658570 | KL fp 1.0413 | FP STD 0.3394|
+KL coef: 0.0
+Epoch 0002 [Test seq (cond on sampled tp)] | Best mse 16.139695|
+Epoch 0003 [Train seq (cond on sampled tp)] | Loss 3.048169 | RMSE_NINO 20.137964  | RMSE 25.777866 | MAPE: 143335.512961 | Likelihood -4.153326 | KL fp 0.8753 | FP STD 0.4353|
+Epoch 0003 [Test seq (cond on sampled tp)] | Loss 1.259621 | RMSE 14.927167 | RMSE 15.461461 | MAPE: 178704.641978 | Likelihood -2.362749 | KL fp 1.0788 | FP STD 0.3209|
+KL coef: 0.0
+Epoch 0003 [Test seq (cond on sampled tp)] | Best mse 14.927167|
+Epoch 0004 [Train seq (cond on sampled tp)] | Loss 1.486603 | RMSE_NINO 19.940250  | RMSE 22.433109 | MAPE: 87629.499682 | Likelihood -2.587295 | KL fp 0.9399 | FP STD 0.4088|
+Epoch 0004 [Test seq (cond on sampled tp)] | Loss 0.607550 | RMSE 13.443057 | RMSE 13.644079 | MAPE: 169874.224836 | Likelihood -1.706390 | KL fp 1.2093 | FP STD 0.2914|
+KL coef: 0.0
+Epoch 0004 [Test seq (cond on sampled tp)] | Best mse 13.443057|
+Epoch 0005 [Train seq (cond on sampled tp)] | Loss 0.775244 | RMSE_NINO 18.579548  | RMSE 20.245250 | MAPE: 75849.866341 | Likelihood -1.874482 | KL fp 1.0315 | FP STD 0.3695|
+Epoch 0005 [Test seq (cond on sampled tp)] | Loss 0.434973 | RMSE 11.981987 | RMSE 13.668870 | MAPE: 188672.613398 | Likelihood -1.534014 | KL fp 1.3737 | FP STD 0.2508|
+KL coef: 0.0
+Epoch 0005 [Test seq (cond on sampled tp)] | Best mse 11.981987|
+Epoch 0006 [Train seq (cond on sampled tp)] | Loss 0.442344 | RMSE_NINO 18.471585  | RMSE 19.383260 | MAPE: 97301.230038 | Likelihood -1.541520 | KL fp 1.1331 | FP STD 0.3266|
+Epoch 0006 [Test seq (cond on sampled tp)] | Loss 0.277028 | RMSE 11.639359 | RMSE 12.966680 | MAPE: 158770.042675 | Likelihood -1.375839 | KL fp 1.4866 | FP STD 0.2171|
+KL coef: 0.0
+Epoch 0006 [Test seq (cond on sampled tp)] | Best mse 11.639359|
+Epoch 0007 [Train seq (cond on sampled tp)] | Loss 0.273382 | RMSE_NINO 17.785007  | RMSE 19.094439 | MAPE: 45865.128477 | Likelihood -1.372260 | KL fp 1.2183 | FP STD 0.2936|
+Epoch 0007 [Test seq (cond on sampled tp)] | Loss 0.186171 | RMSE 12.185576 | RMSE 13.099874 | MAPE: 206132.740803 | Likelihood -1.284817 | KL fp 1.5664 | FP STD 0.1944|
+KL coef: 0.0
+Epoch 0008 [Train seq (cond on sampled tp)] | Loss 0.170212 | RMSE_NINO 17.192818  | RMSE 18.463154 | MAPE: 52305.968489 | Likelihood -1.269306 | KL fp 1.2916 | FP STD 0.2689|
+Epoch 0008 [Test seq (cond on sampled tp)] | Loss 0.067737 | RMSE 11.372469 | RMSE 12.536911 | MAPE: 132411.451533 | Likelihood -1.166390 | KL fp 1.6523 | FP STD 0.1783|
+KL coef: 0.0
+Epoch 0008 [Test seq (cond on sampled tp)] | Best mse 11.372469|
+Epoch 0009 [Train seq (cond on sampled tp)] | Loss 0.105345 | RMSE_NINO 16.780615  | RMSE 18.236859 | MAPE: 47087.939190 | Likelihood -1.204247 | KL fp 1.3466 | FP STD 0.2521|
+Epoch 0009 [Test seq (cond on sampled tp)] | Loss 0.017305 | RMSE 10.849694 | RMSE 12.271588 | MAPE: 176548.248443 | Likelihood -1.116090 | KL fp 1.7197 | FP STD 0.1671|
+KL coef: 0.0
+Epoch 0009 [Test seq (cond on sampled tp)] | Best mse 10.849694|
+Epoch 0010 [Train seq (cond on sampled tp)] | Loss 0.057042 | RMSE_NINO 17.092904  | RMSE 17.924101 | MAPE: 67009.960482 | Likelihood -1.155991 | KL fp 1.3997 | FP STD 0.2379|
+Epoch 0010 [Test seq (cond on sampled tp)] | Loss -0.108100 | RMSE 10.868431 | RMSE 11.665251 | MAPE: 90229.115913 | Likelihood -0.990720 | KL fp 1.7959 | FP STD 0.1562|
+KL coef: 0.0
+Epoch 0011 [Train seq (cond on sampled tp)] | Loss 0.014046 | RMSE_NINO 17.390833  | RMSE 17.833875 | MAPE: 49232.704024 | Likelihood -1.112932 | KL fp 1.4487 | FP STD 0.2250|
+Epoch 0011 [Test seq (cond on sampled tp)] | Loss -0.072854 | RMSE 10.969253 | RMSE 11.972270 | MAPE: 152668.518454 | Likelihood -1.025802 | KL fp 1.8685 | FP STD 0.1472|
+KL coef: 0.0
+Epoch 0012 [Train seq (cond on sampled tp)] | Loss -0.007834 | RMSE_NINO 16.565105  | RMSE 17.879120 | MAPE: 54757.376335 | Likelihood -1.091141 | KL fp 1.4961 | FP STD 0.2140|
+Epoch 0012 [Test seq (cond on sampled tp)] | Loss -0.001946 | RMSE 10.697212 | RMSE 12.363342 | MAPE: 120476.060324 | Likelihood -1.096799 | KL fp 1.9472 | FP STD 0.1396|
+KL coef: 0.0
+Epoch 0012 [Test seq (cond on sampled tp)] | Best mse 10.697212|
+Epoch 0013 [Train seq (cond on sampled tp)] | Loss -0.038327 | RMSE_NINO 16.937096  | RMSE 17.635035 | MAPE: 51952.377878 | Likelihood -1.060457 | KL fp 1.5378 | FP STD 0.2054|
+Epoch 0013 [Test seq (cond on sampled tp)] | Loss 0.015032 | RMSE 11.244674 | RMSE 12.547485 | MAPE: 114336.155924 | Likelihood -1.113655 | KL fp 2.0354 | FP STD 0.1335|
+KL coef: 0.0
+Epoch 0014 [Train seq (cond on sampled tp)] | Loss -0.062070 | RMSE_NINO 17.340355  | RMSE 17.622412 | MAPE: 48554.484117 | Likelihood -1.036614 | KL fp 1.5777 | FP STD 0.1975|
+Epoch 0014 [Test seq (cond on sampled tp)] | Loss -0.277849 | RMSE 10.983973 | RMSE 11.557303 | MAPE: 148292.071374 | Likelihood -0.820839 | KL fp 2.0462 | FP STD 0.1281|
+KL coef: 0.0
+Epoch 0015 [Train seq (cond on sampled tp)] | Loss -0.078190 | RMSE_NINO 17.619894  | RMSE 17.910273 | MAPE: 60040.015590 | Likelihood -1.020516 | KL fp 1.6131 | FP STD 0.1907|
+Epoch 0015 [Test seq (cond on sampled tp)] | Loss -0.305381 | RMSE 11.110790 | RMSE 11.518719 | MAPE: 118890.643264 | Likelihood -0.793255 | KL fp 2.0883 | FP STD 0.1225|
+KL coef: 0.0
+Epoch 0016 [Train seq (cond on sampled tp)] | Loss -0.090749 | RMSE_NINO 17.660034  | RMSE 17.767986 | MAPE: 36151.787028 | Likelihood -1.007994 | KL fp 1.6484 | FP STD 0.1838|
+Epoch 0016 [Test seq (cond on sampled tp)] | Loss -0.276347 | RMSE 10.530892 | RMSE 11.383509 | MAPE: 116112.938661 | Likelihood -0.822282 | KL fp 2.1265 | FP STD 0.1170|
+KL coef: 0.0
+Epoch 0016 [Test seq (cond on sampled tp)] | Best mse 10.530892|
+Epoch 0017 [Train seq (cond on sampled tp)] | Loss -0.091629 | RMSE_NINO 17.837401  | RMSE 18.127559 | MAPE: 60062.836131 | Likelihood -1.007093 | KL fp 1.6888 | FP STD 0.1770|
+Epoch 0017 [Test seq (cond on sampled tp)] | Loss -0.156735 | RMSE 10.619193 | RMSE 11.702580 | MAPE: 166154.836957 | Likelihood -0.942023 | KL fp 2.1604 | FP STD 0.1126|
+KL coef: 0.0
+Epoch 0018 [Train seq (cond on sampled tp)] | Loss -0.079745 | RMSE_NINO 17.308395  | RMSE 17.520459 | MAPE: 50159.655381 | Likelihood -1.019048 | KL fp 1.7183 | FP STD 0.1718|
+Epoch 0018 [Test seq (cond on sampled tp)] | Loss -0.400741 | RMSE 10.792317 | RMSE 11.408397 | MAPE: 131386.046116 | Likelihood -0.697873 | KL fp 2.1924 | FP STD 0.1086|
+KL coef: 0.0
+Epoch 0019 [Train seq (cond on sampled tp)] | Loss -0.057811 | RMSE_NINO 18.141482  | RMSE 17.855753 | MAPE: 96840.017647 | Likelihood -1.040940 | KL fp 1.7502 | FP STD 0.1661|
+Epoch 0019 [Test seq (cond on sampled tp)] | Loss -0.271849 | RMSE 10.806590 | RMSE 11.447842 | MAPE: 133438.834435 | Likelihood -0.826799 | KL fp 2.2213 | FP STD 0.1052|
+KL coef: 0.0
+Epoch 0020 [Train seq (cond on sampled tp)] | Loss -0.045603 | RMSE_NINO 17.708863  | RMSE 17.730762 | MAPE: 60366.173640 | Likelihood -1.053227 | KL fp 1.7745 | FP STD 0.1620|
+Epoch 0020 [Test seq (cond on sampled tp)] | Loss -0.419008 | RMSE 11.213000 | RMSE 11.709341 | MAPE: 115340.521850 | Likelihood -0.679632 | KL fp 2.2408 | FP STD 0.1028|
+KL coef: 0.0
+Epoch 0021 [Train seq (cond on sampled tp)] | Loss -0.019070 | RMSE_NINO 17.722423  | RMSE 17.689648 | MAPE: 33455.431696 | Likelihood -1.079751 | KL fp 1.7948 | FP STD 0.1586|
+Epoch 0021 [Test seq (cond on sampled tp)] | Loss -0.272658 | RMSE 10.387420 | RMSE 11.410469 | MAPE: 140572.242271 | Likelihood -0.826016 | KL fp 2.2570 | FP STD 0.1006|
+KL coef: 0.0
+Epoch 0021 [Test seq (cond on sampled tp)] | Best mse 10.387420|
+Epoch 0022 [Train seq (cond on sampled tp)] | Loss 0.019717 | RMSE_NINO 17.868280  | RMSE 17.825552 | MAPE: 101028.259955 | Likelihood -1.118500 | KL fp 1.8132 | FP STD 0.1555|
+Epoch 0022 [Test seq (cond on sampled tp)] | Loss -0.469008 | RMSE 10.947886 | RMSE 12.418572 | MAPE: 146146.815719 | Likelihood -0.629632 | KL fp 2.2754 | FP STD 0.0982|
+KL coef: 0.0
+Epoch 0023 [Train seq (cond on sampled tp)] | Loss 0.106610 | RMSE_NINO 17.931073  | RMSE 18.112003 | MAPE: 42187.968840 | Likelihood -1.205417 | KL fp 1.8315 | FP STD 0.1522|
+Epoch 0023 [Test seq (cond on sampled tp)] | Loss -0.453520 | RMSE 11.000760 | RMSE 11.909386 | MAPE: 114453.150671 | Likelihood -0.645118 | KL fp 2.2902 | FP STD 0.0963|
+KL coef: 0.0
+Epoch 0024 [Train seq (cond on sampled tp)] | Loss 0.249761 | RMSE_NINO 18.978711  | RMSE 18.779324 | MAPE: 67404.067897 | Likelihood -1.348690 | KL fp 1.8525 | FP STD 0.1492|
+Epoch 0024 [Test seq (cond on sampled tp)] | Loss -0.261924 | RMSE 10.871938 | RMSE 11.735125 | MAPE: 153861.893740 | Likelihood -0.836731 | KL fp 2.3073 | FP STD 0.0945|
+KL coef: 0.0
+Epoch 0025 [Train seq (cond on sampled tp)] | Loss 0.460687 | RMSE_NINO 19.511700  | RMSE 19.306644 | MAPE: 86689.835323 | Likelihood -1.559627 | KL fp 1.8664 | FP STD 0.1470|
+Epoch 0025 [Test seq (cond on sampled tp)] | Loss -0.420467 | RMSE 11.111700 | RMSE 12.506551 | MAPE: 159689.390585 | Likelihood -0.678190 | KL fp 2.3190 | FP STD 0.0931|
+KL coef: 0.0
+Epoch 0026 [Train seq (cond on sampled tp)] | Loss 0.810106 | RMSE_NINO 22.494090  | RMSE 20.155388 | MAPE: 76506.656988 | Likelihood -1.909465 | KL fp 1.8793 | FP STD 0.1451|
+Epoch 0026 [Test seq (cond on sampled tp)] | Loss -0.290606 | RMSE 11.142856 | RMSE 11.782600 | MAPE: 174272.418099 | Likelihood -0.808085 | KL fp 2.3293 | FP STD 0.0922|
+KL coef: 0.0
+Epoch 0027 [Train seq (cond on sampled tp)] | Loss 1.302012 | RMSE_NINO 24.634340  | RMSE 21.335533 | MAPE: 69299.672820 | Likelihood -2.402470 | KL fp 1.8891 | FP STD 0.1439|
+Epoch 0027 [Test seq (cond on sampled tp)] | Loss -0.116219 | RMSE 12.647403 | RMSE 14.101280 | MAPE: 190677.545076 | Likelihood -0.982569 | KL fp 2.3408 | FP STD 0.0916|
+KL coef: 0.0
+Epoch 0028 [Train seq (cond on sampled tp)] | Loss 2.397251 | RMSE_NINO 28.287659  | RMSE 23.295219 | MAPE: 162700.334697 | Likelihood -3.499578 | KL fp 1.8914 | FP STD 0.1437|
+Epoch 0028 [Test seq (cond on sampled tp)] | Loss -0.008592 | RMSE 11.929904 | RMSE 13.701818 | MAPE: 160302.216224 | Likelihood -1.090159 | KL fp 2.3577 | FP STD 0.0913|
+KL coef: 0.0
+Epoch 0029 [Train seq (cond on sampled tp)] | Loss 4.184036 | RMSE_NINO 33.700293  | RMSE 27.237720 | MAPE: 202493.031918 | Likelihood -5.288838 | KL fp 1.8902 | FP STD 0.1436|
+Epoch 0029 [Test seq (cond on sampled tp)] | Loss 0.136854 | RMSE 11.823758 | RMSE 12.909075 | MAPE: 108823.373312 | Likelihood -1.237044 | KL fp 2.3775 | FP STD 0.0914|
+KL coef: 0.0
+Epoch 0030 [Train seq (cond on sampled tp)] | Loss 7.300492 | RMSE_NINO 43.643753  | RMSE 31.338977 | MAPE: 175753.748812 | Likelihood -8.433619 | KL fp 1.8861 | FP STD 0.1445|
+Epoch 0030 [Test seq (cond on sampled tp)] | Loss 0.336450 | RMSE 12.085660 | RMSE 13.697831 | MAPE: 180238.102972 | Likelihood -1.437774 | KL fp 2.3810 | FP STD 0.0919|
+KL coef: 0.0
+Epoch 0031 [Train seq (cond on sampled tp)] | Loss 13.012830 | RMSE_NINO 55.122144  | RMSE 38.904387 | MAPE: 128290.357117 | Likelihood -14.215203 | KL fp 1.8785 | FP STD 0.1456|
+Epoch 0031 [Test seq (cond on sampled tp)] | Loss 0.943838 | RMSE 12.349491 | RMSE 17.275724 | MAPE: 247544.815137 | Likelihood -2.053044 | KL fp 2.3806 | FP STD 0.0925|
+KL coef: 0.0
+Epoch 0032 [Train seq (cond on sampled tp)] | Loss 22.788918 | RMSE_NINO 70.194112  | RMSE 48.901897 | MAPE: 350324.963604 | Likelihood -24.149414 | KL fp 1.8693 | FP STD 0.1473|
+Epoch 0032 [Test seq (cond on sampled tp)] | Loss 1.562118 | RMSE 13.983953 | RMSE 18.396546 | MAPE: 184920.478100 | Likelihood -2.681259 | KL fp 2.3442 | FP STD 0.0933|
+KL coef: 0.0
+Epoch 0033 [Train seq (cond on sampled tp)] | Loss 38.017520 | RMSE_NINO 86.978112  | RMSE 60.813505 | MAPE: 257759.975770 | Likelihood -39.305599 | KL fp 1.8604 | FP STD 0.1488|
+Epoch 0033 [Test seq (cond on sampled tp)] | Loss 1.533181 | RMSE 18.070889 | RMSE 15.445485 | MAPE: 247110.886527 | Likelihood -2.689933 | KL fp 2.3223 | FP STD 0.0940|
+KL coef: 0.0
+Epoch 0034 [Train seq (cond on sampled tp)] | Loss 61.825938 | RMSE_NINO 107.436537  | RMSE 75.954339 | MAPE: 566075.502167 | Likelihood -63.601199 | KL fp 1.8529 | FP STD 0.1501|
+Epoch 0034 [Test seq (cond on sampled tp)] | Loss 2.400177 | RMSE 17.720245 | RMSE 15.654593 | MAPE: 98914.114432 | Likelihood -3.566296 | KL fp 2.3086 | FP STD 0.0947|
+KL coef: 0.0
+Epoch 0035 [Train seq (cond on sampled tp)] | Loss 100.731869 | RMSE_NINO 133.647793  | RMSE 94.958437 | MAPE: 954173.783615 | Likelihood -103.161093 | KL fp 1.8421 | FP STD 0.1517|
+Epoch 0035 [Test seq (cond on sampled tp)] | Loss 6.825701 | RMSE 18.703351 | RMSE 26.119168 | MAPE: 179553.071149 | Likelihood -8.028328 | KL fp 2.2987 | FP STD 0.0954|
+KL coef: 0.0
+Epoch 0036 [Train seq (cond on sampled tp)] | Loss 156.137953 | RMSE_NINO 169.726846  | RMSE 116.517725 | MAPE: 957628.818127 | Likelihood -161.207157 | KL fp 1.8377 | FP STD 0.1526|
+Epoch 0036 [Test seq (cond on sampled tp)] | Loss 8.882743 | RMSE 31.792661 | RMSE 22.416084 | MAPE: 242511.231103 | Likelihood -10.509749 | KL fp 2.2920 | FP STD 0.0960|
+KL coef: 0.0
+Epoch 0037 [Train seq (cond on sampled tp)] | Loss 246.595356 | RMSE_NINO 207.883566  | RMSE 144.158006 | MAPE: 923436.639086 | Likelihood -252.482744 | KL fp 1.8307 | FP STD 0.1539|
+Epoch 0037 [Test seq (cond on sampled tp)] | Loss 17.148640 | RMSE 45.590347 | RMSE 33.489348 | MAPE: 571298.321064 | Likelihood -19.332984 | KL fp 2.2881 | FP STD 0.0964|
+KL coef: 0.0
+Epoch 0038 [Train seq (cond on sampled tp)] | Loss 368.237643 | RMSE_NINO 267.115271  | RMSE 179.996837 | MAPE: 2124405.794856 | Likelihood -377.449707 | KL fp 1.8263 | FP STD 0.1547|
+Epoch 0038 [Test seq (cond on sampled tp)] | Loss 27.765071 | RMSE 59.245457 | RMSE 41.323864 | MAPE: 634715.229211 | Likelihood -29.954512 | KL fp 2.2854 | FP STD 0.0968|
+KL coef: 0.0
+Epoch 0039 [Train seq (cond on sampled tp)] | Loss 542.504211 | RMSE_NINO 301.754865  | RMSE 216.871540 | MAPE: 2008230.395698 | Likelihood -557.477525 | KL fp 1.8217 | FP STD 0.1554|
+Epoch 0039 [Test seq (cond on sampled tp)] | Loss 34.362801 | RMSE 56.675590 | RMSE 32.841045 | MAPE: 825966.029892 | Likelihood -39.482763 | KL fp 2.2833 | FP STD 0.0971|
+KL coef: 0.0
+Epoch 0040 [Train seq (cond on sampled tp)] | Loss 791.674827 | RMSE_NINO 377.206979  | RMSE 257.357375 | MAPE: 1442449.241971 | Likelihood -811.996205 | KL fp 1.8191 | FP STD 0.1559|
+Epoch 0040 [Test seq (cond on sampled tp)] | Loss 74.700150 | RMSE 82.482240 | RMSE 89.919389 | MAPE: 1228272.720043 | Likelihood -81.878254 | KL fp 2.2815 | FP STD 0.0973|
+KL coef: 0.0
+Epoch 0041 [Train seq (cond on sampled tp)] | Loss 1084.483570 | RMSE_NINO 458.005721  | RMSE 311.135966 | MAPE: 2624413.465785 | Likelihood -1117.432473 | KL fp 1.8165 | FP STD 0.1562|
+Epoch 0041 [Test seq (cond on sampled tp)] | Loss 78.407139 | RMSE 79.506964 | RMSE 80.812920 | MAPE: 533153.168629 | Likelihood -85.129086 | KL fp 2.2801 | FP STD 0.0975|
+KL coef: 0.0
+Epoch 0042 [Train seq (cond on sampled tp)] | Loss 1531.499878 | RMSE_NINO 491.359683  | RMSE 353.684113 | MAPE: 1307728.236596 | Likelihood -1578.688898 | KL fp 1.8152 | FP STD 0.1566|
+Epoch 0042 [Test seq (cond on sampled tp)] | Loss 162.437881 | RMSE 112.131396 | RMSE 151.584957 | MAPE: 1248045.799361 | Likelihood -182.786819 | KL fp 2.2791 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0043 [Train seq (cond on sampled tp)] | Loss 2132.355313 | RMSE_NINO 598.763925  | RMSE 413.819513 | MAPE: 2780990.884518 | Likelihood -2186.083330 | KL fp 1.8121 | FP STD 0.1569|
+Epoch 0043 [Test seq (cond on sampled tp)] | Loss 129.986244 | RMSE 94.374108 | RMSE 62.171780 | MAPE: 1402565.256645 | Likelihood -136.674721 | KL fp 2.2784 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0044 [Train seq (cond on sampled tp)] | Loss 2894.639604 | RMSE_NINO 709.046980  | RMSE 491.584264 | MAPE: 1926074.541478 | Likelihood -2958.779452 | KL fp 1.8115 | FP STD 0.1573|
+Epoch 0044 [Test seq (cond on sampled tp)] | Loss 196.491219 | RMSE 118.478900 | RMSE 106.208538 | MAPE: 1479175.166226 | Likelihood -229.590530 | KL fp 2.2775 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0045 [Train seq (cond on sampled tp)] | Loss 3841.319203 | RMSE_NINO 800.863943  | RMSE 554.097546 | MAPE: 3575504.263925 | Likelihood -3933.270685 | KL fp 1.8120 | FP STD 0.1571|
+Epoch 0045 [Test seq (cond on sampled tp)] | Loss 239.526848 | RMSE 86.398617 | RMSE 95.473289 | MAPE: 1439721.978321 | Likelihood -273.533035 | KL fp 2.2768 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0046 [Train seq (cond on sampled tp)] | Loss 5072.684615 | RMSE_NINO 890.001076  | RMSE 625.264182 | MAPE: 2122337.887090 | Likelihood -5209.789862 | KL fp 1.8111 | FP STD 0.1574|
+Epoch 0046 [Test seq (cond on sampled tp)] | Loss 344.288666 | RMSE 175.966005 | RMSE 133.339719 | MAPE: 1698359.674626 | Likelihood -381.678818 | KL fp 2.2760 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0047 [Train seq (cond on sampled tp)] | Loss 6536.044966 | RMSE_NINO 990.264758  | RMSE 700.921484 | MAPE: 3636383.187288 | Likelihood -6755.455655 | KL fp 1.8072 | FP STD 0.1576|
+Epoch 0047 [Test seq (cond on sampled tp)] | Loss 418.405579 | RMSE 156.371422 | RMSE 99.062377 | MAPE: 2211806.803786 | Likelihood -500.275009 | KL fp 2.2754 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0048 [Train seq (cond on sampled tp)] | Loss 8515.008922 | RMSE_NINO 1175.134128  | RMSE 816.911747 | MAPE: 6038633.497891 | Likelihood -8793.255948 | KL fp 1.8089 | FP STD 0.1578|
+Epoch 0048 [Test seq (cond on sampled tp)] | Loss 603.901398 | RMSE 161.588996 | RMSE 113.429442 | MAPE: 1679648.008659 | Likelihood -654.109680 | KL fp 2.2751 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0049 [Train seq (cond on sampled tp)] | Loss 10925.969904 | RMSE_NINO 1301.107100  | RMSE 913.293996 | MAPE: 4781124.091508 | Likelihood -11339.735707 | KL fp 1.8102 | FP STD 0.1576|
+Epoch 0049 [Test seq (cond on sampled tp)] | Loss 711.637909 | RMSE 199.654733 | RMSE 137.240521 | MAPE: 2079079.755156 | Likelihood -780.354523 | KL fp 2.2751 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0050 [Train seq (cond on sampled tp)] | Loss 14184.665039 | RMSE_NINO 1457.660436  | RMSE 1015.396143 | MAPE: 3301196.122103 | Likelihood -14507.499734 | KL fp 1.8096 | FP STD 0.1576|
+Epoch 0050 [Test seq (cond on sampled tp)] | Loss 899.061371 | RMSE 182.624940 | RMSE 163.675575 | MAPE: 835076.022414 | Likelihood -987.592255 | KL fp 2.2751 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0051 [Train seq (cond on sampled tp)] | Loss 18013.875266 | RMSE_NINO 1743.367467  | RMSE 1172.270313 | MAPE: 18400223.946457 | Likelihood -18539.475320 | KL fp 1.8088 | FP STD 0.1577|
+Epoch 0051 [Test seq (cond on sampled tp)] | Loss 1182.043396 | RMSE 230.076430 | RMSE 188.394130 | MAPE: 2419758.600180 | Likelihood -1321.455383 | KL fp 2.2745 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0052 [Train seq (cond on sampled tp)] | Loss 23071.887607 | RMSE_NINO 1933.857740  | RMSE 1306.752867 | MAPE: 10129452.120776 | Likelihood -23652.653409 | KL fp 1.8102 | FP STD 0.1577|
+Epoch 0052 [Test seq (cond on sampled tp)] | Loss 1792.636597 | RMSE 289.637277 | RMSE 190.313562 | MAPE: 3008583.017275 | Likelihood -1933.413940 | KL fp 2.2742 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0053 [Train seq (cond on sampled tp)] | Loss 28730.749822 | RMSE_NINO 2139.914156  | RMSE 1481.736466 | MAPE: 11934276.610142 | Likelihood -29593.684659 | KL fp 1.8084 | FP STD 0.1578|
+Epoch 0053 [Test seq (cond on sampled tp)] | Loss 2314.204712 | RMSE 275.403823 | RMSE 370.130473 | MAPE: 2562676.846700 | Likelihood -2501.994629 | KL fp 2.2742 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0054 [Train seq (cond on sampled tp)] | Loss 35742.913707 | RMSE_NINO 2395.485433  | RMSE 1645.423640 | MAPE: 11227227.030856 | Likelihood -37066.732955 | KL fp 1.8090 | FP STD 0.1575|
+Epoch 0054 [Test seq (cond on sampled tp)] | Loss 2635.108154 | RMSE 305.982093 | RMSE 304.441155 | MAPE: 4029375.378967 | Likelihood -2738.818726 | KL fp 2.2740 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0055 [Train seq (cond on sampled tp)] | Loss 44549.549006 | RMSE_NINO 2612.884507  | RMSE 1781.714556 | MAPE: 11855231.326982 | Likelihood -45751.996804 | KL fp 1.8076 | FP STD 0.1577|
+Epoch 0055 [Test seq (cond on sampled tp)] | Loss 2912.905151 | RMSE 345.955803 | RMSE 298.286892 | MAPE: 5348270.677628 | Likelihood -3080.412109 | KL fp 2.2740 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0056 [Train seq (cond on sampled tp)] | Loss 54437.011364 | RMSE_NINO 2903.094261  | RMSE 2013.622835 | MAPE: 24142472.310418 | Likelihood -56081.998935 | KL fp 1.8095 | FP STD 0.1577|
+Epoch 0056 [Test seq (cond on sampled tp)] | Loss 3656.323242 | RMSE 326.222445 | RMSE 474.201979 | MAPE: 1409546.084667 | Likelihood -3905.913330 | KL fp 2.2741 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0057 [Train seq (cond on sampled tp)] | Loss 66767.861151 | RMSE_NINO 3172.300508  | RMSE 2188.817386 | MAPE: 25086555.636091 | Likelihood -68601.748224 | KL fp 1.8067 | FP STD 0.1579|
+Epoch 0057 [Test seq (cond on sampled tp)] | Loss 4613.515137 | RMSE 315.996984 | RMSE 484.962180 | MAPE: 3819807.825178 | Likelihood -5070.506592 | KL fp 2.2742 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0058 [Train seq (cond on sampled tp)] | Loss 81357.805398 | RMSE_NINO 3580.849660  | RMSE 2397.367614 | MAPE: 28342141.654487 | Likelihood -84090.813210 | KL fp 1.8084 | FP STD 0.1575|
+Epoch 0058 [Test seq (cond on sampled tp)] | Loss 5854.877441 | RMSE 367.715390 | RMSE 723.542001 | MAPE: 4083927.704858 | Likelihood -6558.739746 | KL fp 2.2742 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0059 [Train seq (cond on sampled tp)] | Loss 99225.301136 | RMSE_NINO 4001.678601  | RMSE 2678.359277 | MAPE: 14195487.229149 | Likelihood -102235.218750 | KL fp 1.8088 | FP STD 0.1576|
+Epoch 0059 [Test seq (cond on sampled tp)] | Loss 7045.745117 | RMSE 503.640679 | RMSE 419.871127 | MAPE: 7525128.284555 | Likelihood -7976.251953 | KL fp 2.2743 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0060 [Train seq (cond on sampled tp)] | Loss 118790.420455 | RMSE_NINO 4292.216122  | RMSE 2939.324936 | MAPE: 28208441.793127 | Likelihood -122058.083097 | KL fp 1.8093 | FP STD 0.1575|
+Epoch 0060 [Test seq (cond on sampled tp)] | Loss 7846.875244 | RMSE 487.540465 | RMSE 627.787446 | MAPE: 7803368.997075 | Likelihood -8999.802734 | KL fp 2.2745 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0061 [Train seq (cond on sampled tp)] | Loss 142560.164773 | RMSE_NINO 4615.835648  | RMSE 3141.883127 | MAPE: 30840918.077821 | Likelihood -145699.298295 | KL fp 1.8087 | FP STD 0.1577|
+Epoch 0061 [Test seq (cond on sampled tp)] | Loss 10573.432617 | RMSE 584.420570 | RMSE 553.836778 | MAPE: 3715562.799426 | Likelihood -11544.551270 | KL fp 2.2746 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0062 [Train seq (cond on sampled tp)] | Loss 172102.055398 | RMSE_NINO 4756.833854  | RMSE 3322.754817 | MAPE: 31178989.624528 | Likelihood -176002.457386 | KL fp 1.8090 | FP STD 0.1575|
+Epoch 0062 [Test seq (cond on sampled tp)] | Loss 12013.884277 | RMSE 532.836797 | RMSE 913.403778 | MAPE: 8111168.107215 | Likelihood -12799.781738 | KL fp 2.2747 | FP STD 0.0981|
+KL coef: 0.0
+Epoch 0063 [Train seq (cond on sampled tp)] | Loss 198039.546875 | RMSE_NINO 5641.102069  | RMSE 3716.491798 | MAPE: 22270524.906004 | Likelihood -204915.325284 | KL fp 1.8072 | FP STD 0.1577|
+Epoch 0063 [Test seq (cond on sampled tp)] | Loss 15499.269531 | RMSE 665.825433 | RMSE 1043.809542 | MAPE: 11823549.671290 | Likelihood -16952.220215 | KL fp 2.2748 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0064 [Train seq (cond on sampled tp)] | Loss 239390.984375 | RMSE_NINO 5944.196694  | RMSE 3998.064735 | MAPE: 16728958.560600 | Likelihood -248248.926136 | KL fp 1.8098 | FP STD 0.1576|
+Epoch 0064 [Test seq (cond on sampled tp)] | Loss 17203.656738 | RMSE 737.702298 | RMSE 903.993888 | MAPE: 4717190.394800 | Likelihood -18206.269531 | KL fp 2.2750 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0065 [Train seq (cond on sampled tp)] | Loss 279719.750000 | RMSE_NINO 6457.197493  | RMSE 4309.541675 | MAPE: 19566662.448430 | Likelihood -290328.991477 | KL fp 1.8108 | FP STD 0.1574|
+Epoch 0065 [Test seq (cond on sampled tp)] | Loss 20233.052734 | RMSE 694.824182 | RMSE 1255.947479 | MAPE: 5550806.850772 | Likelihood -22720.969727 | KL fp 2.2752 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0066 [Train seq (cond on sampled tp)] | Loss 332585.988636 | RMSE_NINO 7330.796467  | RMSE 4812.993509 | MAPE: 73110013.876899 | Likelihood -344606.008523 | KL fp 1.8107 | FP STD 0.1573|
+Epoch 0066 [Test seq (cond on sampled tp)] | Loss 23904.514648 | RMSE 928.028750 | RMSE 892.123684 | MAPE: 10549826.893458 | Likelihood -25405.010742 | KL fp 2.2754 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0067 [Train seq (cond on sampled tp)] | Loss 382403.335227 | RMSE_NINO 8052.752083  | RMSE 5136.121793 | MAPE: 50429635.414837 | Likelihood -397672.053977 | KL fp 1.8121 | FP STD 0.1572|
+Epoch 0067 [Test seq (cond on sampled tp)] | Loss 28014.750977 | RMSE 786.964288 | RMSE 1278.759620 | MAPE: 10547433.433716 | Likelihood -33264.419922 | KL fp 2.2756 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0068 [Train seq (cond on sampled tp)] | Loss 452511.227273 | RMSE_NINO 8473.702958  | RMSE 5546.393295 | MAPE: 40331638.899955 | Likelihood -467756.545455 | KL fp 1.8106 | FP STD 0.1574|
+Epoch 0068 [Test seq (cond on sampled tp)] | Loss 32781.134766 | RMSE 991.124844 | RMSE 1311.225974 | MAPE: 7678857.895428 | Likelihood -36967.667969 | KL fp 2.2757 | FP STD 0.0980|
+KL coef: 0.0
+Epoch 0069 [Train seq (cond on sampled tp)] | Loss 511264.230114 | RMSE_NINO 9045.030261  | RMSE 5899.158091 | MAPE: 39917702.188276 | Likelihood -530881.480114 | KL fp 1.8110 | FP STD 0.1572|
+Epoch 0069 [Test seq (cond on sampled tp)] | Loss 40207.076172 | RMSE 1133.582686 | RMSE 1317.901655 | MAPE: 4133476.909178 | Likelihood -43381.455078 | KL fp 2.2759 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0070 [Train seq (cond on sampled tp)] | Loss 594492.704545 | RMSE_NINO 8852.187885  | RMSE 6176.512571 | MAPE: 45901930.340689 | Likelihood -612324.727273 | KL fp 1.8114 | FP STD 0.1573|
+Epoch 0070 [Test seq (cond on sampled tp)] | Loss 47548.410156 | RMSE 1467.678059 | RMSE 1364.013947 | MAPE: 14585494.926946 | Likelihood -51351.230469 | KL fp 2.2763 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0071 [Train seq (cond on sampled tp)] | Loss 708692.323864 | RMSE_NINO 10842.296556  | RMSE 7021.267639 | MAPE: 47000900.314905 | Likelihood -727339.011364 | KL fp 1.8086 | FP STD 0.1574|
+Epoch 0071 [Test seq (cond on sampled tp)] | Loss 53210.593750 | RMSE 1272.682953 | RMSE 1119.384547 | MAPE: 20402125.621592 | Likelihood -54665.314453 | KL fp 2.2765 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0072 [Train seq (cond on sampled tp)] | Loss 817437.670455 | RMSE_NINO 11484.284021  | RMSE 7387.800590 | MAPE: 26937715.809917 | Likelihood -842382.363636 | KL fp 1.8110 | FP STD 0.1573|
+Epoch 0072 [Test seq (cond on sampled tp)] | Loss 60870.363281 | RMSE 1469.959453 | RMSE 1561.680456 | MAPE: 15345319.821840 | Likelihood -64742.892578 | KL fp 2.2767 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0073 [Train seq (cond on sampled tp)] | Loss 934150.323864 | RMSE_NINO 11660.625536  | RMSE 7819.088159 | MAPE: 40555144.729779 | Likelihood -963627.750000 | KL fp 1.8094 | FP STD 0.1574|
+Epoch 0073 [Test seq (cond on sampled tp)] | Loss 63520.093750 | RMSE 1655.892016 | RMSE 1553.687003 | MAPE: 6647698.433279 | Likelihood -69479.718750 | KL fp 2.2767 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0074 [Train seq (cond on sampled tp)] | Loss 1099312.346591 | RMSE_NINO 13415.740681  | RMSE 8628.584773 | MAPE: 34484919.433708 | Likelihood -1129905.545455 | KL fp 1.8120 | FP STD 0.1572|
+Epoch 0074 [Test seq (cond on sampled tp)] | Loss 83834.242188 | RMSE 1642.354138 | RMSE 2437.941216 | MAPE: 11579494.376978 | Likelihood -88680.164062 | KL fp 2.2769 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0075 [Train seq (cond on sampled tp)] | Loss 1256433.534091 | RMSE_NINO 14840.657874  | RMSE 9328.670657 | MAPE: 65489070.501057 | Likelihood -1298950.875000 | KL fp 1.8141 | FP STD 0.1571|
+Epoch 0075 [Test seq (cond on sampled tp)] | Loss 103918.003906 | RMSE 2056.536859 | RMSE 2985.294712 | MAPE: 19594909.722320 | Likelihood -116244.347656 | KL fp 2.2771 | FP STD 0.0979|
+KL coef: 0.0
+Epoch 0076 [Train seq (cond on sampled tp)] | Loss 1429995.693182 | RMSE_NINO 16171.361588  | RMSE 9898.110081 | MAPE: 116280832.241677 | Likelihood -1482590.159091 | KL fp 1.8119 | FP STD 0.1570|
+Epoch 0076 [Test seq (cond on sampled tp)] | Loss 130363.894531 | RMSE 1857.152650 | RMSE 3573.174014 | MAPE: 18597228.255141 | Likelihood -138311.320312 | KL fp 2.2772 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0077 [Train seq (cond on sampled tp)] | Loss 1657865.795455 | RMSE_NINO 17111.480339  | RMSE 10703.166923 | MAPE: 54472215.157764 | Likelihood -1707616.988636 | KL fp 1.8143 | FP STD 0.1569|
+Epoch 0077 [Test seq (cond on sampled tp)] | Loss 122229.644531 | RMSE 2978.093970 | RMSE 1639.676737 | MAPE: 23989057.863490 | Likelihood -136520.695312 | KL fp 2.2775 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0078 [Train seq (cond on sampled tp)] | Loss 1907894.000000 | RMSE_NINO 18451.033926  | RMSE 11480.108431 | MAPE: 69182483.653658 | Likelihood -1977980.000000 | KL fp 1.8122 | FP STD 0.1572|
+Epoch 0078 [Test seq (cond on sampled tp)] | Loss 187194.085938 | RMSE 2663.239903 | RMSE 4283.901722 | MAPE: 15237452.949742 | Likelihood -195304.437500 | KL fp 2.2777 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0079 [Train seq (cond on sampled tp)] | Loss 2154058.079545 | RMSE_NINO 20510.645167  | RMSE 12489.975854 | MAPE: 75805490.797638 | Likelihood -2225252.181818 | KL fp 1.8130 | FP STD 0.1569|
+Epoch 0079 [Test seq (cond on sampled tp)] | Loss 197927.429688 | RMSE 2843.259573 | RMSE 4352.050021 | MAPE: 7493100.278978 | Likelihood -223513.164062 | KL fp 2.2778 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0080 [Train seq (cond on sampled tp)] | Loss 2459698.431818 | RMSE_NINO 21815.404507  | RMSE 13194.811469 | MAPE: 72090451.303811 | Likelihood -2529308.727273 | KL fp 1.8130 | FP STD 0.1569|
+Epoch 0080 [Test seq (cond on sampled tp)] | Loss 203171.226562 | RMSE 3342.341660 | RMSE 3696.217126 | MAPE: 41308323.004427 | Likelihood -215275.757812 | KL fp 2.2779 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0081 [Train seq (cond on sampled tp)] | Loss 2789654.840909 | RMSE_NINO 23736.944292  | RMSE 14387.125370 | MAPE: 188427309.739319 | Likelihood -2881166.636364 | KL fp 1.8134 | FP STD 0.1570|
+Epoch 0081 [Test seq (cond on sampled tp)] | Loss 227523.734375 | RMSE 3675.163870 | RMSE 3861.065915 | MAPE: 63752738.698282 | Likelihood -257676.507812 | KL fp 2.2780 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0082 [Train seq (cond on sampled tp)] | Loss 3190314.113636 | RMSE_NINO 25236.447476  | RMSE 15087.385347 | MAPE: 92053419.113926 | Likelihood -3294075.045455 | KL fp 1.8128 | FP STD 0.1569|
+Epoch 0082 [Test seq (cond on sampled tp)] | Loss 261679.164062 | RMSE 4521.328324 | RMSE 4277.209429 | MAPE: 9077423.066081 | Likelihood -277435.968750 | KL fp 2.2782 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0083 [Train seq (cond on sampled tp)] | Loss 3588513.659091 | RMSE_NINO 28038.898277  | RMSE 16496.932549 | MAPE: 86200209.715072 | Likelihood -3690246.272727 | KL fp 1.8137 | FP STD 0.1569|
+Epoch 0083 [Test seq (cond on sampled tp)] | Loss 366195.718750 | RMSE 3726.178566 | RMSE 6541.275764 | MAPE: 37542467.305037 | Likelihood -386744.593750 | KL fp 2.2783 | FP STD 0.0978|
+KL coef: 0.0
+Epoch 0084 [Train seq (cond on sampled tp)] | Loss 3992313.795455 | RMSE_NINO 29208.492914  | RMSE 17421.365321 | MAPE: 133485797.493067 | Likelihood -4104073.159091 | KL fp 1.8147 | FP STD 0.1567|
+Epoch 0084 [Test seq (cond on sampled tp)] | Loss 329911.265625 | RMSE 4363.356827 | RMSE 5895.466859 | MAPE: 45093027.958842 | Likelihood -343776.562500 | KL fp 2.2785 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0085 [Train seq (cond on sampled tp)] | Loss 4495389.818182 | RMSE_NINO 28591.569398  | RMSE 18114.905590 | MAPE: 153565393.673794 | Likelihood -4673919.590909 | KL fp 1.8138 | FP STD 0.1568|
+Epoch 0085 [Test seq (cond on sampled tp)] | Loss 357902.296875 | RMSE 4937.229908 | RMSE 5231.588517 | MAPE: 148769808.740290 | Likelihood -390062.125000 | KL fp 2.2785 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0086 [Train seq (cond on sampled tp)] | Loss 5112932.500000 | RMSE_NINO 31981.514441  | RMSE 19616.992645 | MAPE: 91375593.108397 | Likelihood -5263513.863636 | KL fp 1.8132 | FP STD 0.1568|
+Epoch 0086 [Test seq (cond on sampled tp)] | Loss 389577.015625 | RMSE 5076.887108 | RMSE 5326.783125 | MAPE: 55246265.790069 | Likelihood -437244.328125 | KL fp 2.2785 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0087 [Train seq (cond on sampled tp)] | Loss 5684117.409091 | RMSE_NINO 34982.058373  | RMSE 21048.832609 | MAPE: 125662789.447192 | Likelihood -5863408.818182 | KL fp 1.8126 | FP STD 0.1570|
+Epoch 0087 [Test seq (cond on sampled tp)] | Loss 473858.046875 | RMSE 5871.186117 | RMSE 6790.371858 | MAPE: 60416316.943136 | Likelihood -502127.125000 | KL fp 2.2786 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0088 [Train seq (cond on sampled tp)] | Loss 6491944.000000 | RMSE_NINO 36850.725112  | RMSE 22268.362390 | MAPE: 231766594.850101 | Likelihood -6628438.318182 | KL fp 1.8155 | FP STD 0.1567|
+Epoch 0088 [Test seq (cond on sampled tp)] | Loss 594115.875000 | RMSE 5325.714374 | RMSE 8345.529860 | MAPE: 48016365.810270 | Likelihood -635261.000000 | KL fp 2.2787 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0089 [Train seq (cond on sampled tp)] | Loss 7259310.545455 | RMSE_NINO 40292.340506  | RMSE 23560.743410 | MAPE: 181708065.802283 | Likelihood -7478991.590909 | KL fp 1.8128 | FP STD 0.1570|
+Epoch 0089 [Test seq (cond on sampled tp)] | Loss 700297.406250 | RMSE 6133.438794 | RMSE 10077.255286 | MAPE: 51844383.375649 | Likelihood -755923.687500 | KL fp 2.2789 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0090 [Train seq (cond on sampled tp)] | Loss 8080549.772727 | RMSE_NINO 40702.830814  | RMSE 25000.429925 | MAPE: 162525657.509116 | Likelihood -8319352.909091 | KL fp 1.8132 | FP STD 0.1568|
+Epoch 0090 [Test seq (cond on sampled tp)] | Loss 820215.843750 | RMSE 5909.664398 | RMSE 10832.907456 | MAPE: 10467682.221203 | Likelihood -848757.937500 | KL fp 2.2791 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0091 [Train seq (cond on sampled tp)] | Loss 8876346.090909 | RMSE_NINO 46482.719007  | RMSE 26621.473462 | MAPE: 178799872.157252 | Likelihood -9085061.727273 | KL fp 1.8130 | FP STD 0.1569|
+Epoch 0091 [Test seq (cond on sampled tp)] | Loss 531784.968750 | RMSE 9270.963446 | RMSE 4850.760299 | MAPE: 142513313.695550 | Likelihood -593164.906250 | KL fp 2.2792 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0092 [Train seq (cond on sampled tp)] | Loss 9730139.545455 | RMSE_NINO 46440.044889  | RMSE 27842.046338 | MAPE: 223209991.842636 | Likelihood -10019677.272727 | KL fp 1.8147 | FP STD 0.1568|
+Epoch 0092 [Test seq (cond on sampled tp)] | Loss 645295.000000 | RMSE 6785.263494 | RMSE 5972.168887 | MAPE: 85210889.886595 | Likelihood -697286.468750 | KL fp 2.2794 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0093 [Train seq (cond on sampled tp)] | Loss 10693509.818182 | RMSE_NINO 46558.953701  | RMSE 28048.637755 | MAPE: 221599459.931633 | Likelihood -11030279.000000 | KL fp 1.8140 | FP STD 0.1564|
+Epoch 0093 [Test seq (cond on sampled tp)] | Loss 619491.375000 | RMSE 8409.384583 | RMSE 4423.929715 | MAPE: 90229440.205725 | Likelihood -681589.031250 | KL fp 2.2793 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0094 [Train seq (cond on sampled tp)] | Loss 11717831.000000 | RMSE_NINO 51382.017251  | RMSE 30797.817144 | MAPE: 389619912.756938 | Likelihood -12002005.272727 | KL fp 1.8143 | FP STD 0.1567|
+Epoch 0094 [Test seq (cond on sampled tp)] | Loss 999353.750000 | RMSE 7921.039709 | RMSE 11010.197340 | MAPE: 104785626.710793 | Likelihood -1065960.312500 | KL fp 2.2794 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0095 [Train seq (cond on sampled tp)] | Loss 12528217.727273 | RMSE_NINO 53678.146465  | RMSE 32662.492465 | MAPE: 300451540.436507 | Likelihood -12881878.909091 | KL fp 1.8135 | FP STD 0.1568|
+Epoch 0095 [Test seq (cond on sampled tp)] | Loss 1191210.312500 | RMSE 7173.244487 | RMSE 13285.687573 | MAPE: 137787407.217502 | Likelihood -1298443.312500 | KL fp 2.2794 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0096 [Train seq (cond on sampled tp)] | Loss 13327557.545455 | RMSE_NINO 56334.658914  | RMSE 33338.318249 | MAPE: 215250963.982739 | Likelihood -13708783.454545 | KL fp 1.8150 | FP STD 0.1566|
+Epoch 0096 [Test seq (cond on sampled tp)] | Loss 1121447.437500 | RMSE 7996.356358 | RMSE 11276.429318 | MAPE: 90972475.343939 | Likelihood -1222558.562500 | KL fp 2.2794 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0097 [Train seq (cond on sampled tp)] | Loss 14453295.727273 | RMSE_NINO 54625.801889  | RMSE 32925.886977 | MAPE: 479437943.235466 | Likelihood -14832648.363636 | KL fp 1.8142 | FP STD 0.1566|
+Epoch 0097 [Test seq (cond on sampled tp)] | Loss 1135219.562500 | RMSE 8678.210973 | RMSE 11083.622045 | MAPE: 110455600.732688 | Likelihood -1207359.937500 | KL fp 2.2795 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0098 [Train seq (cond on sampled tp)] | Loss 15763936.636364 | RMSE_NINO 61254.349196  | RMSE 36519.202104 | MAPE: 358862269.281404 | Likelihood -16234283.454545 | KL fp 1.8161 | FP STD 0.1565|
+Epoch 0098 [Test seq (cond on sampled tp)] | Loss 1008788.187500 | RMSE 9738.646376 | RMSE 7515.385715 | MAPE: 177317672.836180 | Likelihood -1191855.687500 | KL fp 2.2795 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0099 [Train seq (cond on sampled tp)] | Loss 17470906.727273 | RMSE_NINO 60527.035939  | RMSE 36441.710080 | MAPE: 276201626.365385 | Likelihood -17885535.818182 | KL fp 1.8138 | FP STD 0.1567|
+Epoch 0099 [Test seq (cond on sampled tp)] | Loss 1217298.500000 | RMSE 10057.366903 | RMSE 11501.934696 | MAPE: 98265670.942274 | Likelihood -1371397.687500 | KL fp 2.2795 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0100 [Train seq (cond on sampled tp)] | Loss 18840342.000000 | RMSE_NINO 67078.655591  | RMSE 38769.999167 | MAPE: 193593547.567084 | Likelihood -19364917.454545 | KL fp 1.8151 | FP STD 0.1566|
+Epoch 0100 [Test seq (cond on sampled tp)] | Loss 1486209.375000 | RMSE 11030.959678 | RMSE 11101.241840 | MAPE: 115890642.985793 | Likelihood -1610434.937500 | KL fp 2.2796 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0101 [Train seq (cond on sampled tp)] | Loss 20079776.181818 | RMSE_NINO 67748.785961  | RMSE 39680.870545 | MAPE: 186465685.557898 | Likelihood -20782258.363636 | KL fp 1.8143 | FP STD 0.1566|
+Epoch 0101 [Test seq (cond on sampled tp)] | Loss 1681475.937500 | RMSE 10618.364138 | RMSE 13884.276024 | MAPE: 146016111.851215 | Likelihood -1882557.375000 | KL fp 2.2796 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0102 [Train seq (cond on sampled tp)] | Loss 21816300.181818 | RMSE_NINO 71991.362738  | RMSE 41428.097718 | MAPE: 351805053.292704 | Likelihood -22571066.727273 | KL fp 1.8135 | FP STD 0.1569|
+Epoch 0102 [Test seq (cond on sampled tp)] | Loss 1883846.625000 | RMSE 10787.153255 | RMSE 14419.546108 | MAPE: 118561155.373515 | Likelihood -1967428.375000 | KL fp 2.2796 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0103 [Train seq (cond on sampled tp)] | Loss 23908878.181818 | RMSE_NINO 77993.971774  | RMSE 44201.638159 | MAPE: 595228878.349798 | Likelihood -24720082.363636 | KL fp 1.8127 | FP STD 0.1568|
+Epoch 0103 [Test seq (cond on sampled tp)] | Loss 1864829.750000 | RMSE 12753.952140 | RMSE 13774.279616 | MAPE: 143109335.764617 | Likelihood -2137243.000000 | KL fp 2.2796 | FP STD 0.0977|
+KL coef: 0.0
+Epoch 0104 [Train seq (cond on sampled tp)] | Loss 25563761.454545 | RMSE_NINO 80073.170201  | RMSE 45637.934677 | MAPE: 255473472.987577 | Likelihood -26428504.545455 | KL fp 1.8148 | FP STD 0.1565|
+Epoch 0104 [Test seq (cond on sampled tp)] | Loss 2586856.000000 | RMSE 9849.978633 | RMSE 17565.043940 | MAPE: 76452202.027854 | Likelihood -2724803.375000 | KL fp 2.2797 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0105 [Train seq (cond on sampled tp)] | Loss 27933233.636364 | RMSE_NINO 83817.167333  | RMSE 47516.653098 | MAPE: 448218599.933735 | Likelihood -28736480.545455 | KL fp 1.8150 | FP STD 0.1566|
+Epoch 0105 [Test seq (cond on sampled tp)] | Loss 1910354.250000 | RMSE 11906.079980 | RMSE 13934.176458 | MAPE: 651913670.003831 | Likelihood -2252158.500000 | KL fp 2.2798 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0106 [Train seq (cond on sampled tp)] | Loss 29706162.000000 | RMSE_NINO 82129.242363  | RMSE 48214.960053 | MAPE: 200282243.392078 | Likelihood -30680106.000000 | KL fp 1.8160 | FP STD 0.1564|
+Epoch 0106 [Test seq (cond on sampled tp)] | Loss 2330612.562500 | RMSE 14275.936327 | RMSE 13134.596898 | MAPE: 51130558.197141 | Likelihood -2496340.125000 | KL fp 2.2798 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0107 [Train seq (cond on sampled tp)] | Loss 32637217.818182 | RMSE_NINO 86061.896692  | RMSE 50434.002770 | MAPE: 678968543.686579 | Likelihood -33470747.818182 | KL fp 1.8168 | FP STD 0.1564|
+Epoch 0107 [Test seq (cond on sampled tp)] | Loss 2082261.750000 | RMSE 13865.843894 | RMSE 11759.804475 | MAPE: 200039226.760273 | Likelihood -2257019.187500 | KL fp 2.2798 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0108 [Train seq (cond on sampled tp)] | Loss 35229723.454545 | RMSE_NINO 95359.557990  | RMSE 53646.875776 | MAPE: 472462226.357838 | Likelihood -36033894.181818 | KL fp 1.8148 | FP STD 0.1564|
+Epoch 0108 [Test seq (cond on sampled tp)] | Loss 2683101.250000 | RMSE 13336.119632 | RMSE 15952.631367 | MAPE: 24472680.434081 | Likelihood -2857227.875000 | KL fp 2.2800 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0109 [Train seq (cond on sampled tp)] | Loss 37077900.727273 | RMSE_NINO 97897.672756  | RMSE 54985.516653 | MAPE: 314967359.227596 | Likelihood -38108641.454545 | KL fp 1.8149 | FP STD 0.1566|
+Epoch 0109 [Test seq (cond on sampled tp)] | Loss 2972912.750000 | RMSE 16129.806377 | RMSE 19073.488542 | MAPE: 78132068.490539 | Likelihood -3341471.250000 | KL fp 2.2800 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0110 [Train seq (cond on sampled tp)] | Loss 40049698.909091 | RMSE_NINO 103374.559281  | RMSE 57761.909833 | MAPE: 507484986.926625 | Likelihood -40937119.636364 | KL fp 1.8146 | FP STD 0.1566|
+Epoch 0110 [Test seq (cond on sampled tp)] | Loss 2967842.750000 | RMSE 13290.853372 | RMSE 20202.975924 | MAPE: 45453968.310029 | Likelihood -3382048.000000 | KL fp 2.2800 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0111 [Train seq (cond on sampled tp)] | Loss 42847367.636364 | RMSE_NINO 99928.979631  | RMSE 57778.241316 | MAPE: 497293859.190187 | Likelihood -44058606.909091 | KL fp 1.8143 | FP STD 0.1566|
+Epoch 0111 [Test seq (cond on sampled tp)] | Loss 2978565.375000 | RMSE 12625.464604 | RMSE 16467.907280 | MAPE: 273686897.446248 | Likelihood -3430280.375000 | KL fp 2.2800 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0112 [Train seq (cond on sampled tp)] | Loss 45992160.000000 | RMSE_NINO 106476.090831  | RMSE 61718.719799 | MAPE: 192799645.686302 | Likelihood -46891075.636364 | KL fp 1.8139 | FP STD 0.1566|
+Epoch 0112 [Test seq (cond on sampled tp)] | Loss 3503943.125000 | RMSE 15337.468347 | RMSE 18598.906260 | MAPE: 181692595.855671 | Likelihood -3848064.250000 | KL fp 2.2801 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0113 [Train seq (cond on sampled tp)] | Loss 49255335.636364 | RMSE_NINO 111316.549205  | RMSE 62982.900124 | MAPE: 646272625.217068 | Likelihood -50361048.363636 | KL fp 1.8136 | FP STD 0.1567|
+Epoch 0113 [Test seq (cond on sampled tp)] | Loss 3245895.500000 | RMSE 16578.927708 | RMSE 17646.496840 | MAPE: 158135375.114641 | Likelihood -3690898.875000 | KL fp 2.2801 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0114 [Train seq (cond on sampled tp)] | Loss 51513208.000000 | RMSE_NINO 112762.431455  | RMSE 64872.940429 | MAPE: 656211605.554721 | Likelihood -53382848.727273 | KL fp 1.8147 | FP STD 0.1565|
+Epoch 0114 [Test seq (cond on sampled tp)] | Loss 3383428.000000 | RMSE 15762.695190 | RMSE 17237.021281 | MAPE: 136887333.630299 | Likelihood -3962561.750000 | KL fp 2.2802 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0115 [Train seq (cond on sampled tp)] | Loss 56068816.727273 | RMSE_NINO 115199.538502  | RMSE 66361.772360 | MAPE: 550473204.098244 | Likelihood -57473532.000000 | KL fp 1.8122 | FP STD 0.1568|
+Epoch 0115 [Test seq (cond on sampled tp)] | Loss 5532390.500000 | RMSE 17492.535310 | RMSE 29410.481572 | MAPE: 194948361.619730 | Likelihood -6351529.000000 | KL fp 2.2803 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0116 [Train seq (cond on sampled tp)] | Loss 59838136.727273 | RMSE_NINO 122451.572858  | RMSE 70174.793123 | MAPE: 391445978.748290 | Likelihood -61348703.272727 | KL fp 1.8159 | FP STD 0.1564|
+Epoch 0116 [Test seq (cond on sampled tp)] | Loss 4681000.250000 | RMSE 15907.411862 | RMSE 23315.986217 | MAPE: 308494777.684553 | Likelihood -5315713.500000 | KL fp 2.2803 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0117 [Train seq (cond on sampled tp)] | Loss 61897664.363636 | RMSE_NINO 117371.073961  | RMSE 68423.229528 | MAPE: 629676105.163676 | Likelihood -64363794.181818 | KL fp 1.8163 | FP STD 0.1566|
+Epoch 0117 [Test seq (cond on sampled tp)] | Loss 6005500.500000 | RMSE 14704.413573 | RMSE 27316.455889 | MAPE: 95814655.659122 | Likelihood -6326259.000000 | KL fp 2.2804 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0118 [Train seq (cond on sampled tp)] | Loss 66198092.000000 | RMSE_NINO 127336.653192  | RMSE 72150.122495 | MAPE: 643871623.709541 | Likelihood -68223879.272727 | KL fp 1.8152 | FP STD 0.1564|
+Epoch 0118 [Test seq (cond on sampled tp)] | Loss 6086448.250000 | RMSE 18467.169558 | RMSE 29049.112271 | MAPE: 241153505.412457 | Likelihood -6886253.500000 | KL fp 2.2804 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0119 [Train seq (cond on sampled tp)] | Loss 69790016.000000 | RMSE_NINO 128808.985169  | RMSE 73285.176652 | MAPE: 672032993.998721 | Likelihood -72057274.181818 | KL fp 1.8133 | FP STD 0.1567|
+Epoch 0119 [Test seq (cond on sampled tp)] | Loss 4613060.000000 | RMSE 16003.433424 | RMSE 20145.366124 | MAPE: 224609424.107438 | Likelihood -5443761.250000 | KL fp 2.2804 | FP STD 0.0976|
+KL coef: 0.0
+Epoch 0120 [Train seq (cond on sampled tp)] | Loss 73933760.727273 | RMSE_NINO 129006.395742  | RMSE 74583.206092 | MAPE: 559089055.769434 | Likelihood -75784829.818182 | KL fp 1.8158 | FP STD 0.1564|
+Epoch 0120 [Test seq (cond on sampled tp)] | Loss 6083675.000000 | RMSE 19069.375045 | RMSE 24147.405006 | MAPE: 127231679.466220 | Likelihood -6296194.000000 | KL fp 2.2804 | FP STD 0.0976|
+KL coef: 0.0
