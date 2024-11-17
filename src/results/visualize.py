@@ -1,18 +1,85 @@
 import matplotlib.pyplot as plt 
 import seaborn as sns
 import numpy as np
+from sklearn.metrics import r2_score, mean_absolute_percentage_error, mean_absolute_error
 import os
+from scipy import stats
+import xarray as xr
+import xskillscore as xs
 
 
-def plot_predictions_vs_true_reg(folder_path, visualize_length=50000):
+category_1_features = ["nina1", "nina3", "nina34", "nina4"]
+category_2_features = category_1_features + ["pacwarm", 'soi', "tni", "whwp"]
+category_3_features = category_2_features + ["ammsst", "tna", "tsa", 'amon']
+category_4_features = category_3_features + ["ea", "epo", "nao", "pna", "wp"]
+category_5_features = category_4_features + ["qbo", "solar"]
+
+
+# climate anomay score
+def calculate_acc(true, pred):
+    return xs.pearson_r(xr.DataArray(true), xr.DataArray(pred))
+
+# calculate rmse 
+def calcaulate_rmse(true, pred):
+    return np.sqrt(np.mean((true - pred) ** 2))
+
+
+def plot_forecast_skill(folder_path, true, pred, pred_len=24):
+    horizon_sizes = [i for i in range(3, pred_len)]
+    accs, rmses = [],[]
+    for pred_horizon in horizon_sizes:
+        pred_temp = pred[:, pred_horizon].flatten()
+        true_temp = true[:, pred_horizon].flatten()
+        acc = calculate_acc(true_temp, pred_temp)
+        rmse = calcaulate_rmse(true_temp, pred_temp)
+        accs.append(acc)
+        rmses.append(rmse)
+    print(f"acc: {accs}")
+    print(f"rmse: {rmses}")
+    fig, ax = plt.subplots(2, 1, figsize=(5,10), sharex=True)
+    ax[0].plot(horizon_sizes, accs, linestyle='--', marker='o', color='g', label='ACC')
+    ax[1].plot(horizon_sizes, rmses, linestyle='--', marker='o', color='b', label='RMSE')
+    ax[0].set_xlabel("prediction horizon size")
+    ax[0].set_ylabel("Climate Anomaly (ACC)")
+    ax[1].set_ylabel("RMSE")
+    plt.savefig(os.path.join(folder_path, f'{folder_path}_forecast_skill.png'))
+    plt.close()
+
+
+def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=24):
+
+    if "cat1" in folder_path:
+        features = category_1_features
+    elif "cat2" in folder_path:
+        features = category_2_features
+    elif "cat3" in folder_path:
+        features = category_3_features
+    elif "cat4" in folder_path:
+        features = category_4_features
+    else:
+        features = category_5_features
+
+    n_features = len(features)
+    nino_feature_index = features.index("nina34")
+
     # Load the data
-    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().flatten()
-    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().flatten()
+    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, pred_len)[:, nino_feature_index,:]
+    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, pred_len)[:, nino_feature_index,:]
+
+    plot_forecast_skill(folder_path, test_true, test_pred, pred_len)
+
+    test_pred = test_pred.flatten()
+    test_true = test_true.flatten()
 
     if len(test_pred) > visualize_length:
         test_pred = test_pred[:visualize_length]
         test_true = test_true[:visualize_length]
     
+    print(f"R2: {r2_score(test_true, test_pred)}")
+    print(f"MAPE: {mean_absolute_percentage_error(test_true, test_pred)}")
+    print(f"RMSE: {calcaulate_rmse(test_true, test_pred)}")
+    print(f"MAE: {mean_absolute_error(test_true, test_pred)}")
+
     plt.figure(figsize=(10, 8))
 
     # Create scatter plot
@@ -37,9 +104,28 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000):
 
 
 def plot_predictions_vs_true(folder_path, visualize_length=500):
+    if "cat1" in folder_path:
+        features = category_1_features
+    elif "cat2" in folder_path:
+        features = category_2_features
+    elif "cat3" in folder_path:
+        features = category_3_features
+    elif "cat4" in folder_path:
+        features = category_4_features
+    else:
+        features = category_5_features
+
+    n_features = len(features)  
+    nino_feature_index = features.index("nina34")
+
     # Load the data
-    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().flatten()
-    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().flatten()
+    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:]
+    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:]
+
+    plot_forecast_skill(folder_path, test_true, test_pred, 24)
+
+    test_pred = test_pred.flatten()
+    test_true = test_true.flatten()
     
     if len(test_pred) > visualize_length:
         test_pred = test_pred[:visualize_length]
