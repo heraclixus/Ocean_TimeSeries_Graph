@@ -107,19 +107,20 @@ if __name__ == '__main__':
     ############ Loading Data
     print("Loading dataset: " + args.dataset)
     dataloader = ParseData(args.dataset,suffix=args.suffix,mode=args.mode, args =args)
-    test_encoder, test_decoder, test_graph, test_batch, train_original_max, train_original_min = dataloader.load_data(sample_percent=args.sample_percent_test,
+    test_encoder, test_decoder, test_graph, test_batch, test_original_max, test_original_min = dataloader.load_data(sample_percent=args.sample_percent_test,
                                                                               batch_size=args.batch_size,
                                                                               data_type="test")
     train_encoder,train_decoder, train_graph,train_batch, train_original_max, train_original_min = dataloader.load_data(sample_percent=args.sample_percent_train,batch_size=args.batch_size,data_type="train")
      
     train_original_max = train_original_max.reshape(-1,1,1)
     train_original_min = train_original_min.reshape(-1,1,1)
-    train_original_max = train_original_max.reshape(-1,1,1)
-    train_original_min = train_original_min.reshape(-1,1,1)
+    test_original_max = test_original_max.reshape(-1,1,1)
+    test_original_min = test_original_min.reshape(-1,1,1)
 
 
     input_dim = dataloader.feature
     nino_col = dataloader.nino_feature_index
+    n_features = len(dataloader.features)
 
     ############ Command Related
     input_command = sys.argv
@@ -151,10 +152,10 @@ if __name__ == '__main__':
     now = datetime.datetime.now()
     date = str(now) # str(uuid.uuid4())
      
-    log_path = f"results/{args.save_name}/output.log"
+    log_path = f"results/{date}_{args.save_name}/output.log"
 
-    if not os.path.exists(f"results/{args.save_name}"):
-        utils.makedirs(f"results/{args.save_name}")
+    if not os.path.exists(f"results/{date}_{args.save_name}"):
+        utils.makedirs(f"results/{date}_{args.save_name}")
     logger = utils.get_logger(logpath=log_path, filepath=os.path.abspath(__file__))
     logger.info(input_command)
     logger.info(str(args)) 
@@ -243,10 +244,17 @@ if __name__ == '__main__':
         #true = train_true_y 
         #pred = train_pred_y 
 
+
+        true_reshaped = true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+        pred_reshaped = pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+
+        rmse_nino = np.sqrt(np.mean(np.square(true_reshaped-pred_reshaped)))
+        mape = np.mean(np.abs(true_reshaped-pred_reshaped)/true_reshaped)
+
         # rmse for el nino34 indices only
-        rmse_nino = np.sqrt(np.mean(np.square(true[:,nino_col,:]-pred[:, nino_col,:]), axis=-1)).mean()
+        # rmse_nino = np.sqrt(np.mean(np.square(true[:,nino_col,:]-pred[:, nino_col,:]), axis=-1)).mean()
         rmse = np.sqrt( np.mean( np.square(true - pred), axis=2 ) ).mean(1).mean()
-        mape = np.mean(np.abs( (true[:,nino_col,:]-pred[:, nino_col,:]) / (true[:,nino_col,:]+1e-7) ), axis=-1).mean()
+        # mape = np.mean(np.abs( (true[:,nino_col,:]-pred[:, nino_col,:]) / (true[:,nino_col,:]+1e-7) ), axis=-1).mean()
         message_train = 'Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | RMSE_NINO {:.6F}  | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
             epo,
             np.mean(loss_list), rmse_nino, rmse, mape, np.mean(likelihood_list),
@@ -257,10 +265,10 @@ if __name__ == '__main__':
 
         return message_train, kl_coef, true, pred, [rmse]
     
-    np.save(f"results/{args.save_name}/train_original_max.npy", train_original_max)
-    np.save(f"results/{args.save_name}/train_original_min.npy", train_original_min)
-    np.save(f"results/{args.save_name}/train_original_max.npy", train_original_max)
-    np.save(f"results/{args.save_name}/train_original_min.npy", train_original_min)
+    np.save(f"results/{date}_{args.save_name}/test_original_max.npy", test_original_max)
+    np.save(f"results/{date}_{args.save_name}/test_original_min.npy", test_original_min)
+    np.save(f"results/{date}_{args.save_name}/train_original_max.npy", train_original_max)
+    np.save(f"results/{date}_{args.save_name}/train_original_min.npy", train_original_min)
 
 
 
@@ -279,11 +287,17 @@ if __name__ == '__main__':
                                                 n_batches=test_batch, device=device,
                                                 n_traj_samples=3, kl_coef=kl_coef)
             
-            test_true = inverse_normalize(test_true_y, train_original_max, train_original_min)
-            test_pred = inverse_normalize(test_pred_y, train_original_max, train_original_min)
-            rmse_nino = np.sqrt(np.mean(np.square(test_true[:,nino_col,:]-test_pred[:, nino_col,:]), axis=-1)).mean()
+            test_true = inverse_normalize(test_true_y, test_original_max, test_original_min)
+            test_pred = inverse_normalize(test_pred_y, test_original_max, test_original_min)
+
+            test_true_reshaped = test_true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+            test_pred_reshaped = test_pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+
+            rmse_nino = np.sqrt(np.mean(np.square(test_true_reshaped-test_pred_reshaped)))
+            mape = np.mean(np.abs(test_true_reshaped-test_pred_reshaped)/test_true_reshaped)
+            # rmse_nino = np.sqrt(np.mean(np.square(test_true[:,nino_col,:]-test_pred[:, nino_col,:]), axis=-1)).mean()
             rmse = np.sqrt( np.mean( np.square(test_true - test_pred), axis=2 ) ).mean(1).mean()
-            mape = np.mean(np.abs( (test_true[:,nino_col,:]-test_pred[:, nino_col,:]) / test_true[:,nino_col,:] ), axis=-1).mean()
+            # mape = np.mean(np.abs( (test_true[:,nino_col,:]-test_pred[:, nino_col,:]) / test_true[:,nino_col,:] ), axis=-1).mean()
 
             message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | RMSE {:.6F} | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
                 epo,
@@ -299,14 +313,13 @@ if __name__ == '__main__':
 
             if criterion == "nino":
                 rmse = rmse_nino
-
             if rmse < best_test_mse:
                 best_epo = epo
                 best_test_mse = rmse
                 message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best mse {:.6f}|'.format(epo,
                                                                                                         best_test_mse)
                 logger.info(message_best)
-                ckpt_path = os.path.join(f"results/{args.save_name}/model.ckpt")
+                ckpt_path = os.path.join(f"results/{date}_{args.save_name}/model.ckpt")
                 torch.save({
                     'args': args,
                     'state_dict': model.state_dict(),
@@ -315,10 +328,10 @@ if __name__ == '__main__':
                 # reset patience
                 cumulative_patience = 0 
 
-                np.save(f"results/{args.save_name}/test_pred.npy", test_pred)
-                np.save(f"results/{args.save_name}/test_true.npy", test_true)
-                np.save(f"results/{args.save_name}/train_pred.npy", train_pred_y)
-                np.save(f"results/{args.save_name}/train_true.npy", train_true_y)
+                np.save(f"results/{date}_{args.save_name}/test_pred.npy", test_pred)
+                np.save(f"results/{date}_{args.save_name}/test_true.npy", test_true)
+                np.save(f"results/{date}_{args.save_name}/train_pred.npy", train_pred_y)
+                np.save(f"results/{date}_{args.save_name}/train_true.npy", train_true_y)
 
             cumulative_patience += 1 
             if cumulative_patience >= args.patience:
