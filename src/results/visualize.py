@@ -25,6 +25,7 @@ def calcaulate_rmse(true, pred):
 
 
 def plot_forecast_skill(folder_path, true, pred, pred_len=24):
+
     horizon_sizes = [i for i in range(3, pred_len)]
     accs, rmses = [],[]
     for pred_horizon in horizon_sizes:
@@ -34,14 +35,13 @@ def plot_forecast_skill(folder_path, true, pred, pred_len=24):
         rmse = calcaulate_rmse(true_temp, pred_temp)
         accs.append(acc)
         rmses.append(rmse)
-    print(f"acc: {accs}")
-    print(f"rmse: {rmses}")
     fig, ax = plt.subplots(2, 1, figsize=(5,10), sharex=True)
     ax[0].plot(horizon_sizes, accs, linestyle='--', marker='o', color='g', label='ACC')
     ax[1].plot(horizon_sizes, rmses, linestyle='--', marker='o', color='b', label='RMSE')
     ax[0].set_xlabel("prediction horizon size")
     ax[0].set_ylabel("Climate Anomaly (ACC)")
     ax[1].set_ylabel("RMSE")
+    plt.title(f"{folder_path} Forecast Skills")
     plt.savefig(os.path.join(folder_path, f'{folder_path}_forecast_skill.png'))
     plt.close()
 
@@ -74,10 +74,10 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=2
         test_pred = test_pred[:visualize_length]
         test_true = test_true[:visualize_length]
     
-    print(f"R2: {r2_score(test_true, test_pred)}")
-    print(f"MAPE: {mean_absolute_percentage_error(test_true, test_pred)}")
-    print(f"RMSE: {calcaulate_rmse(test_true, test_pred)}")
-    print(f"MAE: {mean_absolute_error(test_true, test_pred)}")
+    # print(f"R2: {r2_score(test_true, test_pred)}")
+    # print(f"MAPE: {mean_absolute_percentage_error(test_true, test_pred)}")
+    # print(f"RMSE: {calcaulate_rmse(test_true, test_pred)}")
+    # print(f"MAE: {mean_absolute_error(test_true, test_pred)}")
 
     plt.figure(figsize=(10, 8))
 
@@ -97,7 +97,7 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=2
     
     # Save the plot
     folder_name = os.path.basename(folder_path)
-    plt.savefig(os.path.join(folder_path, f'{folder_name}_nino34_reg.png'))
+    plt.savefig(os.path.join("../plots", f'{folder_name}_nino34_reg.png'))
 
 
 
@@ -147,7 +147,7 @@ def plot_predictions_vs_true(folder_path, visualize_length=500):
     
     # Save the plot
     folder_name = os.path.basename(folder_path)
-    plt.savefig(os.path.join(folder_path, f'{folder_name}_nino34_timeseries.png'))
+    plt.savefig(os.path.join("../plots", f'{folder_name}_nino34_timeseries.png'))
     plt.close()
 
 

@@ -48,11 +48,18 @@ parser.add_argument('--rec_attention', type=str, default="attention")
 parser.add_argument('--cond_len', type=int, default=12)
 parser.add_argument('--pred_len', type=int, default=24)
 parser.add_argument('--test', type=int, default=0)
-parser.add_argument("--patience", type=int, default=100)
+parser.add_argument("--patience", type=int, default=50)
 parser.add_argument("--save_name", type=str, default="")
 parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
 parser.add_argument("--eval_criterion", type=str, default="all") # if all, this means report rmse for all dimensions together, else we stop by nino3.4 
 parser.add_argument("--train_loss", type=str, default="all") # if all, this means use training loss based on all nodes, else just focus on nino3.4
+
+
+# 11/18/2024
+# NOTE: try adding fourier loss and change the periodic embedding
+parser.add_argument("--fourier_coeff", type=float, default=0.)
+parser.add_argument("--period", type=int, default=12)
+
 
 # as from the README, we have 5 levels 
 parser.add_argument("--feature_set", type=int, default=1) # 
