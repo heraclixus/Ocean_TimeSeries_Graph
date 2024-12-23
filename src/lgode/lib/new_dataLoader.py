@@ -44,10 +44,6 @@ class ParseData(object):
         self.cutting_edge = args.cutting_edge
         self.num_pre = args.pred_len
         self.args = args
-        self.max_loc = None
-        self.min_loc = None
-        self.max_vel = None
-        self.min_vel = None
         self.feature_set = self.args.feature_set
 
         torch.manual_seed(self.random_seed)

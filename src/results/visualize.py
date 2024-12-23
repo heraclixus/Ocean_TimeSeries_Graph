@@ -15,6 +15,7 @@ category_4_features = category_3_features + ["ea", "epo", "nao", "pna", "wp"]
 category_5_features = category_4_features + ["qbo", "solar"]
 
 
+<<<<<<< HEAD
 # climate anomay score
 def calculate_acc(true, pred):
     return xs.pearson_r(xr.DataArray(true), xr.DataArray(pred))
@@ -47,6 +48,9 @@ def plot_forecast_skill(folder_path, true, pred, pred_len=24):
 
 
 def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=24):
+=======
+def plot_predictions_vs_true_reg(folder_path, visualize_length=50000):
+>>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
 
     if "cat1" in folder_path:
         features = category_1_features
@@ -63,6 +67,7 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=2
     nino_feature_index = features.index("nina34")
 
     # Load the data
+<<<<<<< HEAD
     test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, pred_len)[:, nino_feature_index,:]
     test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, pred_len)[:, nino_feature_index,:]
 
@@ -70,6 +75,10 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=2
 
     test_pred = test_pred.flatten()
     test_true = test_true.flatten()
+=======
+    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
+    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
+>>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
 
     if len(test_pred) > visualize_length:
         test_pred = test_pred[:visualize_length]
@@ -77,7 +86,10 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=2
     
     print(f"R2: {r2_score(test_true, test_pred)}")
     print(f"MAPE: {mean_absolute_percentage_error(test_true, test_pred)}")
+<<<<<<< HEAD
     print(f"RMSE: {calcaulate_rmse(test_true, test_pred)}")
+=======
+>>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
     print(f"MAE: {mean_absolute_error(test_true, test_pred)}")
 
     plt.figure(figsize=(10, 8))
@@ -119,6 +131,7 @@ def plot_predictions_vs_true(folder_path, visualize_length=500):
     nino_feature_index = features.index("nina34")
 
     # Load the data
+<<<<<<< HEAD
     test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:]
     test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:]
 
@@ -126,6 +139,10 @@ def plot_predictions_vs_true(folder_path, visualize_length=500):
 
     test_pred = test_pred.flatten()
     test_true = test_true.flatten()
+=======
+    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
+    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
+>>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
     
     if len(test_pred) > visualize_length:
         test_pred = test_pred[:visualize_length]
