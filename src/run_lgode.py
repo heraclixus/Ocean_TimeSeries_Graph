@@ -182,7 +182,7 @@ if __name__ == '__main__':
 
 
     wait_until_kl_inc = 10
-    best_test_mse = np.inf
+    best_test_rmse = np.inf
     n_iters_to_viz = 1
 
 
@@ -262,7 +262,6 @@ if __name__ == '__main__':
             rmse_nino = np.sqrt(np.mean(np.square(true_reshaped-pred_reshaped)))
             mape = np.mean(np.abs(true_reshaped-pred_reshaped)/true_reshaped)
 
-        # rmse for el nino34 indices only
         mape = np.mean(np.abs(true - pred)/true)
         rmse = np.sqrt( np.mean( np.square(true - pred), axis=2 ) ).mean(1).mean()
         if nino_col is not None:
@@ -335,11 +334,11 @@ if __name__ == '__main__':
 
             if criterion == "nino":
                 rmse = rmse_nino
-            if rmse < best_test_mse:
+            if rmse < best_test_rmse:
                 best_epo = epo
-                best_test_mse = rmse
+                best_test_rmse = rmse
                 message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best mse {:.6f}|'.format(epo,
-                                                                                                        best_test_mse)
+                                                                                                        best_test_rmse)
                 logger.info(message_best)
                 ckpt_path = os.path.join(f"results/{date}_{args.save_name}/model.ckpt")
                 torch.save({
@@ -357,7 +356,7 @@ if __name__ == '__main__':
 
             cumulative_patience += 1 
             if cumulative_patience >= args.patience:
-                print(f"Early stopping: curernt best mse is {best_test_mse} at epoch {best_epo}.")
+                print(f"Early stopping: curernt best rmse is {best_test_rmse} at epoch {best_epo}.")
                 torch.cuda.empty_cache()
                 break
             torch.cuda.empty_cache()

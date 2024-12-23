@@ -65,16 +65,16 @@ class VAE_Baseline(nn.Module):
 		return mse
 
 
-	def compute_all_losses(self, batch_dict_encoder,batch_dict_decoder,batch_dict_graph,batch_dict_para,n_traj_samples=1,
+	def compute_all_losses(self, batch_dict_encoder,batch_dict_decoder,batch_dict_graph,n_traj_samples=1,
 						   kl_coef=1.):
 		# Condition on subsampled points
 		# Make predictions for all the points
 
 		pred_y, info,temporal_weights= self.get_reconstruction(batch_dict_encoder,batch_dict_decoder,batch_dict_graph,
-															   batch_dict_para,n_traj_samples = n_traj_samples)
+															   n_traj_samples = n_traj_samples)
 		# pred_y shape [n_traj_samples, n_traj, n_tp, n_dim]
 
-
+		actual_y = batch_dict_decoder["data"]
 		#print("get_reconstruction done -- computing likelihood")
 		fp_mu, fp_std, fp_enc = info["first_point"]
 		fp_std = fp_std.abs() + EPS
@@ -97,6 +97,10 @@ class VAE_Baseline(nn.Module):
 			batch_dict_decoder["data"], pred_y,temporal_weights,
 			mask=batch_dict_decoder["mask"])   #negative value
 
+		# Compute the Fourier loss to see how periodicity goes in
+		fft_true = torch.fft.fft(actual_y.squeeze(), dim=-1)
+		fft_pred = torch.fft.fft(pred_y.squeeze(), dim=-1)
+		fourier_loss = torch.mean(torch.abs(fft_true - fft_pred))
 
 		mse = self.get_mse(
 			batch_dict_decoder["data"], pred_y,
@@ -126,7 +130,10 @@ class VAE_Baseline(nn.Module):
 		if torch.isnan(loss):
 			loss = - torch.mean(rec_likelihood - kl_coef * kldiv_z0,0) + self.args.disen_coef * disen_loss + self.MI_coef * sys_loss
 
-
+		print(f"loss = {loss}")
+		print(f"fourier_loss = {fourier_loss}")
+		loss = loss + self.fourier_coeff * fourier_loss
+ 
 
 		results = {}
 		results["loss"] = torch.mean(loss)
@@ -138,10 +145,12 @@ class VAE_Baseline(nn.Module):
 		results["sys_loss"] = sys_loss.item() * self.MI_coef
 		results["q_mse"] = torch.mean(q_mse).data.item()
 		results["v_mse"] = torch.mean(v_mse).data.item()
+		results["fourier_loss"] = fourier_loss.data.item()
+
 		for i in range(feature_num):
 			results["feature{}_mse".format(i)] = torch.mean(mse_list[i]).data.item()
 
-		return results
+		return results,
 
 
 

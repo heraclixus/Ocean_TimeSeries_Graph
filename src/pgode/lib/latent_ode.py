@@ -71,7 +71,7 @@ class LatentGraphODE(VAE_Baseline):
 
 		return E_pos - E_neg
 
-	def get_reconstruction(self, batch_en,batch_de, batch_g, batch_para,n_traj_samples=1,run_backwards=True):
+	def get_reconstruction(self, batch_en,batch_de, batch_g,n_traj_samples=1,run_backwards=True):
 
         #Encoder:
 		first_point_mu, first_point_std = self.encoder_z0(batch_en.x, batch_en.edge_attr,
@@ -89,9 +89,7 @@ class LatentGraphODE(VAE_Baseline):
 
 		first_point_l_emb = self.local_d(first_point_l.reshape(batch_size, self.num_atoms * feature))
 		first_point_g_emb = self.global_d(first_point_g)
-		sys_para_emb = self.sys_d(batch_para)
 		disen_loss = self.compute_mutual_information(first_point_l_emb, first_point_g_emb)
-		sys_loss = - self.compute_mutual_information(first_point_g_emb, sys_para_emb)
 
 		means_z0 = first_point_mu.repeat(n_traj_samples,1,1) #[3,num_ball,16], num_ball=B*N=256*5=1280
 		sigmas_z0 = first_point_std.repeat(n_traj_samples,1,1) #[3,num_ball,16]

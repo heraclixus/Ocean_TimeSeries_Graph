@@ -171,7 +171,7 @@ def create_net(n_inputs, n_outputs, n_layers = 1,
 
 
 def compute_loss_all_batches(model,
-	encoder,graph,decoder, sys_para,
+	encoder,graph,decoder,
 	n_batches, device,
 	n_traj_samples = 1, kl_coef = 1., input_dim=4):
 
@@ -187,6 +187,8 @@ def compute_loss_all_batches(model,
 	for i in range(input_dim):
 		total["feature{}_mse".format(i)] = 0
 
+	total_pred_y = []
+	total_true_y = []
 	n_test_batches = 0
 
 	model.eval()
@@ -196,10 +198,11 @@ def compute_loss_all_batches(model,
 			batch_dict_encoder = get_next_batch_new(encoder, device)
 			batch_dict_graph = get_next_batch_new(graph, device)
 			batch_dict_decoder = get_next_batch(decoder, device)
-			batch_dict_para = get_next_batch_new(sys_para, device)
 
-			results = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,batch_dict_para,
+			results, pred_y = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,
 											   n_traj_samples=n_traj_samples, kl_coef=kl_coef)
+			total_pred_y.append(pred_y.detach().cpu().numpy())
+			total_true_y.append(batch_dict_decoder['data'].detach().cpu().numpy())
 
 			for key in total.keys():
 				if key in results:
@@ -210,14 +213,14 @@ def compute_loss_all_batches(model,
 
 			n_test_batches += 1
 
-			del batch_dict_encoder,batch_dict_graph,batch_dict_decoder,batch_dict_para,results
+			del batch_dict_encoder,batch_dict_graph,batch_dict_decoder,results
 
 		if n_test_batches > 0:
 			for key, value in total.items():
 				total[key] = total[key] / n_test_batches
 
 
-	return total
+	return total, np.concatenate(total_true_y, axis=0), np.concatenate(total_pred_y, axis=0)
 
 
 

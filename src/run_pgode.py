@@ -2,7 +2,7 @@ import os
 import sys
 import time
 
-from pgode.lib.new_dataLoader import ParseData
+from pgode.lib.new_dataLoader import ParseData, inverse_normalize
 from tqdm import tqdm
 import argparse
 import numpy as np
@@ -60,38 +60,27 @@ parser.add_argument('--save_traj', type=int, default=0)
 parser.add_argument('--disen_coef', type=float, default=0.01)
 parser.add_argument('--gate_use_global', type=int, default=1)
 parser.add_argument('--wo_local', type=int, default=0)
+parser.add_argument("--patience", type=int, default=50)
+parser.add_argument("--save_name", type=str, default="")
+parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
+parser.add_argument("--eval_criterion", type=str, default="all") # if all, this means report rmse for all dimensions together, else we stop by nino3.4 
+parser.add_argument("--train_loss", type=str, default="all") # if all, this means use training loss based on all nodes, else just focus on nino3.4
+parser.add_argument("--dataset", type=str, default="data/ocean_timeseries.csv")
+parser.add_argument("--single_target", action="store_true")
+
+# 11/18/2024
+# NOTE: try adding fourier loss and change the periodic embedding
+parser.add_argument("--fourier_coeff", type=float, default=0.)
+parser.add_argument("--period", type=int, default=12)
+
+
+# as from the README, we have 5 levels 
+parser.add_argument("--feature_set", type=int, default=1) # 
+#parser.add_argument('--alias', type=str, default="run")
 
 
 args = parser.parse_args()
 assert(int(args.rec_dims%args.n_heads) ==0)
-
-
-
-if args.data == "spring_1000_10_24":
-    args.dataset = 'data/springs_1000_10_24'
-    args.suffix = '_springs10'
-    args.total_ode_step=24
-elif args.data == "spring_1000_10_12":
-    args.dataset = 'data/springs_1000_10_12'
-    args.suffix = '_springs10'
-    args.total_ode_step=12
-elif args.data == "spring_1000_10_48":
-    args.dataset = 'data/springs_1000_10_48'
-    args.suffix = '_springs10'
-    args.total_ode_step=48
-elif args.data == "charged_1000_10_24":
-    args.dataset = 'data/charged_1000_10_24'
-    args.suffix = '_charged10'
-    args.total_ode_step=24
-elif args.data == "charged_1000_10_12":
-    args.dataset = 'data/charged_1000_10_12'
-    args.suffix = '_charged10'
-    args.total_ode_step=12
-elif args.data == "charged_1000_10_48":
-    args.dataset = 'data/charged_1000_10_48'
-    args.suffix = '_charged10'
-    args.total_ode_step=48
-
 args.total_ode_step=args.condition_num+args.extrap_num
 args.total_ode_step_train=args.condition_num+args.extrap_num
 
@@ -131,17 +120,25 @@ if __name__ == '__main__':
 
     ############ Loading Data
     print("Loading dataset: " + args.dataset)
-    dataloader = ParseData(args.dataset,suffix=args.suffix,mode=args.mode, args =args)
-    test_encoder, test_decoder, test_graph, test_para, test_batch = dataloader.load_data(sample_percent=args.sample_percent_test,
+    dataloader = ParseData(mode=args.mode, args =args)
+    test_encoder, test_decoder, test_graph, test_batch, test_original_max, test_original_min = dataloader.load_data(sample_percent=args.sample_percent_test,
                                                                               batch_size=args.batch_size,
                                                                               data_type="test")
-    train_encoder,train_decoder, train_graph, train_para, train_batch = dataloader.load_data(sample_percent=args.sample_percent_train,batch_size=args.batch_size,data_type="train")
-    val_encoder, val_decoder, val_graph, val_para, val_batch = dataloader.load_data(sample_percent=args.sample_percent_test,
-                                                                          batch_size=args.batch_size,
-                                                                          data_type="val")
-
+    train_encoder,train_decoder, train_graph,train_batch, train_original_max, train_original_min = dataloader.load_data(sample_percent=args.sample_percent_train,batch_size=args.batch_size,data_type="train")
+     
+    train_original_max = train_original_max.reshape(-1,1,1)
+    train_original_min = train_original_min.reshape(-1,1,1)
+    test_original_max = test_original_max.reshape(-1,1,1)
+    test_original_min = test_original_min.reshape(-1,1,1)
 
     input_dim = dataloader.feature
+    if args.single_target:
+        nino_col = dataloader.nino_feature_index
+        n_features = len(dataloader.features)
+
+    else:
+        nino_col = None
+        n_features = None
 
     ############ Command Related
     input_command = sys.argv
@@ -190,16 +187,16 @@ if __name__ == '__main__':
 
 
     wait_until_kl_inc = 10
-    best_test_mse = np.inf
-    best_test_mse_val = np.inf
+    best_test_rmse = np.inf
+    best_test_rmse_val = np.inf
     best_val_mse = np.inf
     n_iters_to_viz = 1
 
 
-    def train_single_batch(model,batch_dict_encoder,batch_dict_decoder,batch_dict_graph,batch_dict_para,kl_coef):
+    def train_single_batch(model,batch_dict_encoder,batch_dict_decoder,batch_dict_graph,kl_coef):
 
         optimizer.zero_grad()
-        train_res = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,batch_dict_para,
+        train_res = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,
                                              n_traj_samples=3, kl_coef=kl_coef)
 
         loss = train_res["loss"]
@@ -236,6 +233,8 @@ if __name__ == '__main__':
         std_first_p_list = []
 
         torch.cuda.empty_cache()
+        total_true_y = []
+        total_pred_y = []
 
         for itr in tqdm(range(train_batch)):
 
@@ -248,16 +247,13 @@ if __name__ == '__main__':
                 kl_coef = (1 - 0.99 ** (itr - wait_until_kl_inc))
 
             batch_dict_encoder = utils.get_next_batch_new(train_encoder, device)
-
             batch_dict_graph = utils.get_next_batch_new(train_graph, device)
-
             batch_dict_decoder = utils.get_next_batch(train_decoder, device)
 
-            batch_dict_para = utils.get_next_batch_new(train_para, device)
 
             loss, mse,likelihood,kl_first_p,std_first_p,\
                 disen_loss,sys_loss = train_single_batch(model,batch_dict_encoder,batch_dict_decoder,
-                                                         batch_dict_graph,batch_dict_para,kl_coef)
+                                                         batch_dict_graph,kl_coef)
 
         
             #saving results
@@ -267,87 +263,126 @@ if __name__ == '__main__':
             loss_disen_list.append(disen_loss)
             loss_sys_list.append(sys_loss)
 
+            pred_y = pred_y.detach().cpu().numpy()
+            true_y = batch_dict_decoder['data'].detach().cpu().numpy()
+            total_pred_y.append(pred_y)
+            total_true_y.append(true_y)
+
             del batch_dict_encoder, batch_dict_graph, batch_dict_decoder
                 #train_res, loss
             torch.cuda.empty_cache()
 
         scheduler.step()
+        train_true_y, train_pred_y = np.concatenate(total_true_y, axis=0), np.concatenate(total_pred_y, axis=0)
+        true = inverse_normalize(train_true_y, train_original_max, train_original_min)
+        pred = inverse_normalize(train_pred_y, train_original_max, train_original_min)
         
+        if nino_col is not None:
+            true_reshaped = true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+            pred_reshaped = pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+            rmse_nino = np.sqrt(np.mean(np.square(true_reshaped-pred_reshaped)))
+            mape = np.mean(np.abs(true_reshaped-pred_reshaped)/true_reshaped)
 
-        message_train = ('Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | Loss_disen {:.4f} | '
-                         'Loss_sys {:.4f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|').format(
+        mape = np.mean(np.abs(true - pred)/true)
+        rmse = np.sqrt( np.mean( np.square(true - pred), axis=2 ) ).mean(1).mean()
+
+        if nino_col is not None:
+            message_train = ('Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | Loss_disen {:.4f} | '
+                         'Loss_sys {:.4f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE_NINO {:.6F} | MAPE {:.6f} | ').format(
             epo,
             np.mean(loss_list), np.mean(loss_disen_list), np.mean(loss_sys_list),  np.mean(mse_list), np.mean(likelihood_list),
-            np.mean(kl_first_p_list), np.mean(std_first_p_list))
+            np.mean(kl_first_p_list), np.mean(std_first_p_list), rmse_nino, mape)
+        else:   
+            message_train = ('Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | Loss_disen {:.4f} | '
+                         'Loss_sys {:.4f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | ').format(
+            epo,
+            np.mean(loss_list), np.mean(loss_disen_list), np.mean(loss_sys_list),  np.mean(mse_list), np.mean(likelihood_list),
+            np.mean(kl_first_p_list), np.mean(std_first_p_list), rmse, mape)
+        if nino_col is not None:
+            rmse = rmse_nino
 
 
-        return message_train, kl_coef
+        return message_train, kl_coef, true, pred, [rmse]
+    import datetime
+    now = datetime.datetime.now()
+    date = str(now) # str(uuid.uuid4())
+    os.makedirs(f"results/{date}_{args.save_name}", exist_ok=True)
+    np.save(f"results/{date}_{args.save_name}/test_original_max.npy", test_original_max)
+    np.save(f"results/{date}_{args.save_name}/test_original_min.npy", test_original_min)
+    np.save(f"results/{date}_{args.save_name}/train_original_max.npy", train_original_max)
+    np.save(f"results/{date}_{args.save_name}/train_original_min.npy", train_original_min)
 
-
+    cumulative_patience = 0
+    best_epo = 0
+    
     for epo in range(1, args.niters + 1):
         time_start = time.time()
-        message_train, kl_coef = train_epoch(epo)
+        message_train, kl_coef, train_true_y, train_pred_y, train_metrics = train_epoch(epo)
         logger.info("cost_time: {:.6f} s".format(time.time() - time_start))
 
         if epo % n_iters_to_viz == 0:
             model.eval()
-            val_res = compute_loss_all_batches(model, val_encoder, val_graph, val_decoder, val_para,
-                                                n_batches=val_batch, device=device,
-                                                n_traj_samples=3, kl_coef=kl_coef)
-            message_val = 'Epoch {:04d} [Val seq (cond on sampled tp)] | Loss {:.6f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
-                epo,
-                val_res["loss"], val_res["mse"], val_res["likelihood"],
-                val_res["kl_first_p"], val_res["std_first_p"])
-
-            test_res = compute_loss_all_batches(model, test_encoder, test_graph, test_decoder, test_para,
+            test_res, test_true_y, test_pred_y = compute_loss_all_batches(model, test_encoder, test_graph, test_decoder,
                                                 n_batches=test_batch, device=device,
                                                 n_traj_samples=3, kl_coef=kl_coef)
-            message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
+            
+            test_true = inverse_normalize(test_true_y, test_original_max, test_original_min)
+            test_pred = inverse_normalize(test_pred_y, test_original_max, test_original_min)
+
+            if nino_col is not None:
+                test_true_reshaped = test_true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+                test_pred_reshaped = test_pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+                rmse_nino = np.sqrt(np.mean(np.square(test_true_reshaped-test_pred_reshaped)))
+                mape = np.mean(np.abs(test_true_reshaped-test_pred_reshaped)/test_true_reshaped)
+           
+            rmse = np.sqrt( np.mean( np.square(test_true - test_pred), axis=2 ) ).mean(1).mean()
+            mape = np.mean(np.abs(test_true - test_pred)/test_true)
+            
+            if nino_col is not None:
+                message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE_NINO {:.6F} | MAPE {:.6f} | '.format(
                 epo,
                 test_res["loss"], test_res["mse"], test_res["likelihood"],
-                test_res["kl_first_p"], test_res["std_first_p"])
+                test_res["kl_first_p"], test_res["std_first_p"], rmse_nino, mape)
+            else:    
+                message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | '.format(
+                epo,
+                test_res["loss"], test_res["mse"], test_res["likelihood"],
+                test_res["kl_first_p"], test_res["std_first_p"], rmse, mape)
 
             logger.info("Experiment " + str(experimentID))
             logger.info(message_train)
-            logger.info(message_val)
             logger.info(message_test)
             logger.info("KL coef: {}".format(kl_coef))
             print("data: %s, encoder: %s, sample: %s, mode:%s" % (
                 args.data, args.z0_encoder, str(args.sample_percent_train), args.mode))
+            
+            if nino_col is not None:
+                rmse = rmse_nino
 
-            if val_res["mse"] < best_val_mse:
-                best_val_mse = val_res["mse"]
-                best_test_mse_val = test_res["mse"]
-                message_best_test_val = 'Best val | Epoch {:04d} [Test seq (cond on sampled tp)] | mse {:.6f}|'.format(epo,
-                                                                                                        best_test_mse_val)
-                logger.info(message_best_test_val)
-                ckpt_path = os.path.join(args.save, "experiment_" + str(
-                    experimentID) + "_" + args.z0_encoder + "_" + args.data + "_expert" +str(args.expert_num) + "_cond" + str(
-                    args.condition_num) + "_" + args.mode + "_epoch_" + str(epo) + "_mse_" + str(
-                    best_test_mse_val) + '.ckpt')
-                torch.save({
-                    'args': args,
-                    'state_dict': model.state_dict(),
-                }, ckpt_path)
-
-            if test_res["mse"] < best_test_mse:
-                best_test_mse = test_res["mse"]
+            if rmse < best_test_rmse:
+                best_epo = epo
+                best_test_rmse = rmse
                 message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best mse {:.6f}|'.format(epo,
-                                                                                                        best_test_mse)
+                                                                                                        best_test_rmse)
                 logger.info(message_best)
-                ckpt_path = os.path.join(args.save, "experiment_" + str(
-                    experimentID) + "_" + args.z0_encoder + "_" + args.data + "_expert" +str(args.expert_num) + "_cond" + str(
-                    args.condition_num) + "_" + args.mode + "_epoch_" + str(epo) + "_mse_" + str(
-                    best_test_mse) + '.ckpt')
+                ckpt_path = os.path.join(f"results/{date}_{args.save_name}/model.ckpt")
                 torch.save({
                     'args': args,
                     'state_dict': model.state_dict(),
                 }, ckpt_path)
+                
+                cumulative_patience = 0 
+                np.save(f"results/{date}_{args.save_name}/test_pred.npy", test_pred)
+                np.save(f"results/{date}_{args.save_name}/test_true.npy", test_true)
+                np.save(f"results/{date}_{args.save_name}/train_pred.npy", train_pred_y)
+                np.save(f"results/{date}_{args.save_name}/train_true.npy", train_true_y)
+
+            cumulative_patience += 1 
+            if cumulative_patience >= args.patience:
+                print(f"Early stopping: curernt best rmse is {best_test_rmse} at epoch {best_epo}.")
+                torch.cuda.empty_cache()
+                break
 
             torch.cuda.empty_cache()
-
-    logger.info(message_best_test_val)
-    logger.info(message_best)
-
 
 

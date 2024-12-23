@@ -1,7 +1,7 @@
-from .gnn_models import GNN, GateGNN
-from .latent_ode import LatentGraphODE
-from .encoder_decoder import *
-from .diffeq_solver import DiffeqSolver,GraphODEFunc
+from pgode.lib.gnn_models import GNN, GateGNN
+from pgode.lib.latent_ode import LatentGraphODE
+from pgode.lib.encoder_decoder import *
+from pgode.lib.diffeq_solver import DiffeqSolver,GraphODEFunc
 import torch.nn as nn
 
 
