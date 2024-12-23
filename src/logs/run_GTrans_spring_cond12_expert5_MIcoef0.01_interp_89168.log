@@ -15,3 +15,8 @@ Epoch 0002 [Test seq (cond on sampled tp)] | Loss 607.865479 | MSE 0.121911 | Li
 KL coef: 0.0
 Epoch 0002 [Test seq (cond on sampled tp)] | Best mse 6.621341|
 cost_time: 234.091654 s
+Experiment 89168
+Epoch 0003 [Train seq (cond on sampled tp)] | Loss 553.156209 | Loss_disen -0.0045 | MSE 0.111129 | Likelihood -555.643270 | KL fp 1.2904 | FP STD 0.4519| | RMSE 6.113685 | MAPE -0.228999 | 
+Epoch 0003 [Test seq (cond on sampled tp)] | Loss 454.140137 | MSE 0.091148 | Likelihood -455.739502 | KL fp 1.4723 | FP STD 0.4220| | RMSE 5.926994 | MAPE -0.011575 | 
+KL coef: 0.0
+Epoch 0003 [Test seq (cond on sampled tp)] | Best mse 5.926994|

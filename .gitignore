@@ -4,3 +4,4 @@ src/results/*/*.npy
 src/results/*/*.ckpt
 src/results/*
 src/nino_logs/
+src/logs
