@@ -122,8 +122,7 @@ class LatentGraphODE(VAE_Baseline):
 			# "first_point_global": (torch.unsqueeze(first_point_mu_g, 0), torch.unsqueeze(first_point_std_g, 0),
 			# 					   first_point_enc_g),
 			"latent_traj": sol_y.detach(),
-			"disen_loss": disen_loss,
-			"sys_loss": sys_loss
+			"disen_loss": disen_loss
 		}
 
 		return pred_x, all_extra_info, None

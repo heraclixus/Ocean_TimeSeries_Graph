@@ -10,6 +10,7 @@ EPS=1e-12
 class VAE_Baseline(nn.Module):
 	def __init__(self, input_dim, latent_dim, 
 		z0_prior, device,
+		fourier_coeff=0.0,
 		obsrv_std = 0.01, 
 		):
 
@@ -18,6 +19,7 @@ class VAE_Baseline(nn.Module):
 		self.input_dim = input_dim
 		self.latent_dim = latent_dim
 		self.device = device
+		self.fourier_coeff = fourier_coeff
 
 		self.obsrv_std = torch.Tensor([obsrv_std]).to(device)
 
@@ -123,12 +125,10 @@ class VAE_Baseline(nn.Module):
 
 		# loss
 		disen_loss = info["disen_loss"]
-		sys_loss = info["sys_loss"]
 
-
-		loss = - torch.logsumexp(rec_likelihood - kl_coef * kldiv_z0, 0) + self.args.disen_coef * disen_loss + self.MI_coef * sys_loss
+		loss = - torch.logsumexp(rec_likelihood - kl_coef * kldiv_z0, 0) + self.args.disen_coef * disen_loss
 		if torch.isnan(loss):
-			loss = - torch.mean(rec_likelihood - kl_coef * kldiv_z0,0) + self.args.disen_coef * disen_loss + self.MI_coef * sys_loss
+			loss = - torch.mean(rec_likelihood - kl_coef * kldiv_z0,0) + self.args.disen_coef * disen_loss
 
 		print(f"loss = {loss}")
 		print(f"fourier_loss = {fourier_loss}")
@@ -142,7 +142,6 @@ class VAE_Baseline(nn.Module):
 		results["kl_first_p"] =  torch.mean(kldiv_z0).detach().data.item()
 		results["std_first_p"] = torch.mean(fp_std).detach().data.item()
 		results["disen_loss"] = disen_loss.item() * self.MI_coef
-		results["sys_loss"] = sys_loss.item() * self.MI_coef
 		results["q_mse"] = torch.mean(q_mse).data.item()
 		results["v_mse"] = torch.mean(v_mse).data.item()
 		results["fourier_loss"] = fourier_loss.data.item()
@@ -150,7 +149,7 @@ class VAE_Baseline(nn.Module):
 		for i in range(feature_num):
 			results["feature{}_mse".format(i)] = torch.mean(mse_list[i]).data.item()
 
-		return results,
+		return results, pred_y.mean(0)
 
 
 

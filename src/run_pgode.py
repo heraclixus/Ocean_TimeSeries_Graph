@@ -60,6 +60,10 @@ parser.add_argument('--save_traj', type=int, default=0)
 parser.add_argument('--disen_coef', type=float, default=0.01)
 parser.add_argument('--gate_use_global', type=int, default=1)
 parser.add_argument('--wo_local', type=int, default=0)
+
+parser.add_argument('--cond_len', type=int, default=12)
+parser.add_argument('--pred_len', type=int, default=24)
+parser.add_argument('--test', type=int, default=0)
 parser.add_argument("--patience", type=int, default=50)
 parser.add_argument("--save_name", type=str, default="")
 parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
@@ -196,7 +200,7 @@ if __name__ == '__main__':
     def train_single_batch(model,batch_dict_encoder,batch_dict_decoder,batch_dict_graph,kl_coef):
 
         optimizer.zero_grad()
-        train_res = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,
+        train_res, pred_y = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,
                                              n_traj_samples=3, kl_coef=kl_coef)
 
         loss = train_res["loss"]
@@ -220,13 +224,12 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
         # train_res, loss
         return loss_value,train_res["mse"],train_res["likelihood"],train_res["kl_first_p"],train_res["std_first_p"], \
-            train_res["disen_loss"], train_res["sys_loss"]
+            train_res["disen_loss"], pred_y
 
     def train_epoch(epo):
         model.train()
         loss_list = []
         loss_disen_list = []
-        loss_sys_list = []
         mse_list = []
         likelihood_list = []
         kl_first_p_list = []
@@ -252,7 +255,7 @@ if __name__ == '__main__':
 
 
             loss, mse,likelihood,kl_first_p,std_first_p,\
-                disen_loss,sys_loss = train_single_batch(model,batch_dict_encoder,batch_dict_decoder,
+                disen_loss, pred_y = train_single_batch(model,batch_dict_encoder,batch_dict_decoder,
                                                          batch_dict_graph,kl_coef)
 
         
@@ -261,7 +264,6 @@ if __name__ == '__main__':
                likelihood)
             kl_first_p_list.append(kl_first_p), std_first_p_list.append(std_first_p)
             loss_disen_list.append(disen_loss)
-            loss_sys_list.append(sys_loss)
 
             pred_y = pred_y.detach().cpu().numpy()
             true_y = batch_dict_decoder['data'].detach().cpu().numpy()
@@ -288,15 +290,15 @@ if __name__ == '__main__':
 
         if nino_col is not None:
             message_train = ('Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | Loss_disen {:.4f} | '
-                         'Loss_sys {:.4f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE_NINO {:.6F} | MAPE {:.6f} | ').format(
+                         'MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE_NINO {:.6F} | MAPE {:.6f} | ').format(
             epo,
-            np.mean(loss_list), np.mean(loss_disen_list), np.mean(loss_sys_list),  np.mean(mse_list), np.mean(likelihood_list),
+            np.mean(loss_list), np.mean(loss_disen_list),  np.mean(mse_list), np.mean(likelihood_list),
             np.mean(kl_first_p_list), np.mean(std_first_p_list), rmse_nino, mape)
         else:   
             message_train = ('Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | Loss_disen {:.4f} | '
-                         'Loss_sys {:.4f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | ').format(
+                         'MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | ').format(
             epo,
-            np.mean(loss_list), np.mean(loss_disen_list), np.mean(loss_sys_list),  np.mean(mse_list), np.mean(likelihood_list),
+            np.mean(loss_list), np.mean(loss_disen_list),  np.mean(mse_list), np.mean(likelihood_list),
             np.mean(kl_first_p_list), np.mean(std_first_p_list), rmse, mape)
         if nino_col is not None:
             rmse = rmse_nino
