@@ -15,7 +15,6 @@ category_4_features = category_3_features + ["ea", "epo", "nao", "pna", "wp"]
 category_5_features = category_4_features + ["qbo", "solar"]
 
 
-<<<<<<< HEAD
 # climate anomay score
 def calculate_acc(true, pred):
     return xs.pearson_r(xr.DataArray(true), xr.DataArray(pred))
@@ -26,6 +25,7 @@ def calcaulate_rmse(true, pred):
 
 
 def plot_forecast_skill(folder_path, true, pred, pred_len=24):
+
     horizon_sizes = [i for i in range(3, pred_len)]
     accs, rmses = [],[]
     for pred_horizon in horizon_sizes:
@@ -35,23 +35,18 @@ def plot_forecast_skill(folder_path, true, pred, pred_len=24):
         rmse = calcaulate_rmse(true_temp, pred_temp)
         accs.append(acc)
         rmses.append(rmse)
-    print(f"acc: {accs}")
-    print(f"rmse: {rmses}")
     fig, ax = plt.subplots(2, 1, figsize=(5,10), sharex=True)
     ax[0].plot(horizon_sizes, accs, linestyle='--', marker='o', color='g', label='ACC')
     ax[1].plot(horizon_sizes, rmses, linestyle='--', marker='o', color='b', label='RMSE')
     ax[0].set_xlabel("prediction horizon size")
     ax[0].set_ylabel("Climate Anomaly (ACC)")
     ax[1].set_ylabel("RMSE")
+    plt.title(f"{folder_path} Forecast Skills")
     plt.savefig(os.path.join(folder_path, f'{folder_path}_forecast_skill.png'))
     plt.close()
 
 
 def plot_predictions_vs_true_reg(folder_path, visualize_length=50000, pred_len=24):
-=======
-def plot_predictions_vs_true_reg(folder_path, visualize_length=50000):
->>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
-
     if "cat1" in folder_path:
         features = category_1_features
     elif "cat2" in folder_path:
@@ -67,7 +62,6 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000):
     nino_feature_index = features.index("nina34")
 
     # Load the data
-<<<<<<< HEAD
     test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, pred_len)[:, nino_feature_index,:]
     test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, pred_len)[:, nino_feature_index,:]
 
@@ -75,22 +69,15 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000):
 
     test_pred = test_pred.flatten()
     test_true = test_true.flatten()
-=======
-    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
-    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
->>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
 
     if len(test_pred) > visualize_length:
         test_pred = test_pred[:visualize_length]
         test_true = test_true[:visualize_length]
     
-    print(f"R2: {r2_score(test_true, test_pred)}")
-    print(f"MAPE: {mean_absolute_percentage_error(test_true, test_pred)}")
-<<<<<<< HEAD
-    print(f"RMSE: {calcaulate_rmse(test_true, test_pred)}")
-=======
->>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
-    print(f"MAE: {mean_absolute_error(test_true, test_pred)}")
+    # print(f"R2: {r2_score(test_true, test_pred)}")
+    # print(f"MAPE: {mean_absolute_percentage_error(test_true, test_pred)}")
+    # print(f"RMSE: {calcaulate_rmse(test_true, test_pred)}")
+    # print(f"MAE: {mean_absolute_error(test_true, test_pred)}")
 
     plt.figure(figsize=(10, 8))
 
@@ -110,7 +97,7 @@ def plot_predictions_vs_true_reg(folder_path, visualize_length=50000):
     
     # Save the plot
     folder_name = os.path.basename(folder_path)
-    plt.savefig(os.path.join(folder_path, f'{folder_name}_nino34_reg.png'))
+    plt.savefig(os.path.join("../plots", f'{folder_name}_nino34_reg.png'))
 
 
 
@@ -131,7 +118,6 @@ def plot_predictions_vs_true(folder_path, visualize_length=500):
     nino_feature_index = features.index("nina34")
 
     # Load the data
-<<<<<<< HEAD
     test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:]
     test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:]
 
@@ -139,10 +125,6 @@ def plot_predictions_vs_true(folder_path, visualize_length=500):
 
     test_pred = test_pred.flatten()
     test_true = test_true.flatten()
-=======
-    test_pred = np.load(os.path.join(folder_path, 'test_pred.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
-    test_true = np.load(os.path.join(folder_path, 'test_true.npy')).squeeze().reshape(-1, n_features, 24)[:, nino_feature_index,:].flatten()
->>>>>>> 17f5c5240cdd50e12114f7e8a96b682468309c4c
     
     if len(test_pred) > visualize_length:
         test_pred = test_pred[:visualize_length]
@@ -165,7 +147,7 @@ def plot_predictions_vs_true(folder_path, visualize_length=500):
     
     # Save the plot
     folder_name = os.path.basename(folder_path)
-    plt.savefig(os.path.join(folder_path, f'{folder_name}_nino34_timeseries.png'))
+    plt.savefig(os.path.join("../plots", f'{folder_name}_nino34_timeseries.png'))
     plt.close()
 
 

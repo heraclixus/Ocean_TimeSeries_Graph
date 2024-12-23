@@ -8,6 +8,7 @@ import torch
 class VAE_Baseline(nn.Module):
 	def __init__(self, input_dim, latent_dim, 
 		z0_prior, device,
+		fourier_coeff=0.0,
 		obsrv_std = 0.01, 
 		):
 
@@ -16,6 +17,7 @@ class VAE_Baseline(nn.Module):
 		self.input_dim = input_dim
 		self.latent_dim = latent_dim
 		self.device = device
+		self.fourier_coeff = fourier_coeff
 
 		self.obsrv_std = torch.Tensor([obsrv_std]).to(device)
 
@@ -52,12 +54,16 @@ class VAE_Baseline(nn.Module):
 		return torch.mean(log_density_data)
 
 
+	# NOTE: 11/18/24
+	# added an option to use Fourier loss
 	def compute_all_losses(self, batch_dict_encoder,batch_dict_decoder,batch_dict_graph ,n_traj_samples = 1, kl_coef = 1.):
 		# Condition on subsampled points
 		# Make predictions for all the points
 
 		pred_y, info,temporal_weights= self.get_reconstruction(batch_dict_encoder,batch_dict_decoder,batch_dict_graph,n_traj_samples = n_traj_samples)
 		# pred_y shape [n_traj_samples, n_traj, n_tp, n_dim]
+		# (b, n, t, d)
+		actual_y = batch_dict_decoder["data"]
 		 
 		#print("get_reconstruction done -- computing likelihood")
 		fp_mu, fp_std, fp_enc = info["first_point"]
@@ -86,6 +92,12 @@ class VAE_Baseline(nn.Module):
 			mask=batch_dict_decoder["mask"])   #negative value
 
 
+		# Compute the Fourier loss to see how periodicity goes in
+		fft_true = torch.fft.fft(actual_y.squeeze(), dim=-1)
+		fft_pred = torch.fft.fft(pred_y.squeeze(), dim=-1)
+		fourier_loss = torch.mean(torch.abs(fft_true - fft_pred))
+
+
 		mse = self.get_mse(
 			batch_dict_decoder["data"], pred_y,
 			mask=batch_dict_decoder["mask"])  # [1]
@@ -95,6 +107,10 @@ class VAE_Baseline(nn.Module):
 		loss = - torch.logsumexp(rec_likelihood -  kl_coef * kldiv_z0,0)
 		if torch.isnan(loss):
 			loss = - torch.mean(rec_likelihood - kl_coef * kldiv_z0,0)
+		
+		print(f"loss = {loss}")
+		print(f"fourier_loss = {fourier_loss}")
+		loss = loss + self.fourier_coeff * fourier_loss
  
 		results = {}
 		results["loss"] = torch.mean(loss)
@@ -102,6 +118,7 @@ class VAE_Baseline(nn.Module):
 		results["mse"] = torch.mean(mse).data.item()
 		results["kl_first_p"] =  torch.mean(kldiv_z0).detach().data.item()
 		results["std_first_p"] = torch.mean(fp_std).detach().data.item()
+		results["fourier_loss"] = fourier_loss
 
 		return results, pred_y.mean(0) 
  

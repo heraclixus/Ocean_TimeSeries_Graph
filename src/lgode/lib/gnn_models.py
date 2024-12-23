@@ -11,10 +11,13 @@ import lgode.lib.utils as utils
 
 class TemporalEncoding(nn.Module):
 
-    def __init__(self, d_hid):
+    # 11/18/24: NOTE try changing the periodic values in the temporal encodings 
+    
+    def __init__(self, d_hid, period=10000):
         super(TemporalEncoding, self).__init__()
         self.d_hid = d_hid
-        self.div_term = torch.FloatTensor([1 / np.power(10000, 2 * (hid_j // 2) / self.d_hid) for hid_j in range(self.d_hid)]) #[20]
+        #  NOTE change the 10000 to 12? 
+        self.div_term = torch.FloatTensor([1 / np.power(period, 2 * (hid_j // 2) / self.d_hid) for hid_j in range(self.d_hid)]) #[20]
         self.div_term = torch.reshape(self.div_term,(1,-1))
         self.div_term = nn.Parameter(self.div_term,requires_grad=False)
 
@@ -36,7 +39,7 @@ class TemporalEncoding(nn.Module):
 
 class GTrans(MessagePassing):
 
-    def __init__(self, n_heads=2,d_input=6, d_k=6,dropout = 0.1,**kwargs):
+    def __init__(self, n_heads=2,d_input=6, d_k=6,dropout = 0.1, period=10000,**kwargs):
         super(GTrans, self).__init__(aggr='add', **kwargs)
         self.n_heads = n_heads
         self.dropout = nn.Dropout(dropout)
@@ -46,6 +49,7 @@ class GTrans(MessagePassing):
         self.d_q = d_k//n_heads
         self.d_e = d_k//n_heads
         self.d_sqrt = math.sqrt(d_k//n_heads)
+        self.period = period
 
         #Attention Layer Initialization
         self.w_k_list_same = nn.ModuleList([nn.Linear(self.d_input, self.d_k, bias=True) for i in range(self.n_heads)])
@@ -67,7 +71,7 @@ class GTrans(MessagePassing):
 
 
         #Temporal Layer
-        self.temporal_net = TemporalEncoding(d_input)
+        self.temporal_net = TemporalEncoding(d_input, self.period)
 
         #Normalization
         self.layer_norm = nn.LayerNorm(d_input)
@@ -222,11 +226,11 @@ class GeneralConv(nn.Module):
     '''
     general layers
     '''
-    def __init__(self, conv_name, in_hid, out_hid, n_heads, dropout):
+    def __init__(self, conv_name, in_hid, out_hid, n_heads, dropout, period=10000):
         super(GeneralConv, self).__init__()
         self.conv_name = conv_name
         if self.conv_name == 'GTrans':
-            self.base_conv = GTrans(n_heads,in_hid,out_hid,dropout)
+            self.base_conv = GTrans(n_heads,in_hid,out_hid,dropout, period=period)
         elif self.conv_name == "NRI":
             self.base_conv = NRIConv(in_hid,out_hid,dropout)
 
@@ -241,7 +245,7 @@ class GNN(nn.Module):
     '''
     wrap up multiple layers
     '''
-    def __init__(self, in_dim, n_hid,out_dim, n_heads, n_layers, dropout = 0.2, conv_name = 'GTrans',aggregate = "add"):
+    def __init__(self, in_dim, n_hid,out_dim, n_heads, n_layers, dropout = 0.2, conv_name = 'GTrans',aggregate = "add", period=12, fourier_coeff=1.):
         super(GNN, self).__init__()
         self.gcs = nn.ModuleList()
         self.in_dim    = in_dim
@@ -251,6 +255,8 @@ class GNN(nn.Module):
         self.sequence_w = nn.Linear(n_hid,n_hid) # for encoder
         self.out_w_ode = nn.Linear(n_hid,out_dim)
         self.out_w_encoder = nn.Linear(n_hid,out_dim*2)
+        self.period = period
+        self.fourier_coeff = fourier_coeff
 
         #initialization
         utils.init_network_weights(self.adapt_ws)
@@ -262,10 +268,10 @@ class GNN(nn.Module):
         self.layer_norm = nn.LayerNorm(n_hid)
         self.aggregate = aggregate
         for l in range(n_layers):
-            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid,  n_heads, dropout))
+            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid,  n_heads, dropout, self.period))
 
         if conv_name == 'GTrans':
-            self.temporal_net = TemporalEncoding(n_hid)
+            self.temporal_net = TemporalEncoding(n_hid, self.period)
             #self.w_transfer = nn.Linear(self.n_hid * 2, self.n_hid, bias=True)
             self.w_transfer = nn.Linear(self.n_hid + 1, self.n_hid, bias=True)
             utils.init_network_weights(self.w_transfer)

@@ -4,12 +4,13 @@ import torch
 
 class LatentGraphODE(VAE_Baseline):
 	def __init__(self, input_dim, latent_dim, encoder_z0, decoder, diffeq_solver,
-				 z0_prior, device, obsrv_std=None):
+				 z0_prior, device, obsrv_std=None, fourier_coeff=0.0):
 
 		super(LatentGraphODE, self).__init__(
 			input_dim=input_dim, latent_dim=latent_dim,
 			z0_prior=z0_prior,
-			device=device, obsrv_std=obsrv_std)
+			device=device, obsrv_std=obsrv_std,
+			fourier_coeff=fourier_coeff)
 
 		self.encoder_z0 = encoder_z0
 		self.diffeq_solver = diffeq_solver

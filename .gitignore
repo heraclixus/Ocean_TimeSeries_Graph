@@ -2,3 +2,4 @@
 src/*.txt
 src/results/*/*.npy
 src/results/*/*.ckpt
+src/results/*
