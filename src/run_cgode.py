@@ -8,9 +8,9 @@ import torch
 import torch.optim as optim
 import lgode.lib.utils as utils
 from torch.distributions.normal import Normal
-from lgode.lib.create_latent_ode_model import create_LatentODE_model
+from cgode.lib.create_coupled_ode_model import create_CoupledODE_model
 from lgode.lib.utils import compute_loss_all_batches
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 import random
 import datetime
 # Generative model for noisy data based on ODE
@@ -35,7 +35,7 @@ parser.add_argument('--extrap', type=str,default="True", help="Set extrapolation
 parser.add_argument('--dropout', type=float, default=0.2,help='Dropout rate (1 - keep probability).')
 parser.add_argument('--sample-percent-train', type=float, default=1,help='Percentage of training observtaion data')
 parser.add_argument('--sample-percent-test', type=float, default=1,help='Percentage of testing observtaion data')
-parser.add_argument('--augment_dim', type=int, default=64, help='augmented dimension')
+parser.add_argument('--augment_dim', type=int, default=0, help='augmented dimension') # NOTE: different from LGODE 
 parser.add_argument('--edge_types', type=int, default=2, help='edge number in NRI')
 parser.add_argument('--odenet', type=str, default="NRI", help='NRI')
 parser.add_argument('--solver', type=str, default="rk4", help='dopri5,rk4,euler')
@@ -55,6 +55,7 @@ parser.add_argument("--eval_criterion", type=str, default="all") # if all, this 
 parser.add_argument("--train_loss", type=str, default="all") # if all, this means use training loss based on all nodes, else just focus on nino3.4
 parser.add_argument("--dataset", type=str, default="data/ocean_timeseries.csv")
 parser.add_argument("--single_target", action="store_true")
+parser.add_argument("--output_dim", type=int, default=1)
 
 # 11/18/2024
 # NOTE: try adding fourier loss and change the periodic embedding
@@ -148,7 +149,8 @@ if __name__ == '__main__':
     obsrv_std = torch.Tensor([obsrv_std]).to(device)
     z0_prior = Normal(torch.Tensor([0.0]).to(device), torch.Tensor([1.]).to(device))
 
-    model = create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device)
+    args.num_atoms = dataloader.num_atoms
+    model = create_CoupledODE_model(args, input_dim, z0_prior, obsrv_std, device)
 
      
 
