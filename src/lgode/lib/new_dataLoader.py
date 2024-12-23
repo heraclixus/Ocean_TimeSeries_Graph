@@ -7,6 +7,7 @@ from tqdm import tqdm
 import lgode.lib.utils as utils
 from torch.nn.utils.rnn import pad_sequence
 import pandas as pd
+import scipy.io
 
 """
 ['pna', 'pacwarmpool', 'pacwarm', 'qbo', 'amon', 'ea', 
@@ -26,17 +27,11 @@ def normalize(series, original_max, original_min):
 def inverse_normalize(scaled_series, original_max, original_min):
     return scaled_series * (original_max-original_min) + original_min
 
-# def normalize(series, original_max, original_min):
-#     return (series - original_max) / original_min
-# def inverse_normalize(scaled_series, original_max, original_min):
-#     return scaled_series * original_min + original_max
 
  
 class ParseData(object):
 
-    def __init__(self, dataset_path,args,suffix='_springs5',mode="interp"):
-        self.dataset_path = dataset_path
-        self.suffix = suffix
+    def __init__(self,args,mode="interp"):
         self.mode = mode
         self.random_seed = args.random_seed
         self.args = args
@@ -48,8 +43,39 @@ class ParseData(object):
 
         torch.manual_seed(self.random_seed)
         np.random.seed(self.random_seed)
-  
-    def preprocess(self, data_type):
+
+
+    def preprocess_mat(self):
+        print(f"processing mat file {self.args.input_file}...")
+        print(f"generating graph and time series...")
+        X = scipy.io.loadmat(self.args.input_file)["pcs"]
+        train_cutoff = int(len(X) * 0.8)
+        if self.args.test == 1: 
+            X = X[:72]
+        else:
+            X = X[train_cutoff:]
+        T, N = X.shape
+        ###### Chunk into shorter time series 
+        seq_len = self.args.cond_len + self.args.pred_len  
+        for i in range(T-seq_len):
+            subseq = X[i:i+seq_len] # T' x N 
+            subseq = subseq.T # N x T'
+            subseq = subseq.reshape(N, seq_len, 1)
+            time_series.append(subseq)
+            edges.append(np.ones((N,N)))
+            time_obs.append(np.tile(np.linspace(0,5,seq_len), (N,1)).reshape(N,-1))
+         
+        time_series = np.stack(time_series)  # train: n_seq x N x T x 1
+        edges = np.stack(edges)
+        time_obs = np.stack(time_obs)  
+        original_max =  np.max(time_series, 2, keepdims=True)
+        original_min =  np.min(time_series, 2, keepdims=True) 
+        time_series = normalize(time_series, original_max, original_min)
+        print('\ntime series max min', np.max(time_series), np.min(time_series)) 
+        return time_series, edges, time_obs, original_max, original_min
+
+    
+    def preproces_csv(self, data_type):
         '''
         Output:
             timeseries: [#seq, #node, #timestep, #feature] (#feature=1)
@@ -60,7 +86,7 @@ class ParseData(object):
         time_series = []
         edges = []
         time_obs = [] # observed timestamps (required for LGODE)
-
+        
         # ../data/indices_ocean_19_timeseries.csv
         data_np = np.loadtxt(self.args.input_file, delimiter=',', dtype=str, skiprows=1)
         data = pd.read_csv(self.args.input_file)
@@ -307,10 +333,7 @@ class ParseData(object):
         # forward: t0=0;  otherwise: t0=tN/2 
         # compute cutting window size:
         if self.cutting_edge:
-            if self.suffix == "_springs5" or self.suffix == "_charged5":
-                max_gap = (self.total_step - 40 * self.sample_percent) /self.total_step
-            else:
-                max_gap = (self.total_step - 30 * self.sample_percent) / self.total_step
+            max_gap = (self.total_step - 30 * self.sample_percent) / self.total_step
         else:
             max_gap = 100
 

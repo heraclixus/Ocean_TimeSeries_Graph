@@ -53,7 +53,8 @@ parser.add_argument("--save_name", type=str, default="")
 parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
 parser.add_argument("--eval_criterion", type=str, default="all") # if all, this means report rmse for all dimensions together, else we stop by nino3.4 
 parser.add_argument("--train_loss", type=str, default="all") # if all, this means use training loss based on all nodes, else just focus on nino3.4
-
+parser.add_argument("--dataset", type=str, default="data/ocean_timeseries.csv")
+parser.add_argument("--single_target", action="store_true")
 
 # 11/18/2024
 # NOTE: try adding fourier loss and change the periodic embedding
@@ -126,7 +127,10 @@ if __name__ == '__main__':
 
 
     input_dim = dataloader.feature
-    nino_col = dataloader.nino_feature_index
+    if args.single_target:
+        nino_col = dataloader.nino_feature_index
+    else:
+        nino_col = None
     n_features = len(dataloader.features)
 
     ############ Command Related
@@ -251,23 +255,28 @@ if __name__ == '__main__':
         #true = train_true_y 
         #pred = train_pred_y 
 
-
-        true_reshaped = true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
-        pred_reshaped = pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
-
-        rmse_nino = np.sqrt(np.mean(np.square(true_reshaped-pred_reshaped)))
-        mape = np.mean(np.abs(true_reshaped-pred_reshaped)/true_reshaped)
+        if nino_col is not None:
+            true_reshaped = true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+            pred_reshaped = pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+            rmse_nino = np.sqrt(np.mean(np.square(true_reshaped-pred_reshaped)))
+            mape = np.mean(np.abs(true_reshaped-pred_reshaped)/true_reshaped)
 
         # rmse for el nino34 indices only
-        # rmse_nino = np.sqrt(np.mean(np.square(true[:,nino_col,:]-pred[:, nino_col,:]), axis=-1)).mean()
+        mape = np.mean(np.abs(true - pred)/true)
         rmse = np.sqrt( np.mean( np.square(true - pred), axis=2 ) ).mean(1).mean()
-        # mape = np.mean(np.abs( (true[:,nino_col,:]-pred[:, nino_col,:]) / (true[:,nino_col,:]+1e-7) ), axis=-1).mean()
-        message_train = 'Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | RMSE_NINO {:.6F}  | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
-            epo,
-            np.mean(loss_list), rmse_nino, rmse, mape, np.mean(likelihood_list),
-            np.mean(kl_first_p_list), np.mean(std_first_p_list))
+        if nino_col is not None:
+            message_train = 'Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | RMSE_NINO {:.6F}  | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
+                epo,
+                np.mean(loss_list), rmse_nino, rmse, mape, np.mean(likelihood_list),
+                np.mean(kl_first_p_list), np.mean(std_first_p_list))
+        else:
+            message_train = 'Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
+                epo,
+                np.mean(loss_list), rmse, mape, np.mean(likelihood_list),
+                    np.mean(kl_first_p_list), np.mean(std_first_p_list))
         
-        if criterion == "nino":
+        
+        if nino_col is not None:
             rmse = rmse_nino
 
         return message_train, kl_coef, true, pred, [rmse]
@@ -297,19 +306,24 @@ if __name__ == '__main__':
             test_true = inverse_normalize(test_true_y, test_original_max, test_original_min)
             test_pred = inverse_normalize(test_pred_y, test_original_max, test_original_min)
 
-            test_true_reshaped = test_true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
-            test_pred_reshaped = test_pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
-
-            rmse_nino = np.sqrt(np.mean(np.square(test_true_reshaped-test_pred_reshaped)))
-            mape = np.mean(np.abs(test_true_reshaped-test_pred_reshaped)/test_true_reshaped)
-            # rmse_nino = np.sqrt(np.mean(np.square(test_true[:,nino_col,:]-test_pred[:, nino_col,:]), axis=-1)).mean()
+            if nino_col is not None:
+                test_true_reshaped = test_true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+                test_pred_reshaped = test_pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
+                rmse_nino = np.sqrt(np.mean(np.square(test_true_reshaped-test_pred_reshaped)))
+                mape = np.mean(np.abs(test_true_reshaped-test_pred_reshaped)/test_true_reshaped)
+           
             rmse = np.sqrt( np.mean( np.square(test_true - test_pred), axis=2 ) ).mean(1).mean()
-            # mape = np.mean(np.abs( (test_true[:,nino_col,:]-test_pred[:, nino_col,:]) / test_true[:,nino_col,:] ), axis=-1).mean()
-
-            message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | RMSE {:.6F} | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
-                epo,
-                test_res["loss"], rmse_nino, rmse, mape, test_res["likelihood"],
-                test_res["kl_first_p"], test_res["std_first_p"])
+            mape = np.mean(np.abs(test_true - test_pred)/test_true)
+            if nino_col is not None:
+                message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | RMSE_NINO {:.6F}  | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
+                    epo,
+                    test_res["loss"], rmse_nino, rmse, mape, test_res["likelihood"],
+                    test_res["kl_first_p"], test_res["std_first_p"])
+            else:
+                message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | RMSE {:.6F} | MAPE: {:.6f} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}|'.format(
+                    epo,
+                    test_res["loss"], rmse, mape, test_res["likelihood"],
+                    test_res["kl_first_p"], test_res["std_first_p"])
 
             #logger.info("Experiment " + str(experimentID))
             logger.info(message_train)
