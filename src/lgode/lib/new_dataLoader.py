@@ -45,15 +45,22 @@ class ParseData(object):
         np.random.seed(self.random_seed)
 
 
-    def preprocess_mat(self):
+    def preprocess_mat(self, data_type):
         print(f"processing mat file {self.args.input_file}...")
         print(f"generating graph and time series...")
         X = scipy.io.loadmat(self.args.input_file)["pcs"]
+
+        time_series = []
+        edges = []
+        time_obs = [] # observed timestamps (required for LGODE)
         train_cutoff = int(len(X) * 0.8)
-        if self.args.test == 1: 
-            X = X[:72]
+        if data_type == 'train':
+            X = X[:train_cutoff]
         else:
             X = X[train_cutoff:]
+        
+        if self.args.test == 1:
+            X = X[:72]
         T, N = X.shape
         ###### Chunk into shorter time series 
         seq_len = self.args.cond_len + self.args.pred_len  
@@ -150,7 +157,10 @@ class ParseData(object):
     def load_data(self,sample_percent,batch_size,data_type="train"):
         self.batch_size = batch_size
         self.sample_percent = sample_percent  
-        timeseries, edges, times, original_max, original_min = self.preprocess(data_type)  
+        if "sst" in self.args.input_file:
+            timeseries, edges, times, original_max, original_min = self.preprocess_mat(data_type)
+        else:  # csv 
+            timeseries, edges, times, original_max, original_min = self.preprocess_csv(data_type)  
         self.num_graph = timeseries.shape[0]
         self.num_atoms = timeseries.shape[1]
         self.args.n_balls = timeseries.shape[1]

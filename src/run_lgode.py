@@ -70,7 +70,6 @@ parser.add_argument("--feature_set", type=int, default=1) #
 args = parser.parse_args()
 assert(int(args.rec_dims%args.n_heads) ==0)
 
-args.dataset = '../data/ocean_timeseries.csv'
 args.total_ode_step = 73
 args.suffix = '' 
 criterion = args.eval_criterion
@@ -114,7 +113,7 @@ if __name__ == '__main__':
 
     ############ Loading Data
     print("Loading dataset: " + args.dataset)
-    dataloader = ParseData(args.dataset,suffix=args.suffix,mode=args.mode, args =args)
+    dataloader = ParseData(mode=args.mode, args =args)
     test_encoder, test_decoder, test_graph, test_batch, test_original_max, test_original_min = dataloader.load_data(sample_percent=args.sample_percent_test,
                                                                               batch_size=args.batch_size,
                                                                               data_type="test")
@@ -129,9 +128,11 @@ if __name__ == '__main__':
     input_dim = dataloader.feature
     if args.single_target:
         nino_col = dataloader.nino_feature_index
+        n_features = len(dataloader.features)
+
     else:
         nino_col = None
-    n_features = len(dataloader.features)
+        n_features = None
 
     ############ Command Related
     input_command = sys.argv
