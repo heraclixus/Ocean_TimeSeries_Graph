@@ -364,7 +364,7 @@ if __name__ == '__main__':
             if rmse < best_test_rmse:
                 best_epo = epo
                 best_test_rmse = rmse
-                message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best mse {:.6f}|'.format(epo,
+                message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best rmse {:.6f}|'.format(epo,
                                                                                                         best_test_rmse)
                 logger.info(message_best)
                 ckpt_path = os.path.join(f"results/{date}_{args.save_name}/model.ckpt")

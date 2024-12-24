@@ -6,7 +6,7 @@
 
 
 # CUDA_VISIBLE_DEVICES=3 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst &> log_pgode_sst.txt &
-CUDA_VISIBLE_DEVICES=2 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst --fourier_coeff=100 &> log_pgode_sst_f100.txt &
-CUDA_VISIBLE_DEVICES=4 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst --fourier_coeff=200 &> log_pgode_sst_f200.txt &
-CUDA_VISIBLE_DEVICES=6 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst --fourier_coeff=500 &> log_pgode_sst_f500.txt &
-CUDA_VISIBLE_DEVICES=7 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst --fourier_coeff=1000 &> log_pgode_sst_f1000.txt &
+CUDA_VISIBLE_DEVICES=2 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_100 --fourier_coeff=100 &> log_pgode_sst_f100.txt &
+CUDA_VISIBLE_DEVICES=4 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_200 --fourier_coeff=200 &> log_pgode_sst_f200.txt &
+CUDA_VISIBLE_DEVICES=6 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_500 --fourier_coeff=500 &> log_pgode_sst_f500.txt &
+CUDA_VISIBLE_DEVICES=7 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_1000 --fourier_coeff=1000 &> log_pgode_sst_f1000.txt &
