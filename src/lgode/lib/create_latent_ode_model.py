@@ -18,7 +18,7 @@ def create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device):
 	# 11/18/24: NOTE changed the constructor to pass in two additional values 
 	encoder_z0 = GNN(in_dim=input_dim, n_hid=rec_dim, out_dim=latent_dim, n_heads=args.n_heads,
 						 n_layers=args.rec_layers, dropout=args.dropout, conv_name=args.z0_encoder,
-						 aggregate=args.rec_attention, period=args.period, fourier_coeff=args.fourier_coeff)  # [b,n_ball,e]
+						 aggregate=args.rec_attention, period=args.period, fourier_coeff=args.fourier_coeff, use_gat=args.use_gat)  # [b,n_ball,e]
 
 
 	#ODE related
@@ -30,7 +30,7 @@ def create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device):
 
 	ode_func_net = GNN(in_dim = ode_input_dim,n_hid =ode_dim,out_dim = ode_input_dim,
 					   n_heads=args.n_heads,n_layers=args.gen_layers,dropout=args.dropout,
-					   conv_name = args.odenet,aggregate="add", period=args.period, fourier_coeff=args.fourier_coeff)
+					   conv_name = args.odenet,aggregate="add", period=args.period, fourier_coeff=args.fourier_coeff, use_gat=args.use_gat)
 
 	gen_ode_func = GraphODEFunc(
 		ode_func_net=ode_func_net,

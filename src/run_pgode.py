@@ -2,7 +2,7 @@ import os
 import sys
 import time
 
-from pgode.lib.new_dataLoader import ParseData, inverse_normalize
+from lgode.lib.new_dataLoader import ParseData, inverse_normalize
 from tqdm import tqdm
 import argparse
 import numpy as np
@@ -16,16 +16,16 @@ from pgode.lib.utils import compute_loss_all_batches
 
 # Generative model for noisy data based on ODE
 parser = argparse.ArgumentParser('Latent ODE')
-parser.add_argument('--n-balls', type=int, default=10,
+parser.add_argument('--n-balls', type=int, default=20,
                     help='Number of objects in the dataset.')
-parser.add_argument('--niters', type=int, default=50)
-parser.add_argument('--lr',  type=float, default=5e-4, help="Starting learning rate.")
-parser.add_argument('-b', '--batch-size', type=int, default=256)
+parser.add_argument('--niters', type=int, default=1000)
+parser.add_argument('--lr',  type=float, default=5e-5, help="Starting learning rate.")
+parser.add_argument('-b', '--batch-size', type=int, default=64)
 parser.add_argument('--save', type=str, default='experiments/', help="Path for save checkpoints")
 parser.add_argument('--save-graph', type=str, default='plot/', help="Path for save checkpoints")
 parser.add_argument('--load', type=str, default=None, help="name of ckpt. If None, run a new experiment.")
 parser.add_argument('-r', '--random-seed', type=int, default=1, help="Random_seed")
-parser.add_argument('--data', type=str, default='spring', help="spring,charged,motion")
+parser.add_argument('--data', type=str, default='ocean', help="spring,charged,motion")
 parser.add_argument('--z0-encoder', type=str, default='GTrans', help="GTrans")
 parser.add_argument('-l', '--latents', type=int, default=16, help="Size of the latent state")
 parser.add_argument('--latents_global', type=int, default=4, help="Size of the latent state")
@@ -34,7 +34,7 @@ parser.add_argument('--ode-dims', type=int, default=128, help="Dimensionality of
 parser.add_argument('--rec-layers', type=int, default=2, help="Number of layers in recognition model ")
 parser.add_argument('--n-heads', type=int, default=1, help="Number of heads in GTrans")
 parser.add_argument('--gen-layers', type=int, default=1, help="Number of layers  ODE func ")
-parser.add_argument('--extrap', type=str,default="False", help="Set extrapolation mode. If this flag is not set, run interpolation mode.")
+parser.add_argument('--extrap', type=str,default="True", help="Set extrapolation mode. If this flag is not set, run interpolation mode.")
 parser.add_argument('--dropout', type=float, default=0.2,help='Dropout rate (1 - keep probability).')
 parser.add_argument('--sample-percent-train', type=float, default=1.0,help='Percentage of training observtaion data')
 parser.add_argument('--sample-percent-test', type=float, default=1.0,help='Percentage of testing observtaion data')
@@ -64,7 +64,7 @@ parser.add_argument('--wo_local', type=int, default=0)
 parser.add_argument('--cond_len', type=int, default=12)
 parser.add_argument('--pred_len', type=int, default=24)
 parser.add_argument('--test', type=int, default=0)
-parser.add_argument("--patience", type=int, default=50)
+parser.add_argument("--patience", type=int, default=30)
 parser.add_argument("--save_name", type=str, default="")
 parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
 parser.add_argument("--eval_criterion", type=str, default="all") # if all, this means report rmse for all dimensions together, else we stop by nino3.4 
@@ -77,7 +77,8 @@ parser.add_argument("--single_target", action="store_true")
 parser.add_argument("--fourier_coeff", type=float, default=0.)
 parser.add_argument("--period", type=int, default=12)
 
-
+# 12/25/2024
+parser.add_argument("--use_gat", action="store_true")
 # as from the README, we have 5 levels 
 parser.add_argument("--feature_set", type=int, default=1) # 
 #parser.add_argument('--alias', type=str, default="run")
@@ -87,6 +88,9 @@ args = parser.parse_args()
 assert(int(args.rec_dims%args.n_heads) ==0)
 args.total_ode_step=args.condition_num+args.extrap_num
 args.total_ode_step_train=args.condition_num+args.extrap_num
+args.total_ode_step = 73
+args.suffix = '' 
+criterion = args.eval_criterion
 
 ############ CPU AND GPU related, Mode related, Dataset Related
 if torch.cuda.is_available():
@@ -367,6 +371,7 @@ if __name__ == '__main__':
                 message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best rmse {:.6f}|'.format(epo,
                                                                                                         best_test_rmse)
                 logger.info(message_best)
+                os.makedirs(f"results/{date}_{args.save_name}", exist_ok=True)
                 ckpt_path = os.path.join(f"results/{date}_{args.save_name}/model.ckpt")
                 torch.save({
                     'args': args,
@@ -378,13 +383,15 @@ if __name__ == '__main__':
                 np.save(f"results/{date}_{args.save_name}/test_true.npy", test_true)
                 np.save(f"results/{date}_{args.save_name}/train_pred.npy", train_pred_y)
                 np.save(f"results/{date}_{args.save_name}/train_true.npy", train_true_y)
+            else:
+                cumulative_patience += 1 
 
-            cumulative_patience += 1 
             if cumulative_patience >= args.patience:
                 print(f"Early stopping: curernt best rmse is {best_test_rmse} at epoch {best_epo}.")
                 torch.cuda.empty_cache()
                 break
-
+            
             torch.cuda.empty_cache()
+
 
 

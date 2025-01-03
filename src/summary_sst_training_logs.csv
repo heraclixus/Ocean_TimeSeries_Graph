@@ -1,0 +1,19 @@
+,models,rmses,mapes
+0,pgode_gat_sst_f500.txt,5.233745,-0.490247
+1,lgode_sst_f0.txt,6.785471, -0.555833
+2,pgode_gat_sst_f500_.txt,5.92158,-0.711663
+3,pgode_sst_f0_.txt,5.673413,-0.707307
+4,lgode_gat_sst_f500.txt,6.699253,-0.697475
+5,pgode_gat_sst_f0.txt,5.236343,-0.494025
+6,pgode_gat_sst_f0_.txt,5.728401,-0.679847
+7,pgode_sst_f500_.txt,5.789074,-0.730721
+8,pgode_sst_f200.txt,5.2469,-0.516083
+9,lgode_sst_f200.txt,6.539196,-0.667935
+10,pgode_sst_f0.txt,5.247509,-0.516363
+11,lgode_sst_f500.txt,6.572982,-0.687077
+12,pgode_gat_sst_f200_.txt,5.77035,-0.693875
+13,lgode_gat_sst_f200.txt,6.698025,-0.748001
+14,pgode_sst_f500.txt,5.235621,-0.513033
+15,lgode_gat_sst_f0.txt,6.66849,-0.730563
+16,pgode_sst_f200_.txt,5.857164,-0.693655
+17,pgode_gat_sst_f200.txt,5.227509,-0.475373

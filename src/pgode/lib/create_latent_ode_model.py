@@ -19,11 +19,11 @@ def create_LatentODE_model(args, input_dim, z0_prior, obsrv_std, device):
 
 	encoder_z0 = GNN(in_dim=input_dim, n_hid=rec_dim, out_dim=latent_dim, n_heads=args.n_heads,
 						 n_layers=args.rec_layers, dropout=args.dropout, conv_name=args.z0_encoder,
-						 aggregate=args.rec_attention, num_ball=args.n_balls)  # [b,n_ball,e]
+						 aggregate=args.rec_attention, num_ball=args.n_balls, use_gat=args.use_gat)  # [b,n_ball,e]
 
 	encoder_z0_g = GNN(in_dim=input_dim, n_hid=rec_dim, out_dim=args.latents_global, n_heads=args.n_heads,
 					 n_layers=args.rec_layers, dropout=args.dropout, conv_name=args.z0_encoder,
-					 aggregate=args.rec_attention, num_ball=args.n_balls, graph_level=True)  # [b,n_ball,e]
+					 aggregate=args.rec_attention, num_ball=args.n_balls, graph_level=True, use_gat=args.use_gat)  # [b,n_ball,e]
 
 
 	#ODE related

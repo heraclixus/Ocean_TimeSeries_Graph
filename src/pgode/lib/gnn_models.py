@@ -36,7 +36,7 @@ class TemporalEncoding(nn.Module):
 
 class GTrans(MessagePassing):
 
-    def __init__(self, n_heads=2,d_input=6, d_k=6,dropout = 0.1,**kwargs):
+    def __init__(self, n_heads=2,d_input=6, d_k=6,dropout = 0.1, use_gat=False, **kwargs):
         super(GTrans, self).__init__(aggr='add', **kwargs)
         self.n_heads = n_heads
         self.dropout = nn.Dropout(dropout)
@@ -48,6 +48,9 @@ class GTrans(MessagePassing):
         self.d_sqrt = math.sqrt(d_k//n_heads)
 
         #Attention Layer Initialization
+        self.use_gat = use_gat
+        self.attn_weight = nn.Parameter(torch.Tensor(1, 2 * self.d_k))
+
         self.w_k_list_same = nn.ModuleList([nn.Linear(self.d_input, self.d_k, bias=True) for i in range(self.n_heads)])
         self.w_k_list_diff = nn.ModuleList([nn.Linear(self.d_input, self.d_k, bias=True) for i in range(self.n_heads)])
         self.w_q_list = nn.ModuleList([nn.Linear(self.d_input, self.d_q, bias=True) for i in range(self.n_heads)])
@@ -58,6 +61,7 @@ class GTrans(MessagePassing):
         self.w_transfer = nn.ModuleList([nn.Linear(self.d_input +1, self.d_k, bias=True) for i in range(self.n_heads)])
 
         #initiallization
+        nn.init.xavier_uniform_(self.attn_weight)
         utils.init_network_weights(self.w_k_list_same)
         utils.init_network_weights(self.w_k_list_diff)
         utils.init_network_weights(self.w_q_list)
@@ -120,14 +124,17 @@ class GTrans(MessagePassing):
         x_i = w_q(x_i) #receiver #[num_edge,d*heads]
 
         # wraping k
-
         sender_same = edge_same * w_k_same(x_j_transfer)
         sender_diff = (1 - edge_same) * w_k_diff(x_j_transfer)
         sender = sender_same + sender_diff #[num_edge,d]
 
        # Calculate attention score
-        attention = torch.bmm(torch.unsqueeze(sender,1),torch.unsqueeze(x_i,2))
-
+        if self.use_gat:
+            attention_features = torch.cat([sender, x_i], dim=-1)  # [num_edge, 2*d_k]
+            attention = F.leaky_relu(torch.matmul(attention_features, self.attn_weight.T), negative_slope=0.2).unsqueeze(-1)
+        else:
+            attention = torch.bmm(torch.unsqueeze(sender,1),torch.unsqueeze(x_i,2))
+        
         return torch.squeeze(attention,1)
 
     def update(self, aggr_out,residual):
@@ -220,11 +227,11 @@ class GeneralConv(nn.Module):
     '''
     general layers
     '''
-    def __init__(self, conv_name, in_hid, out_hid, n_heads, dropout):
+    def __init__(self, conv_name, in_hid, out_hid, n_heads, dropout, use_gat):
         super(GeneralConv, self).__init__()
         self.conv_name = conv_name
         if self.conv_name == 'GTrans':
-            self.base_conv = GTrans(n_heads,in_hid,out_hid,dropout)
+            self.base_conv = GTrans(n_heads,in_hid,out_hid,dropout,use_gat)
         elif self.conv_name == "NRI":
             self.base_conv = NRIConv(in_hid,out_hid,dropout)
 
@@ -241,7 +248,7 @@ class GNN(nn.Module):
     wrap up multiple layers
     '''
     def __init__(self, in_dim, n_hid,out_dim, n_heads, n_layers, dropout = 0.2, conv_name = 'GTrans',aggregate = "add",
-                 num_ball=10, graph_level=False):
+                 num_ball=10, graph_level=False, use_gat=False):
         super(GNN, self).__init__()
         self.gcs = nn.ModuleList()
         self.in_dim    = in_dim
@@ -264,7 +271,7 @@ class GNN(nn.Module):
         self.layer_norm = nn.LayerNorm(n_hid)
         self.aggregate = aggregate
         for l in range(n_layers):
-            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid,  n_heads, dropout))
+            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid,  n_heads, dropout, use_gat))
 
         if conv_name == 'GTrans':
             self.temporal_net = TemporalEncoding(n_hid)

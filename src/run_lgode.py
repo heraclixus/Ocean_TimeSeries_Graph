@@ -17,7 +17,7 @@ import datetime
 parser = argparse.ArgumentParser('Latent ODE')
 parser.add_argument('--n-balls', type=int, default=5,
                     help='Number of objects in the dataset.')
-parser.add_argument('--niters', type=int, default=100000)
+parser.add_argument('--niters', type=int, default=1000)
 parser.add_argument('--lr',  type=float, default=5e-5, help="Starting learning rate.")
 parser.add_argument('-b', '--batch_size', type=int, default=64)
 parser.add_argument('--save', type=str, default='experiments/', help="Path for save checkpoints") 
@@ -48,13 +48,14 @@ parser.add_argument('--rec_attention', type=str, default="attention")
 parser.add_argument('--cond_len', type=int, default=12)
 parser.add_argument('--pred_len', type=int, default=24)
 parser.add_argument('--test', type=int, default=0)
-parser.add_argument("--patience", type=int, default=50)
+parser.add_argument("--patience", type=int, default=30)
 parser.add_argument("--save_name", type=str, default="")
 parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
 parser.add_argument("--eval_criterion", type=str, default="all") # if all, this means report rmse for all dimensions together, else we stop by nino3.4 
 parser.add_argument("--train_loss", type=str, default="all") # if all, this means use training loss based on all nodes, else just focus on nino3.4
 parser.add_argument("--dataset", type=str, default="data/ocean_timeseries.csv")
 parser.add_argument("--single_target", action="store_true")
+parser.add_argument("--use_gat", action="store_true")
 
 # 11/18/2024
 # NOTE: try adding fourier loss and change the periodic embedding
@@ -287,7 +288,6 @@ if __name__ == '__main__':
     np.save(f"results/{date}_{args.save_name}/train_original_min.npy", train_original_min)
 
 
-
     # NOTE: 11/04 early stopping for training.
     # NOTE: 11/05 add reporting for only EL NINO indices.
     cumulative_patience = 0
@@ -353,8 +353,9 @@ if __name__ == '__main__':
                 np.save(f"results/{date}_{args.save_name}/test_true.npy", test_true)
                 np.save(f"results/{date}_{args.save_name}/train_pred.npy", train_pred_y)
                 np.save(f"results/{date}_{args.save_name}/train_true.npy", train_true_y)
-
-            cumulative_patience += 1 
+            else:
+                cumulative_patience += 1 
+            
             if cumulative_patience >= args.patience:
                 print(f"Early stopping: curernt best rmse is {best_test_rmse} at epoch {best_epo}.")
                 torch.cuda.empty_cache()
