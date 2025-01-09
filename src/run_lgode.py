@@ -236,6 +236,11 @@ if __name__ == '__main__':
 
             pred_y = pred_y.detach().cpu().numpy()
             true_y = batch_dict_decoder['data'].detach().cpu().numpy()
+            
+            print(pred_y.shape)
+            print(true_y.shape)
+            exit(0)
+            
             total_pred_y.append(pred_y)
             total_true_y.append(true_y)
             #saving results

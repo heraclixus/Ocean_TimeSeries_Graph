@@ -39,10 +39,11 @@ class TemporalEncoding(nn.Module):
 
 class GTrans(MessagePassing):
 
-    def __init__(self, n_heads=2,d_input=6, d_k=6,dropout = 0.1, period=10000, use_gat=False, **kwargs):
+    def __init__(self, n_heads=2,d_input=6, d_k=6,dropout = 0.1, period=10000, use_gat=False, attention_only=False, **kwargs):
         super(GTrans, self).__init__(aggr='add', **kwargs)
         self.n_heads = n_heads
         self.dropout = nn.Dropout(dropout)
+        self.attention_only = attention_only
 
         self.d_input = d_input
         self.d_k = d_k//n_heads
@@ -97,6 +98,8 @@ class GTrans(MessagePassing):
            :return:
         '''
         messages = []
+        print(f"messages: xi = {x_i.shape}, x_j = {x_j.shape}, edge_index_i = {edge_index_i.shape}, edges_temporal = {edges_temporal.shape}, edge_same={edge_same.shape}")
+        attentions = [] 
         edge_same = edge_same.view(-1,1)
         for i in range(self.n_heads):
             k_linear_same = self.w_k_list_same[i]
@@ -113,15 +116,23 @@ class GTrans(MessagePassing):
             attention = self.each_head_attention(x_j_transfer,k_linear_same,k_linear_diff,q_linear,x_i,edge_same) #[4,1]
             attention = torch.div(attention,self.d_sqrt)
             attention_norm = softmax(attention,edge_index_i) #[4,1]
+            print(f"i = {i}, attention_norm = {attention_norm.shape}")
+
             sender_same = edge_same * v_linear_same(x_j_transfer)
             sender_diff = (1-edge_same) * v_linear_diff(x_j_transfer)
             sender = sender_same + sender_diff
 
             message  = attention_norm * sender #[4,3]
+            attentions.append(attention_norm)
+            # save the attention norm 
+
+
             messages.append(message)
 
+        attention_all_head = torch.cat(attentions, 1)
         message_all_head  = torch.cat(messages,1)
-
+        if self.attention_only:
+            return attention_all_head
         return message_all_head
 
     def each_head_attention(self,x_j_transfer,w_k_same,w_k_diff,w_q,x_i,edge_same):
@@ -144,8 +155,15 @@ class GTrans(MessagePassing):
 
     def update(self, aggr_out,residual):
         x_new = residual + F.gelu(aggr_out)
-
         return self.dropout(x_new)
+    
+    # NOTE: 1/7/2025
+    # get attention score for a graph 
+    def get_attention_score(self, x, edge_index, edge_value, time_nodes, edge_same):
+        residual = x
+        x = self.layer_norm(x)
+        return self.propagate(edge_index, x=x, edges_temporal=edge_value, edge_same=edge_same, residual=residual)
+
 
     def __repr__(self):
         return '{}'.format(self.__class__.__name__)
@@ -234,14 +252,16 @@ class GeneralConv(nn.Module):
     '''
     general layers
     '''
-    def __init__(self, conv_name, in_hid, out_hid, n_heads, dropout, period=10000, use_gat=False):
+    def __init__(self, conv_name, in_hid, out_hid, n_heads, dropout, period=10000, use_gat=False, attention_only=False):
         super(GeneralConv, self).__init__()
         self.conv_name = conv_name
         if self.conv_name == 'GTrans':
-            self.base_conv = GTrans(n_heads,in_hid,out_hid,dropout, period=period, use_gat=use_gat)
+            self.base_conv = GTrans(n_heads,in_hid,out_hid,dropout, period=period, use_gat=use_gat, attention_only=attention_only)
         elif self.conv_name == "NRI":
             self.base_conv = NRIConv(in_hid,out_hid,dropout)
 
+    def get_attention_score(self, x, edge_index, edge_time, x_time,edge_same):
+        return self.base_conv.get_attention_score(x, edge_index, edge_time, x_time,edge_same)
 
     def forward(self, x, edge_index, edge_time, x_time,edge_same):
         if self.conv_name == 'GTrans':
@@ -253,7 +273,7 @@ class GNN(nn.Module):
     '''
     wrap up multiple layers
     '''
-    def __init__(self, in_dim, n_hid,out_dim, n_heads, n_layers, dropout = 0.2, conv_name = 'GTrans',aggregate = "add", period=12, fourier_coeff=1., use_gat=False):
+    def __init__(self, in_dim, n_hid,out_dim, n_heads, n_layers, dropout = 0.2, conv_name = 'GTrans',aggregate = "add", period=12, fourier_coeff=1., use_gat=False, attention_only=False):
         super(GNN, self).__init__()
         self.gcs = nn.ModuleList()
         self.in_dim    = in_dim
@@ -276,7 +296,7 @@ class GNN(nn.Module):
         self.layer_norm = nn.LayerNorm(n_hid)
         self.aggregate = aggregate
         for l in range(n_layers):
-            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid,  n_heads, dropout, self.period, use_gat))
+            self.gcs.append(GeneralConv(conv_name, n_hid, n_hid,  n_heads, dropout, self.period, use_gat, attention_only))
 
         if conv_name == 'GTrans':
             self.temporal_net = TemporalEncoding(n_hid, self.period)
@@ -284,6 +304,17 @@ class GNN(nn.Module):
             self.w_transfer = nn.Linear(self.n_hid + 1, self.n_hid, bias=True)
             utils.init_network_weights(self.w_transfer)
 
+    def get_attention_score(self, x,edge_time=None, edge_index=None, x_time=None, edge_same=None):  #aggregation part
+        h_0 = F.relu(self.adapt_ws(x))
+        h_t = self.drop(h_0)
+        h_t = self.layer_norm(h_t)
+        attention_scores = [] 
+        for gc in self.gcs:
+            attention_score = gc.get_attention_score(h_t, edge_index, edge_time, x_time,edge_same)  #[num_nodes,d]
+            attention_scores.append(attention_score)
+        return attention_scores
+    
+    
     def forward(self, x,edge_time=None, edge_index=None, x_time=None, edge_same=None,batch= None, batch_y = None):  #aggregation part
         h_0 = F.relu(self.adapt_ws(x))
         h_t = self.drop(h_0)
