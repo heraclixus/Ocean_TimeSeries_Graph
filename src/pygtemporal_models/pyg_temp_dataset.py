@@ -1,9 +1,19 @@
 from torch_geometric_temporal.signal import StaticGraphTemporalSignal
-from torch_geometric_temporal.signal import temporal_signal_split
 import numpy as np
 import scipy.io
-import torch
 
+
+# series in this case has dimension of (B, N)
+# max and min has dimension of (N,)
+def normalize(series, original_max, original_min):
+    return (series - original_min) / (original_max - original_min)
+
+# inverse normalize takes in data of size: (B, N, T)
+# the max and min are of shape (N,)
+def inverse_normalize(scaled_series, original_max, original_min):
+    original_max = np.expand_dims(original_max, axis=(0, 2))
+    original_min = np.expand_dims(original_min, axis=(0, 2))
+    return scaled_series * (original_max-original_min) + original_min
 
 
 class SSTDatasetLoader():
@@ -11,10 +21,15 @@ class SSTDatasetLoader():
     def __init__(self, filepath):
         self._read_data(filepath)
     
-    
-    def _read_data(self, filepath):
+    def _read_data(self, filepath, split=0.8):
         self._dataset = scipy.io.loadmat(filepath)['pcs']
         self._n_nodes = self._dataset.shape[-1]
+        self._train_dataset = self._dataset[:int(self._dataset.shape[0]*split)]
+        self._test_dataset = self._dataset[int(self._dataset.shape[0]*split):]
+        self._max = np.max(self._train_dataset, axis=0)
+        self._min = np.min(self._train_dataset, axis=0)
+        self._train_dataset = normalize(self._train_dataset, self._max, self._min)
+        self._test_dataset = normalize(self._test_dataset, self._max, self._min)
 
     def _get_edges(self, self_loop=True):
         # fully connected graph with self-loop
@@ -36,19 +51,25 @@ class SSTDatasetLoader():
         self._edge_weights = np.ones(self._edges.shape[1])
 
     def _get_targets_and_features(self):
-        stacked_target = np.array(self._dataset)
+        stacked_target = np.array(self._train_dataset)
         print(stacked_target.shape)
-        self.features = [
+        self.train_features = [
             stacked_target[i : i + self.window, :].T
             for i in range(stacked_target.shape[0] - self.horizon - self.window)
         ]
-        self.targets = [
+        self.train_targets = [
             stacked_target[i + self.window : i + self.window + self.horizon, :].T
             for i in range(stacked_target.shape[0] - self.horizon - self.window)
         ]
-
-        print(np.array(self.features).shape)
-        print(np.array(self.targets).shape)
+        stacked_target_test = np.array(self._test_dataset)
+        self.test_features = [
+            stacked_target_test[i : i + self.window, :].T
+            for i in range(stacked_target_test.shape[0] - self.horizon - self.window)
+        ]
+        self.test_targets = [
+            stacked_target_test[i + self.window : i + self.window + self.horizon, :].T
+            for i in range(stacked_target_test.shape[0] - self.horizon - self.window)
+        ]
     
     def get_dataset(self, window, horizon) -> StaticGraphTemporalSignal:
         """Returning the Chickenpox Hungary data iterator.
@@ -63,57 +84,10 @@ class SSTDatasetLoader():
         self._get_edges()
         self._get_edge_weights()
         self._get_targets_and_features()
-        dataset = StaticGraphTemporalSignal(
-            self._edges, self._edge_weights, self.features, self.targets
+        train_dataset = StaticGraphTemporalSignal(
+            self._edges, self._edge_weights, self.train_features, self.train_targets
         )
-        return dataset
-
-
-
-
-if __name__ == "__main__":
-    sst_dataloader = SSTDatasetLoader(filepath="../../data/sst_pcs.mat")
-
-    dataset = sst_dataloader.get_dataset(window=12, horizon=24)
-    train_dataset, test_dataset = temporal_signal_split(dataset, train_ratio=0.8)
-    # print("Number of train buckets: ", len(set(train_dataset)))
-    # print("Number of test buckets: ", len(set(test_dataset)))
-    train_input = np.array(train_dataset.features) # (27399, 207, 2, 12)
-    train_target = np.array(train_dataset.targets) # (27399, 207, 12)
-    print(f"train_input = {train_input.shape}")
-    print(f"train_target = {train_target.shape}")
-    test_input = np.array(test_dataset.features) # (, 207, 2, 12)
-    test_target = np.array(test_dataset.targets) # (, 207, 12)  
-    print(f"test_input = {test_input.shape}")
-    print(f"test_target = {test_target.shape}")
-
-    train_x_tensor = torch.from_numpy(train_input).type(torch.FloatTensor).unsqueeze(1)  # (B, N, F, T)
-    train_target_tensor = torch.from_numpy(train_target).type(torch.FloatTensor).unsqueeze(1)  # (B, N, T)
-    train_dataset_new = torch.utils.data.TensorDataset(train_x_tensor, train_target_tensor)
-    train_loader = torch.utils.data.DataLoader(train_dataset_new, batch_size=32, shuffle=False, drop_last=True)
-
-    test_x_tensor = torch.from_numpy(test_input).type(torch.FloatTensor).unsqueeze(1) # (B, N, F, T)
-    test_target_tensor = torch.from_numpy(test_target).type(torch.FloatTensor).unsqueeze(1) # (B, N, T)
-    test_dataset_new = torch.utils.data.TensorDataset(test_x_tensor, test_target_tensor)
-    test_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, shuffle=False,drop_last=True)
-
-    print(f"train_x_tensor = {train_x_tensor.shape}")
-    print(f'train_target_tensor = {train_target_tensor.shape}')
-    print(f"test_x_tensor = {test_x_tensor.shape}")
-    print(f"test_target_tensor = {test_target_tensor.shape}")
-
-    from torch_geometric_temporal.nn.attention.mtgnn import MTGNN
-
-    model = MTGNN(gcn_true=True, build_adj=False, gcn_depth=3, num_nodes=sst_dataloader._n_nodes, 
-                  kernel_set=[1,1], kernel_size=1, dropout=0.5, subgraph_size=12, node_dim=1, dilation_exponential=1,
-                  conv_channels=32, residual_channels=32, skip_channels=64, end_channels=128, seq_length=12, in_dim=1, out_dim=24, 
-                  layers=3, propalpha=0.05, tanhalpha=3, layer_norm_affline=True )
-
-    encoder_input, label = next(iter(train_loader))
-    print(f"encoder_input = {encoder_input.shape}")
-    print(f'label = {label.shape}') 
-
-    adj_mat = torch.from_numpy(sst_dataloader._adj_mat).type(torch.FloatTensor)
-    print(f"adj_mat = {adj_mat.shape}")
-    output = model(encoder_input, A_tilde=adj_mat).permute(0,3,2,1)
-    print(f"output = {output.shape}")
+        test_dataset = StaticGraphTemporalSignal(
+            self._edges, self._edge_weights, self.test_features, self.test_targets
+        )
+        return train_dataset, test_dataset
