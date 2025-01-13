@@ -53,7 +53,7 @@ class ParseData(object):
         time_series = []
         edges = []
         time_obs = [] # observed timestamps (required for LGODE)
-        train_cutoff = int(len(X) * 0.8)
+        train_cutoff = int(len(X) * 0.9)
         if data_type == 'train':
             X = X[:train_cutoff]
         else:

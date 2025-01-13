@@ -9,13 +9,13 @@ from pygtemporal_models.agcrn import AGCRN
 from pygtemporal_models.fouriergnn import FGN
 from pygtemporal_models.graphwavenet import gwnet
 import os
+import matplotlib.pyplot as plt
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_file", type=str, default="../data/sst_pcs.mat")
-    parser.add_argument("--output_file", type=str, default="../data/sst_pcs_mtgnn.mat")
     parser.add_argument("--model_name", type=str, default="mtgnn")
     parser.add_argument("--multi_layer", type=int, default=5)
     parser.add_argument("--input_dim", type=int, default=1)
@@ -23,15 +23,16 @@ if __name__ == "__main__":
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--cheb_k", type=int, default=2)
     parser.add_argument("--rnn_units", type=int, default=64)
-    parser.add_argument("--hidden_size", type=int, default=128) # fgnn
-    parser.add_argument("--embed_dim", type=int, default=64)
+    parser.add_argument("--hidden_size", type=int, default=64) # fgnn
+    parser.add_argument("--embed_dim", type=int, default=32)
     parser.add_argument("--window", type=int, default=12)
     parser.add_argument("--horizon", type=int, default=24)
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--epochs", type=int, default=2000)
-    parser.add_argument("--eval_freq", type=int, default=100)
-    parser.add_argument("--patience", type=int, default=3)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--learning_rate", type=float, default=0.00001)
+    parser.add_argument("--epochs", type=int, default=300)
+    parser.add_argument("--eval_freq", type=int, default=1)
+    parser.add_argument("--patience", type=int, default=50)
+    parser.add_argument("--use_normalization", action="store_true")
     args = parser.parse_args()
 
 
@@ -40,7 +41,7 @@ if __name__ == "__main__":
     else:
         device = torch.device("cpu")
 
-    sst_dataloader = SSTDatasetLoader(filepath=args.input_file)
+    sst_dataloader = SSTDatasetLoader(filepath=args.input_file, use_normalization=args.use_normalization)
 
     print(f"max = {sst_dataloader._max.shape}, min = {sst_dataloader._min.shape}")
 
@@ -119,16 +120,18 @@ if __name__ == "__main__":
     # encoder_input, label = next(iter(train_loader))
     # print(f'label = {label.shape}') 
     # print(f"encoder_input = {encoder_input.shape}")
+    # if args.model_name == "stemgnn":
+    #     output, attention = model(encoder_input)
+    #     print(f"output = {output.shape}, attention = {attention.shape}")
+    # else:
+    #     output = model(encoder_input)
+    #     print(f"output = {output.shape}")
 
-    # output, attention = model(encoder_input)
-    # print(f"output = {output.shape}, attention = {attention.shape}")
-
-    # # obtain the adjacency matrix learned.
-    # # A_tide = model._graph_constructor(model._idx.to(device))
-    # # print(f"A_tide = {A_tide.shape}"
+    # obtain the adjacency matrix learned.
+    # A_tide = model._graph_constructor(model._idx.to(device))
+    # print(f"A_tide = {A_tide.shape}"
     # output2, attention2 = model(test_x_tensor)
     # print(f"output2 = {output2.shape}, attention2 = {attention2.shape}")
-
     # exit(0)
 
     # training
@@ -142,14 +145,16 @@ if __name__ == "__main__":
     loss_fn = torch.nn.MSELoss()
     best_test_loss = np.inf
 
+    losses_train, losses_test = [],[]
+    rmses_train, rmses_test = [],[]
+
     for epoch in range(args.epochs):
-        rmses = [] 
-        loss_list = []
+        rmses_epoch = [] 
+        loss_list_epoch = []
         for i, (encoder_input, label) in enumerate(train_loader):
             optimizer.zero_grad()
             if args.model_name == "stemgnn":
                 output, _ = model(encoder_input)
-                output = output.permute(0,3,2,1)
             else:
                 # print(f"label = {label.shape}")
                 output = model(encoder_input).permute(0,3,2,1)
@@ -158,65 +163,114 @@ if __name__ == "__main__":
             loss = loss_fn(output, label)
             loss.backward()
             optimizer.step()
-            loss_list.append(loss.item())
+            loss_list_epoch.append(loss.item())
 
             # compute rmse
-            label_np = inverse_normalize(label.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
-            pred_np = inverse_normalize(output.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
+            if args.use_normalization:
+                label_np = inverse_normalize(label.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
+                pred_np = inverse_normalize(output.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
+            else:
+                label_np = label.detach().cpu().numpy()
+                pred_np = output.detach().cpu().numpy()
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
-            rmses.append(rmse)
-        print(f"Epoch {epoch} Train loss: {np.mean(loss_list)}, RMSE: {np.mean(rmses)}") 
+            rmses_epoch.append(rmse)
+        mean_loss_tr = np.mean(loss_list_epoch)
+        mean_rmse_tr = np.mean(rmses_epoch)
+        print(f"Epoch {epoch} Train loss: {mean_loss_tr: .3f}, RMSE: {mean_rmse_tr :.3f}")
+        losses_train.append(mean_loss_tr)
+        rmses_train.append(mean_rmse_tr) 
 
-        if epoch % args.eval_freq == 0 and epoch != 0:
-            print(f"Evaluating model at epoch {epoch}")
-            model.eval()
-            rmses_test = [] 
-            with torch.no_grad():
-                loss_list = []
-                for i, (encoder_input, label) in enumerate(test_loader):
-                    if args.model_name == "stemgnn":
-                        output, _ = model(encoder_input)
-                        output = output.permute(0,3,2,1)
-                    else:
-                        output = model(encoder_input).permute(0,3,2,1)
-                    loss_list.append(np.sqrt(loss.item()))
+        # if epoch % args.eval_freq == 0 and epoch != 0:
+            # print(f"Evaluating model at epoch {epoch}")
+        # NOTE: 1/12, evaluate after every train to plot training dynamics
+        model.eval()
+        rmses_test_epoch = [] 
+        losses_test_epoch = []
+        for i, (encoder_input, label) in enumerate(test_loader):
+            if args.model_name == "stemgnn":
+                output, _ = model(encoder_input)
+            else:
+                output = model(encoder_input).permute(0,3,2,1)
+            # print(f"output = {output.shape}, label = {label.shape}")
+            assert output.size() == label.size()
+            loss = loss_fn(output, label)
+            losses_test_epoch.append(loss.item())
+            # compute rmse
+            if args.use_normalization:
+                label_np = inverse_normalize(label.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
+                pred_np = inverse_normalize(output.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
+            else:
+                label_np = label.detach().cpu().numpy()
+                pred_np = output.detach().cpu().numpy()
+            rmse = np.sqrt(np.mean((label_np - pred_np)**2))
+            rmses_test_epoch.append(rmse)
+        test_rmse = np.mean(rmses_test_epoch)
+        test_epoch_loss = np.mean(losses_test_epoch)
 
-                    # compute rmse
-                    label_np = inverse_normalize(label.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
-                    pred_np = inverse_normalize(output.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
-                    rmse = np.sqrt(np.mean((label_np - pred_np)**2))
-                    rmses_test.append(rmse)
-                test_rmse = np.mean(rmses_test)
-                test_epoch_loss = np.mean(loss_list)
-                print(f"Epoch {epoch}, Test loss: {test_epoch_loss}, RMSE: {test_rmse}")
+        losses_test.append(test_epoch_loss)
+        rmses_test.append(test_rmse)
 
-                if test_epoch_loss <= best_test_loss:
-                    best_test_loss = test_epoch_loss
-                    cumulative_patience = 0
-                else:
-                    cumulative_patience += 1 
-            if cumulative_patience == args.patience:
-                print(f"Early stopping at epoch {epoch}")
-                break
+        print(f"Epoch {epoch}, Test loss: {test_epoch_loss: .3f}, RMSE: {test_rmse: .3f}")
 
-            model.train()
+        if test_epoch_loss <= best_test_loss:
+            best_test_loss = test_epoch_loss
+            cumulative_patience = 0
+        else:
+            cumulative_patience += 1 
+        if cumulative_patience == args.patience:
+            print(f"Early stopping at epoch {epoch}")
+            break
+
+        model.train()
+    
 
     # save the final model's results
-    save_path = f"results/pytemporal/{args.model_name}"
+    if args.use_normalization:
+        save_path = f"results/pytemporal/{args.model_name}"
+    else:
+        save_path = f"results/pytemporal/{args.model_name}_no_normalization"
+
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     
     torch.save(model.state_dict(), os.path.join(save_path, "model.pth"))
 
+    # visualize train and test losses 
+    fig_loss = plt.figure(figsize=(10,5))
+    plt.plot(losses_train, label="Train Loss")
+    plt.plot(losses_test, label="Test Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("MSE Loss")
+    plt.title("Train and Test Losses")
+    plt.legend()
+    plt.savefig(os.path.join(save_path, f"losses.png"))
+    plt.close() 
+
+    # visualize train and test rmses
+    fig_rmse = plt.figure(figsize=(10,5))
+    plt.plot(rmses_train, label="Train RMSE")
+    plt.plot(rmses_test, label="Test RMSE")
+    plt.xlabel("Epoch")
+    plt.ylabel("RMSE")
+    plt.title("Train and Test RMSE")
+    plt.legend()
+    plt.savefig(os.path.join(save_path, f"rmses.png"))
+    plt.close()
+
     # forecast again and save results
     if args.model_name == "stemgnn":
         output, attention = model(test_x_tensor)
-        output = output.permute(0,3,2,1)
         np.save(os.path.join(save_path, f"test_attention.npy"), attention.cpu().detach().numpy())
     else:
         output = model(test_x_tensor).permute(0,3,2,1)
-    np.save(os.path.join(save_path, f"test_pred.npy"), output.cpu().detach().numpy())
-    np.save(os.path.join(save_path, f"test_true.npy"), label.cpu().detach().numpy())
+    if args.use_normalization:
+        output_np = inverse_normalize(output.cpu().detach().numpy(), sst_dataloader._max, sst_dataloader._min)
+        test_target_np = inverse_normalize(test_target_tensor.cpu().detach().numpy(), sst_dataloader._max, sst_dataloader._min)
+    else:
+        output_np = output.cpu().detach().numpy()
+        test_target_np = test_target_tensor.cpu().detach().numpy()  
+    np.save(os.path.join(save_path, f"test_pred.npy"), output_np)
+    np.save(os.path.join(save_path, f"test_true.npy"), test_target_np)
     if args.model_name == "mtgnn":
         A_tilde = model._graph_constructor(model._idx.to(device))
         np.save(os.path.join(save_path, f"A_tilde.npy"), A_tilde.cpu().detach().numpy())

@@ -1,7 +1,8 @@
 
 # # LGODE without GAT 
 
-CUDA_VISIBLE_DEVICES=2 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_0 --fourier_coeff=0 &> log_lgode_debug.txt &
+CUDA_VISIBLE_DEVICES=0 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_0 &> log_lgode_sst.txt &
+CUDA_VISIBLE_DEVICES=1 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_0 &> log_pgode_sst.txt &
 # CUDA_VISIBLE_DEVICES=3 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_200 --fourier_coeff=200 &> log_lgode_sst_f200.txt &
 # CUDA_VISIBLE_DEVICES=4 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_500 --fourier_coeff=500 &> log_lgode_sst_f500.txt &
 

@@ -56,6 +56,7 @@ parser.add_argument("--train_loss", type=str, default="all") # if all, this mean
 parser.add_argument("--dataset", type=str, default="data/ocean_timeseries.csv")
 parser.add_argument("--single_target", action="store_true")
 parser.add_argument("--use_gat", action="store_true")
+parser.add_argument("--attention_only", action="store_true")
 
 # 11/18/2024
 # NOTE: try adding fourier loss and change the periodic embedding
@@ -237,9 +238,9 @@ if __name__ == '__main__':
             pred_y = pred_y.detach().cpu().numpy()
             true_y = batch_dict_decoder['data'].detach().cpu().numpy()
             
-            print(pred_y.shape)
-            print(true_y.shape)
-            exit(0)
+            # print(pred_y.shape)
+            # print(true_y.shape)
+            # exit(0)
             
             total_pred_y.append(pred_y)
             total_true_y.append(true_y)

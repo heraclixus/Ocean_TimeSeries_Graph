@@ -18,18 +18,20 @@ def inverse_normalize(scaled_series, original_max, original_min):
 
 class SSTDatasetLoader():
 
-    def __init__(self, filepath):
+    def __init__(self, filepath, use_normalization):
+        self.use_normalization = use_normalization
         self._read_data(filepath)
     
-    def _read_data(self, filepath, split=0.8):
+    def _read_data(self, filepath, split=0.9):
         self._dataset = scipy.io.loadmat(filepath)['pcs']
         self._n_nodes = self._dataset.shape[-1]
         self._train_dataset = self._dataset[:int(self._dataset.shape[0]*split)]
         self._test_dataset = self._dataset[int(self._dataset.shape[0]*split):]
         self._max = np.max(self._train_dataset, axis=0)
         self._min = np.min(self._train_dataset, axis=0)
-        self._train_dataset = normalize(self._train_dataset, self._max, self._min)
-        self._test_dataset = normalize(self._test_dataset, self._max, self._min)
+        if self.use_normalization:
+            self._train_dataset = normalize(self._train_dataset, self._max, self._min)
+            self._test_dataset = normalize(self._test_dataset, self._max, self._min)
 
     def _get_edges(self, self_loop=True):
         # fully connected graph with self-loop

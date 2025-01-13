@@ -1,2 +1,0 @@
-nohup: ignoring input
-python: can't open file '/local2/fredxu/Ocean_TimeSeries_Graph/run_pygtemporal_models.py': [Errno 2] No such file or directory
