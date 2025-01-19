@@ -355,9 +355,26 @@ def anomaly(data):
     return ndata, num, season
 
 
+# to be used by model evaluation
+def reconstruct_enso(pcs):
+    data = np.load("pc_metadata.npz")
+    actual_pcs = data["pcs"]
+    assert pcs.shape == actual_pcs.shape
+    eofs = data["eofs"]
+    sstmean1 = data["sstmean1"]
+    sstmean2 = data["sstmean2"]
+    indsst = data["indssst"]
+    split_year = data["split_year"]
+    nino34_20_1 = ninom(actual_pcs[:split_year, :20], eofs[:, :20], indsst, sstmean1)
+    nino34_20_1_pred = ninom(pcs[:split_year, :20], eofs[:,:20], indsst, sstmean1)
+    nino34_20_2 = ninom(actual_pcs[split_year:, :20], eofs[:, :20], indsst, sstmean2)
+    nino34_20_2_pred = ninom(pcs[split_year:, :20], eofs[:,:20], indsst, sstmean2)
+    nino34 = np.concatenate([nino34_20_1, nino34_20_2])
+    nino34_pred = np.concatenate([nino34_20_1_pred, nino34_20_2_pred])
+    return nino34, nino34_pred
 
 if __name__ == "__main__":
-    ds = Dataset('ersst2024-12.nc')
+    ds = Dataset('../data/ersst2024-12.nc')
     lon = ds.variables['X'][:]
     lat = ds.variables['Y'][:]
     anom = ds.variables['anom'][:].squeeze()
@@ -371,6 +388,11 @@ if __name__ == "__main__":
     nino34 = np.mean(tdata[:, indsst], axis=1)
     split_year = 317  # Corresponds to specific year split point
     pcs, eofs, sstmean1, sstmean2, sst, teofs = gfiltcvl3ersst(rawdata, npc=20, st1=split_year)
+
+    # temporary, save the 1st 20 pcs and 1st 20 eofs, also save indsst and sstmeans for later reconstruction in model evaluation
+    with open("../data/pc_metadata.npz", "wb") as f:
+        np.savez(f, pcs=pcs, eofs=eofs, sstmean1=sstmean1, sstmean2=sstmean2, indsst=indsst, split_year=split_year)
+
     # Calculate NINO3.4 reconstruction with 5 PCs
     nino34_5_1 = ninom(pcs[:split_year, :5], eofs[:, :5], indsst, sstmean1)
     nino34_5_2 = ninom(pcs[split_year:, :5], eofs[:, :5], indsst, sstmean2)
