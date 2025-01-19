@@ -78,8 +78,10 @@ class ParseData(object):
         original_max =  np.max(time_series, 2, keepdims=True)
         original_min =  np.min(time_series, 2, keepdims=True) 
         time_series = normalize(time_series, original_max, original_min)
+        std = np.std(time_series, axis=2, keepdims=True)
         print('\ntime series max min', np.max(time_series), np.min(time_series)) 
-        return time_series, edges, time_obs, original_max, original_min
+        print(f"std: {std.shape}")
+        return time_series, edges, time_obs, original_max, original_min, std
 
     
     def preproces_csv(self, data_type):
@@ -158,13 +160,14 @@ class ParseData(object):
         self.batch_size = batch_size
         self.sample_percent = sample_percent  
         if "sst" in self.args.input_file:
-            timeseries, edges, times, original_max, original_min = self.preprocess_mat(data_type)
+            timeseries, edges, times, original_max, original_min, std = self.preprocess_mat(data_type)
         else:  # csv 
-            timeseries, edges, times, original_max, original_min = self.preprocess_csv(data_type)  
+            timeseries, edges, times, original_max, original_min, std = self.preprocess_csv(data_type)  
         self.num_graph = timeseries.shape[0]
         self.num_atoms = timeseries.shape[1]
         self.args.n_balls = timeseries.shape[1]
         self.feature = timeseries.shape[-1]
+        self.std = std
         print("# graph in   " + data_type + "   is %d" % self.num_graph)
         print("# nodes in   " + data_type + "   is %d" % self.num_atoms)
  

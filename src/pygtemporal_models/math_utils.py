@@ -1,5 +1,8 @@
 import numpy as np
 
+# weight each dimension by its std to be used in loss function
+def weighted_mse(v, v_, std):
+    return np.mean(np.square(v_ - v) * std, axis=0)
 
 def masked_MAPE(v, v_, axis=None):
     '''

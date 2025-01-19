@@ -11,6 +11,8 @@ from torch.distributions.normal import Normal
 from lgode.lib.create_latent_ode_model import create_LatentODE_model
 from lgode.lib.utils import compute_loss_all_batches
 import matplotlib.pyplot as plt 
+from pygtemporal_models.math_utils import weighted_mse
+from utils_pca import reconstruct_enso
 import random
 import datetime
 # Generative model for noisy data based on ODE
@@ -57,6 +59,7 @@ parser.add_argument("--dataset", type=str, default="data/ocean_timeseries.csv")
 parser.add_argument("--single_target", action="store_true")
 parser.add_argument("--use_gat", action="store_true")
 parser.add_argument("--attention_only", action="store_true")
+parser.add_argument("--use_loss_weights", action="store_true")
 
 # 11/18/2024
 # NOTE: try adding fourier loss and change the periodic embedding
@@ -195,6 +198,8 @@ if __name__ == '__main__':
                                              n_traj_samples=3, kl_coef=kl_coef)
 
         loss = train_res["loss"]
+        if args.use_loss_weights:
+            loss = weighted_mse(batch_dict_decoder['data'], pred_y, dataloader.std)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
 
@@ -262,7 +267,13 @@ if __name__ == '__main__':
         pred = inverse_normalize(train_pred_y, train_original_max, train_original_min)
         #true = train_true_y 
         #pred = train_pred_y 
+        print(f"true: {true.shape}, pred: {pred.shape}")
 
+        # reconstructenso
+        nino34, nino34_pred = reconstruct_enso(pred)
+        rmse_reconstructed = np.sqrt(np.mean((nino34 - nino34_pred)**2))
+        print(f"rmse_reconstructed: {rmse_reconstructed}")
+        exit(0)
         if nino_col is not None:
             true_reshaped = true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
             pred_reshaped = pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()

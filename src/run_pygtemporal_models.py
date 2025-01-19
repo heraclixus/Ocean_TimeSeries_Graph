@@ -3,11 +3,13 @@ import torch
 import torch.optim as optim
 import numpy as np
 import argparse
+from pygtemporal_models.math_utils import weighted_mse
 from torch_geometric_temporal.nn.attention.mtgnn import MTGNN
 from pygtemporal_models.stemgnn import StemGNN
 from pygtemporal_models.agcrn import AGCRN
 from pygtemporal_models.fouriergnn import FGN
 from pygtemporal_models.graphwavenet import gwnet
+from utils_pca import reconstruct_enso
 import os
 import matplotlib.pyplot as plt
 
@@ -33,6 +35,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval_freq", type=int, default=1)
     parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--use_normalization", action="store_true")
+    parser.add_argument("--use_loss_weights", action="store_true")
     args = parser.parse_args()
 
 
@@ -149,8 +152,11 @@ if __name__ == "__main__":
     losses_train, losses_test = [],[]
     rmses_train, rmses_test = [],[]
 
+    rmses_train_reconstructed, rmses_test_reconstructed = [],[]
+
     for epoch in range(args.epochs):
         rmses_epoch = [] 
+        rmses_reconstructed_epoch = []
         loss_list_epoch = []
         for i, (encoder_input, label) in enumerate(train_loader):
             optimizer.zero_grad()
@@ -161,7 +167,10 @@ if __name__ == "__main__":
                 output = model(encoder_input).permute(0,3,2,1)
                 # print(f"output = {output.shape}")
                 # exit(0)
-            loss = loss_fn(output, label)
+            if args.use_loss_weights:
+                loss = weighted_mse(label, output, sst_dataloader._std)
+            else:
+                loss = loss_fn(output, label)
             loss.backward()
             optimizer.step()
             loss_list_epoch.append(loss.item())
@@ -175,18 +184,23 @@ if __name__ == "__main__":
                 pred_np = output.detach().cpu().numpy()
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             rmses_epoch.append(rmse)
+            # reconstructenso
+            nino34, nino34_pred = reconstruct_enso(pred_np)
+            rmse_reconstructed = np.sqrt(np.mean((nino34 - nino34_pred)**2))
+            rmses_reconstructed_epoch.append(rmse_reconstructed)
         mean_loss_tr = np.mean(loss_list_epoch)
         mean_rmse_tr = np.mean(rmses_epoch)
-        print(f"Epoch {epoch} Train loss: {mean_loss_tr: .3f}, RMSE: {mean_rmse_tr :.3f}")
+        mean_rmse_reconstructed_tr = np.mean(rmses_reconstructed_epoch)
+        print(f"Epoch {epoch} Train loss: {mean_loss_tr: .3f}, RMSE: {mean_rmse_tr :.3f}, RMSE Reconstructed: {mean_rmse_reconstructed_tr:.3f}")
         losses_train.append(mean_loss_tr)
         rmses_train.append(mean_rmse_tr) 
+        rmses_train_reconstructed.append(mean_rmse_reconstructed_tr)
 
-        # if epoch % args.eval_freq == 0 and epoch != 0:
-            # print(f"Evaluating model at epoch {epoch}")
         # NOTE: 1/12, evaluate after every train to plot training dynamics
         model.eval()
         rmses_test_epoch = [] 
         losses_test_epoch = []
+        rmses_test_reconstructed_epoch = []
         for i, (encoder_input, label) in enumerate(test_loader):
             if args.model_name == "stemgnn":
                 output, _ = model(encoder_input)
@@ -194,7 +208,10 @@ if __name__ == "__main__":
                 output = model(encoder_input).permute(0,3,2,1)
             # print(f"output = {output.shape}, label = {label.shape}")
             assert output.size() == label.size()
-            loss = loss_fn(output, label)
+            if args.use_loss_weights:
+                loss = weighted_mse(label, output, sst_dataloader._std)
+            else:
+                loss = loss_fn(output, label)
             losses_test_epoch.append(loss.item())
             # compute rmse
             if args.use_normalization:
@@ -205,13 +222,19 @@ if __name__ == "__main__":
                 pred_np = output.detach().cpu().numpy()
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             rmses_test_epoch.append(rmse)
+            # reconstructenso
+            nino34, nino34_pred = reconstruct_enso(pred_np)
+            rmse_reconstructed = np.sqrt(np.mean((nino34 - nino34_pred)**2))
+            rmses_test_reconstructed_epoch.append(rmse_reconstructed)
         test_rmse = np.mean(rmses_test_epoch)
+        test_rmse_reconstructed = np.mean(rmses_test_reconstructed_epoch)
         test_epoch_loss = np.mean(losses_test_epoch)
 
         losses_test.append(test_epoch_loss)
         rmses_test.append(test_rmse)
+        rmses_test_reconstructed.append(test_rmse_reconstructed)
 
-        print(f"Epoch {epoch}, Test loss: {test_epoch_loss: .3f}, RMSE: {test_rmse: .3f}")
+        print(f"Epoch {epoch}, Test loss: {test_epoch_loss: .3f}, RMSE: {test_rmse: .3f}, RMSE Reconstructed: {test_rmse_reconstructed:.3f}")
 
         if test_epoch_loss <= best_test_loss:
             best_test_loss = test_epoch_loss
@@ -226,10 +249,13 @@ if __name__ == "__main__":
     
 
     # save the final model's results
+    # combine use_normalization and use_loss_weights to create save name
+    save_name = f"{args.model_name}"
     if args.use_normalization:
-        save_path = f"results/pytemporal/{args.model_name}"
-    else:
-        save_path = f"results/pytemporal/{args.model_name}_no_normalization"
+        save_name += "_normalization"
+    if args.use_loss_weights:
+        save_name += "_weighted_loss"
+    save_path = f"results/pytemporal/{save_name}"
 
     if not os.path.exists(save_path):
         os.makedirs(save_path)
@@ -256,6 +282,17 @@ if __name__ == "__main__":
     plt.title("Train and Test RMSE")
     plt.legend()
     plt.savefig(os.path.join(save_path, f"rmses.png"))
+    plt.close()
+
+    # visualize train and test rmses reconstructed
+    fig_rmse_reconstructed = plt.figure(figsize=(10,5))
+    plt.plot(rmses_train_reconstructed, label="Train RMSE Reconstructed")
+    plt.plot(rmses_test_reconstructed, label="Test RMSE Reconstructed")
+    plt.xlabel("Epoch")
+    plt.ylabel("RMSE Reconstructed")
+    plt.title("Train and Test RMSE Reconstructed")
+    plt.legend()
+    plt.savefig(os.path.join(save_path, f"rmses_reconstructed.png"))
     plt.close()
 
     # forecast again and save results

@@ -29,6 +29,8 @@ class SSTDatasetLoader():
         self._test_dataset = self._dataset[int(self._dataset.shape[0]*split):]
         self._max = np.max(self._train_dataset, axis=0)
         self._min = np.min(self._train_dataset, axis=0)
+        # std to be used for loss function weights
+        self._std = np.std(self._train_dataset, axis=0)
         if self.use_normalization:
             self._train_dataset = normalize(self._train_dataset, self._max, self._min)
             self._test_dataset = normalize(self._test_dataset, self._max, self._min)

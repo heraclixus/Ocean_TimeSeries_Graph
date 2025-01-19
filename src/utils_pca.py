@@ -356,10 +356,13 @@ def anomaly(data):
 
 
 # to be used by model evaluation
-def reconstruct_enso(pcs):
+def reconstruct_enso(pcs, real_pcs=None):
     data = np.load("pc_metadata.npz")
-    actual_pcs = data["pcs"]
-    assert pcs.shape == actual_pcs.shape
+    if real_pcs is None:
+        actual_pcs = data["pcs"]
+    else:
+        actual_pcs = real_pcs
+    # assert pcs.shape == actual_pcs.shape
     eofs = data["eofs"]
     sstmean1 = data["sstmean1"]
     sstmean2 = data["sstmean2"]
