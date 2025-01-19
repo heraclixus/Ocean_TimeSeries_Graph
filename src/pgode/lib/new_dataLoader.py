@@ -73,6 +73,8 @@ class ParseData(object):
             time_obs.append(np.tile(np.linspace(0,5,seq_len), (N,1)).reshape(N,-1))
          
         time_series = np.stack(time_series)  # train: n_seq x N x T x 1
+        print(f"ts shape = {time_series.shape}")
+        exit(0)
         edges = np.stack(edges)
         time_obs = np.stack(time_obs)  
         original_max =  np.max(time_series, 2, keepdims=True)

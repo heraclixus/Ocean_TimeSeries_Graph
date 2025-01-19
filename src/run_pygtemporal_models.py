@@ -111,8 +111,10 @@ if __name__ == "__main__":
                     feature_size=sst_dataloader._n_nodes, 
                     seq_length=args.window, 
                     hidden_size=args.rnn_units).to(device)
-    else:
+    else: # wavenet
         model = gwnet(device=device, 
+                      window=args.window, 
+                      horizon=args.horizon,
                       num_nodes=sst_dataloader._n_nodes,
                       in_dim=args.input_dim,
                       out_dim=args.horizon).to(device)
@@ -132,7 +134,6 @@ if __name__ == "__main__":
     # print(f"A_tide = {A_tide.shape}"
     # output2, attention2 = model(test_x_tensor)
     # print(f"output2 = {output2.shape}, attention2 = {attention2.shape}")
-    # exit(0)
 
     # training
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
