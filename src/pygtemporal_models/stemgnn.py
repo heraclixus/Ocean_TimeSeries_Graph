@@ -165,7 +165,7 @@ class StemGNN(nn.Module):
         return torch.matmul(eigenvectors, input)
 
     def forward(self, x):
-        x = x.squeeze().permute(0,2,1)
+        x = x.squeeze(1).permute(0,2,1)
         mul_L, attention = self.latent_correlation_layer(x)
         X = x.unsqueeze(1).permute(0, 1, 3, 2).contiguous()
         result = []

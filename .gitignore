@@ -1,8 +1,12 @@
 *__pycache__*
+src/logs*
+data/*.pt
 src/*.txt
 src/results/*/*.npy
 src/results/*/*.ckpt
 src/results/*
 src/nino_logs/
+src/*.npy
 src/logs
 src/logs/*
+src/logs_report/*

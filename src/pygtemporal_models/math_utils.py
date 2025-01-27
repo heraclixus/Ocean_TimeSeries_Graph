@@ -1,8 +1,15 @@
 import numpy as np
+import torch
 
 # weight each dimension by its std to be used in loss function
+# use torch 
 def weighted_mse(v, v_, std):
-    return np.mean(np.square(v_ - v) * std, axis=0)
+    std = torch.from_numpy(std).to(v.device)
+    if len(v.shape) == 4:
+        std = std.view(1, 1, len(std), 1)
+    weighted_diff = torch.square(v_ - v) * std
+    return weighted_diff.mean()
+
 
 def masked_MAPE(v, v_, axis=None):
     '''

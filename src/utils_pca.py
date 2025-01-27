@@ -356,24 +356,29 @@ def anomaly(data):
 
 
 # to be used by model evaluation
-def reconstruct_enso(pcs, real_pcs=None):
-    data = np.load("pc_metadata.npz")
+# take only the last T time stamps to agree with the prediction length 
+# use only the post 317 ENSO modes to reconstruct the time series from PCs 
+def reconstruct_enso(pcs,  real_pcs=None, top_n_pcs=20, flag="test"):
+    pcs = np.squeeze(pcs)
+    data = np.load("../data/pc_metadata.npz")
     if real_pcs is None:
         actual_pcs = data["pcs"]
     else:
         actual_pcs = real_pcs
-    # assert pcs.shape == actual_pcs.shape
+        actual_pcs = np.squeeze(actual_pcs)   
+    assert pcs.shape == actual_pcs.shape
     eofs = data["eofs"]
-    sstmean1 = data["sstmean1"]
+    sstmean1 = data["sstmean1"]  
     sstmean2 = data["sstmean2"]
-    indsst = data["indssst"]
-    split_year = data["split_year"]
-    nino34_20_1 = ninom(actual_pcs[:split_year, :20], eofs[:, :20], indsst, sstmean1)
-    nino34_20_1_pred = ninom(pcs[:split_year, :20], eofs[:,:20], indsst, sstmean1)
-    nino34_20_2 = ninom(actual_pcs[split_year:, :20], eofs[:, :20], indsst, sstmean2)
-    nino34_20_2_pred = ninom(pcs[split_year:, :20], eofs[:,:20], indsst, sstmean2)
-    nino34 = np.concatenate([nino34_20_1, nino34_20_2])
-    nino34_pred = np.concatenate([nino34_20_1_pred, nino34_20_2_pred])
+    indsst = data["indsst"]
+    # split_year = data["split_year"]
+    # nino34_20_1 = ninom(actual_pcs[:split_year, :20], eofs[:, :20], indsst, sstmean1)
+    # nino34_20_1_pred = ninom(pcs[:split_year, :20], eofs[:,:20], indsst, sstmean1)
+    sstmean = sstmean1 if flag == "train" else sstmean2
+    nino34 = ninom(actual_pcs[:, :top_n_pcs], eofs[:, :top_n_pcs], indsst, sstmean)
+    nino34_pred = ninom(pcs[:, :top_n_pcs], eofs[:,:top_n_pcs], indsst, sstmean)
+    # nino34 = np.concatenate([nino34_20_1, nino34_20_2])
+    # print(f"nino34 = {nino34.shape}, nino34_pred = {nino34_pred.shape}")
     return nino34, nino34_pred
 
 if __name__ == "__main__":

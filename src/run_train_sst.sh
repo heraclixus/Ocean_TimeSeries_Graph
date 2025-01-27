@@ -1,8 +1,17 @@
-
+mkdir -p logs_pgode
 # # LGODE without GAT 
 
-CUDA_VISIBLE_DEVICES=0 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_0 &> log_lgode_sst.txt &
-CUDA_VISIBLE_DEVICES=1 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_0 &> log_pgode_sst.txt &
+window=12
+batch=128
+horizon=24
+n_pcs=20
+# CUDA_VISIBLE_DEVICES=5 nohup python run_pgode.py --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat &> log_pgode_debug.txt &
+
+CUDA_VISIBLE_DEVICES=3 nohup python run_pgode.py --batch-size=$batch --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}_${batch}.txt &
+# CUDA_VISIBLE_DEVICES=5 nohup python run_pgode.py --n_pcs=$npcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_debug &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}.txt &
+
+# CUDA_VISIBLE_DEVICES=0 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_0 &> log_lgode_sst.txt &
+# CUDA_VISIBLE_DEVICES=1 nohup python run_pgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_0 &> log_pgode_sst.txt &
 # CUDA_VISIBLE_DEVICES=3 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_200 --fourier_coeff=200 &> log_lgode_sst_f200.txt &
 # CUDA_VISIBLE_DEVICES=4 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_500 --fourier_coeff=500 &> log_lgode_sst_f500.txt &
 

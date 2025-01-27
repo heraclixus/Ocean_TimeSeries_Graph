@@ -110,7 +110,7 @@ class FGN(nn.Module):
         return z
 
     def forward(self, x):
-        x = x.squeeze()
+        x = x.squeeze(1)
         B, N, L = x.shape
         # B*N*L ==> B*NL
         x = x.reshape(B, -1)

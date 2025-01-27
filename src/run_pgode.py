@@ -13,6 +13,33 @@ import pgode.lib.utils as utils
 from torch.distributions.normal import Normal
 from pgode.lib.create_latent_ode_model import create_LatentODE_model
 from pgode.lib.utils import compute_loss_all_batches
+from utils_pca import reconstruct_enso
+import matplotlib.pyplot as plt
+from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
+
+
+def plot_rmse_and_rmse_recon(save_path, rmses_train, rmses_test, rmses_train_reconstructed, rmses_test_reconstructed):
+    fig_rmse = plt.figure(figsize=(10,5))
+    plt.plot(rmses_train, label="Train RMSE")
+    plt.plot(rmses_test, label="Test RMSE")
+    plt.xlabel("Epoch")
+    plt.ylabel("RMSE")
+    plt.title("Train and Test RMSE")
+    plt.legend()
+    plt.savefig(os.path.join(save_path, f"rmses.png"))
+    plt.close()
+    # visualize train and test rmses reconstructed
+    fig_rmse_reconstructed = plt.figure(figsize=(10,5))
+    plt.plot(rmses_train_reconstructed, label="Train RMSE Reconstructed")
+    plt.plot(rmses_test_reconstructed, label="Test RMSE Reconstructed")
+    plt.xlabel("Epoch")
+    plt.ylabel("RMSE Reconstructed")
+    plt.title("Train and Test RMSE Reconstructed")
+    plt.legend()
+    plt.savefig(os.path.join(save_path, f"rmses_reconstructed.png"))
+    plt.close()
+
+
 
 # Generative model for noisy data based on ODE
 parser = argparse.ArgumentParser('Latent ODE')
@@ -64,7 +91,7 @@ parser.add_argument('--wo_local', type=int, default=0)
 parser.add_argument('--cond_len', type=int, default=12)
 parser.add_argument('--pred_len', type=int, default=24)
 parser.add_argument('--test', type=int, default=0)
-parser.add_argument("--patience", type=int, default=30)
+parser.add_argument("--patience", type=int, default=10)
 parser.add_argument("--save_name", type=str, default="")
 parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
 parser.add_argument("--eval_criterion", type=str, default="all") # if all, this means report rmse for all dimensions together, else we stop by nino3.4 
@@ -82,6 +109,7 @@ parser.add_argument("--use_gat", action="store_true")
 # as from the README, we have 5 levels 
 parser.add_argument("--feature_set", type=int, default=1) # 
 #parser.add_argument('--alias', type=str, default="run")
+parser.add_argument("--n_pcs", type=int, default=20)
 
 
 args = parser.parse_args()
@@ -91,6 +119,7 @@ args.total_ode_step_train=args.condition_num+args.extrap_num
 args.total_ode_step = 73
 args.suffix = '' 
 criterion = args.eval_criterion
+
 
 ############ CPU AND GPU related, Mode related, Dataset Related
 if torch.cuda.is_available():
@@ -107,6 +136,10 @@ elif args.extrap=="False":
     print("Running interp mode" + "-" * 80)
     args.mode="interp"
 
+
+save_name = f"window={args.cond_len}_horizon={args.pred_len}_npcs={args.n_pcs}_batch={args.batch_size}"
+if args.use_gat:
+    save_name += f"_gat"
 
 #####################################################################################################
 
@@ -127,19 +160,37 @@ if __name__ == '__main__':
 
 
     ############ Loading Data
+    print(args)
     print("Loading dataset: " + args.dataset)
-    dataloader = ParseData(mode=args.mode, args =args)
-    test_encoder, test_decoder, test_graph, test_batch, test_original_max, test_original_min = dataloader.load_data(sample_percent=args.sample_percent_test,
-                                                                              batch_size=args.batch_size,
-                                                                              data_type="test")
-    train_encoder,train_decoder, train_graph,train_batch, train_original_max, train_original_min = dataloader.load_data(sample_percent=args.sample_percent_train,batch_size=args.batch_size,data_type="train")
-     
-    train_original_max = train_original_max.reshape(-1,1,1)
-    train_original_min = train_original_min.reshape(-1,1,1)
-    test_original_max = test_original_max.reshape(-1,1,1)
-    test_original_min = test_original_min.reshape(-1,1,1)
+    dataloader = ParseData(mode=args.mode, args=args)
+    train_encoder,train_decoder, train_graph, train_batch = dataloader.load_data(sample_percent=args.sample_percent_train,
+                                                                                batch_size=args.batch_size,data_type="train")
+
+    test_encoder, test_decoder, test_graph, test_batch = dataloader.load_data(sample_percent=args.sample_percent_test,
+                                                                              batch_size=1,data_type="test")
+    
+    # dataloader.plot_std()
+    # examine the data loader 
+    # train_batch = next(train_encoder)
+    # print(train_batch)
+    # print(train_batch.x.shape)
+    # print(train_batch.y.shape)
+
+    # test_batch = next(test_encoder)
+    # print(test_batch)
+    # print(test_batch.x.shape)
+    # print(test_batch.y.shape)
+    # exit(0)
+
+
+    train_original_max = dataloader.original_max
+    train_original_min = dataloader.original_min
+
+
+    print(f"train_original_max = {train_original_max.shape}, train_original_min = {train_original_min.shape}")
 
     input_dim = dataloader.feature
+    print(f"n_nodes ={input_dim}")
     if args.single_target:
         nino_col = dataloader.nino_feature_index
         n_features = len(dataloader.features)
@@ -204,6 +255,9 @@ if __name__ == '__main__':
     def train_single_batch(model,batch_dict_encoder,batch_dict_decoder,batch_dict_graph,kl_coef):
 
         optimizer.zero_grad()
+        # understand the data
+        
+
         train_res, pred_y = model.compute_all_losses(batch_dict_encoder, batch_dict_decoder, batch_dict_graph,
                                              n_traj_samples=3, kl_coef=kl_coef)
 
@@ -235,6 +289,7 @@ if __name__ == '__main__':
         loss_list = []
         loss_disen_list = []
         mse_list = []
+
         likelihood_list = []
         kl_first_p_list = []
         std_first_p_list = []
@@ -242,6 +297,9 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
         total_true_y = []
         total_pred_y = []
+
+        total_true_enso = []
+        total_pred_enso = [] 
 
         for itr in tqdm(range(train_batch)):
 
@@ -271,8 +329,27 @@ if __name__ == '__main__':
 
             pred_y = pred_y.detach().cpu().numpy()
             true_y = batch_dict_decoder['data'].detach().cpu().numpy()
-            total_pred_y.append(pred_y)
+            # total_pred_y.append(pred_y)
+            # total_true_y.append(true_y)
+
+            # print(f"pred_y = {pred_y.shape}, true_y = {true_y.shape}")
+            # convert to time series format and reconstruct
+            pred_y = pred_y.reshape(-1, 1, args.n_pcs, args.pred_len)
+            true_y = true_y.reshape(-1, 1, args.n_pcs, args.pred_len)
+            # print(f"pred_y = {pred_y.shape}, true_y = {true_y.shape}")
+            pred_y = batch_data_to_timeseries(pred_y, args.n_pcs)
+            true_y = batch_data_to_timeseries(true_y, args.n_pcs)
+            # print(f"pred_y = {pred_y.shape}, true_y = {true_y.shape}")
+
+            pred_enso, true_enso = reconstruct_enso(pcs=inverse_normalize(pred_y, train_original_max, train_original_min), 
+                                                    real_pcs=inverse_normalize(true_y,train_original_min, train_original_min),
+                                                    top_n_pcs=args.n_pcs, flag="train")
+
+            # print(f"true_enso = {true_enso.shape}, pred_enso = {pred_enso.shape}")
+            total_true_enso.append(true_enso)
+            total_pred_enso.append(pred_enso)
             total_true_y.append(true_y)
+            total_pred_y.append(pred_y)
 
             del batch_dict_encoder, batch_dict_graph, batch_dict_decoder
                 #train_res, loss
@@ -280,8 +357,12 @@ if __name__ == '__main__':
 
         scheduler.step()
         train_true_y, train_pred_y = np.concatenate(total_true_y, axis=0), np.concatenate(total_pred_y, axis=0)
+        train_true_enso, train_pred_enso = np.concatenate(total_true_enso, axis=0), np.concatenate(total_pred_enso, axis=0)
         true = inverse_normalize(train_true_y, train_original_max, train_original_min)
         pred = inverse_normalize(train_pred_y, train_original_max, train_original_min)
+
+       #  print(f"true = {true.shape}, pred = {pred.shape}")
+        # print(f"train_true_enso = {train_true_enso.shape}, train_pred_enso = {train_pred_enso.shape}")
         
         if nino_col is not None:
             true_reshaped = true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
@@ -289,8 +370,11 @@ if __name__ == '__main__':
             rmse_nino = np.sqrt(np.mean(np.square(true_reshaped-pred_reshaped)))
             mape = np.mean(np.abs(true_reshaped-pred_reshaped)/true_reshaped)
 
+
         mape = np.mean(np.abs(true - pred)/true)
-        rmse = np.sqrt( np.mean( np.square(true - pred), axis=2 ) ).mean(1).mean()
+        rmse = np.sqrt(np.mean((true - pred)**2))
+        rmse_enso = np.sqrt(np.mean((train_true_enso - train_pred_enso)**2))
+        # print(f"rmse_enso = {rmse_enso}")
 
         if nino_col is not None:
             message_train = ('Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | Loss_disen {:.4f} | '
@@ -300,30 +384,42 @@ if __name__ == '__main__':
             np.mean(kl_first_p_list), np.mean(std_first_p_list), rmse_nino, mape)
         else:   
             message_train = ('Epoch {:04d} [Train seq (cond on sampled tp)] | Loss {:.6f} | Loss_disen {:.4f} | '
-                         'MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | ').format(
+                         'MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | RMSE_ENSO {:.4f}').format(
             epo,
             np.mean(loss_list), np.mean(loss_disen_list),  np.mean(mse_list), np.mean(likelihood_list),
-            np.mean(kl_first_p_list), np.mean(std_first_p_list), rmse, mape)
+            np.mean(kl_first_p_list), np.mean(std_first_p_list), rmse, mape, rmse_enso)
         if nino_col is not None:
             rmse = rmse_nino
 
 
-        return message_train, kl_coef, true, pred, [rmse]
+        return message_train, kl_coef, true, pred, [rmse, rmse_enso]
+    
     import datetime
     now = datetime.datetime.now()
     date = str(now) # str(uuid.uuid4())
-    os.makedirs(f"results/{date}_{args.save_name}", exist_ok=True)
-    np.save(f"results/{date}_{args.save_name}/test_original_max.npy", test_original_max)
-    np.save(f"results/{date}_{args.save_name}/test_original_min.npy", test_original_min)
-    np.save(f"results/{date}_{args.save_name}/train_original_max.npy", train_original_max)
-    np.save(f"results/{date}_{args.save_name}/train_original_min.npy", train_original_min)
+
+    os.makedirs(f"results/pgode/{save_name}", exist_ok=True)
+    np.save(f"results/pgode/{save_name}/train_original_max.npy", train_original_max)
+    np.save(f"results/pgode/{save_name}/train_original_min.npy", train_original_min)
 
     cumulative_patience = 0
     best_epo = 0
-    
+    rmses_train, rmses_test = [],[]
+    reconstructed_rmses_train, reconstructed_rmses_test = [],[]
+
     for epo in range(1, args.niters + 1):
         time_start = time.time()
+        
         message_train, kl_coef, train_true_y, train_pred_y, train_metrics = train_epoch(epo)
+
+        train_rmse, train_rmse_recon = train_metrics
+        rmses_train.append(train_rmse)
+        reconstructed_rmses_train.append(train_rmse_recon)
+        
+        # message_train = "deug"
+        # kl_coef = 0
+        # train_pred_y, train_true_y = [],[]
+        
         logger.info("cost_time: {:.6f} s".format(time.time() - time_start))
 
         if epo % n_iters_to_viz == 0:
@@ -332,28 +428,35 @@ if __name__ == '__main__':
                                                 n_batches=test_batch, device=device,
                                                 n_traj_samples=3, kl_coef=kl_coef)
             
-            test_true = inverse_normalize(test_true_y, test_original_max, test_original_min)
-            test_pred = inverse_normalize(test_pred_y, test_original_max, test_original_min)
+            # print(f"test_true_y = {test_true_y.shape}")
+            # print(f"test_pred_y = {test_pred_y.shape}")
+            test_true = np.squeeze(test_true_y)
+            test_pred = np.squeeze(test_pred_y)            
+            # compute reconstruction
+            # (batch, 20, 24) 
+            test_true = test_true.reshape(-1, args.n_pcs, args.pred_len)
+            test_pred = test_pred.reshape(-1, args.n_pcs, args.pred_len)
+            test_true = batch_data_to_timeseries(test_true, n_pcs=args.n_pcs)
+            test_pred = batch_data_to_timeseries(test_pred, n_pcs=args.n_pcs)
 
-            if nino_col is not None:
-                test_true_reshaped = test_true.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
-                test_pred_reshaped = test_pred.reshape(-1, n_features, args.pred_len)[:,nino_col,:].flatten()
-                rmse_nino = np.sqrt(np.mean(np.square(test_true_reshaped-test_pred_reshaped)))
-                mape = np.mean(np.abs(test_true_reshaped-test_pred_reshaped)/test_true_reshaped)
-           
-            rmse = np.sqrt( np.mean( np.square(test_true - test_pred), axis=2 ) ).mean(1).mean()
+            test_true = inverse_normalize(test_true, train_original_max, train_original_min)
+            test_pred = inverse_normalize(test_pred, train_original_max, train_original_min)
+
+            # print(f"test_true = {test_true.shape}, test_pred = {test_pred.shape}")
+
+            test_enso, test_enso_pred = reconstruct_enso(pcs=test_pred, real_pcs=test_true, top_n_pcs=args.n_pcs, flag="test")
+            # print(f"test_enso = {test_enso.shape}, test_enso_pred = {test_enso_pred.shape}")
+            rmse = np.sqrt(np.mean((test_true - test_pred)**2))
             mape = np.mean(np.abs(test_true - test_pred)/test_true)
-            
-            if nino_col is not None:
-                message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE_NINO {:.6F} | MAPE {:.6f} | '.format(
-                epo,
-                test_res["loss"], test_res["mse"], test_res["likelihood"],
-                test_res["kl_first_p"], test_res["std_first_p"], rmse_nino, mape)
-            else:    
-                message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | '.format(
-                epo,
-                test_res["loss"], test_res["mse"], test_res["likelihood"],
-                test_res["kl_first_p"], test_res["std_first_p"], rmse, mape)
+            rmse_recon = np.sqrt(np.mean((test_enso - test_enso_pred)**2))
+
+            rmses_test.append(rmse)
+            reconstructed_rmses_test.append(rmse_recon)
+
+            message_test = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Loss {:.6f} | MSE {:.6F} | Likelihood {:.6f} | KL fp {:.4f} | FP STD {:.4f}| | RMSE {:.6F} | MAPE {:.6f} | RMSE_RECON {:.3f} '.format(
+            epo,
+            test_res["loss"], test_res["mse"], test_res["likelihood"],
+            test_res["kl_first_p"], test_res["std_first_p"], rmse, mape, rmse_recon)
 
             logger.info("Experiment " + str(experimentID))
             logger.info(message_train)
@@ -362,8 +465,6 @@ if __name__ == '__main__':
             print("data: %s, encoder: %s, sample: %s, mode:%s" % (
                 args.data, args.z0_encoder, str(args.sample_percent_train), args.mode))
             
-            if nino_col is not None:
-                rmse = rmse_nino
 
             if rmse < best_test_rmse:
                 best_epo = epo
@@ -371,27 +472,43 @@ if __name__ == '__main__':
                 message_best = 'Epoch {:04d} [Test seq (cond on sampled tp)] | Best rmse {:.6f}|'.format(epo,
                                                                                                         best_test_rmse)
                 logger.info(message_best)
-                os.makedirs(f"results/{date}_{args.save_name}", exist_ok=True)
-                ckpt_path = os.path.join(f"results/{date}_{args.save_name}/model.ckpt")
+                os.makedirs(f"results/pgode/{save_name}", exist_ok=True)
+                ckpt_path = os.path.join(f"results/pgode/{save_name}/model.ckpt")
                 torch.save({
                     'args': args,
                     'state_dict': model.state_dict(),
                 }, ckpt_path)
                 
                 cumulative_patience = 0 
-                np.save(f"results/{date}_{args.save_name}/test_pred.npy", test_pred)
-                np.save(f"results/{date}_{args.save_name}/test_true.npy", test_true)
-                np.save(f"results/{date}_{args.save_name}/train_pred.npy", train_pred_y)
-                np.save(f"results/{date}_{args.save_name}/train_true.npy", train_true_y)
+                np.save(f"results/pgode/{save_name}/test_pred.npy", test_pred)
+                np.save(f"results/pgode/{save_name}/test_true.npy", test_true)
+                np.save(f"results/pgode/{save_name}/train_pred.npy", train_pred_y)
+                np.save(f"results/pgode/{save_name}/train_true.npy", train_true_y)
+                np.save(f"results/pgode/{save_name}/test_pred_enso.npy", test_enso_pred)
+                np.save(f"results/pgode/{save_name}/test_enso.npy", test_enso)
+
             else:
                 cumulative_patience += 1 
 
             if cumulative_patience >= args.patience:
                 print(f"Early stopping: curernt best rmse is {best_test_rmse} at epoch {best_epo}.")
+
+                plot_rmse_and_rmse_recon(save_path=f"results/pgode/{save_name}", 
+                                         rmses_train=rmses_train, 
+                                         rmses_test=rmses_test, 
+                                         rmses_train_reconstructed=reconstructed_rmses_train, 
+                                         rmses_test_reconstructed=reconstructed_rmses_test)
+
                 torch.cuda.empty_cache()
-                break
+                
             
             torch.cuda.empty_cache()
+        
 
+    plot_rmse_and_rmse_recon(save_path=f"results/pgode/{save_name}", 
+                             rmses_train=rmses_train, 
+                             rmses_test=rmses_test, 
+                             rmses_train_reconstructed=reconstructed_rmses_train, 
+                             rmses_test_reconstructed=reconstructed_rmses_test)
 
 

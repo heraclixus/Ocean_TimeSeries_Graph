@@ -145,13 +145,17 @@ class gwnet(nn.Module):
 
     # input: (B, D, N, T)
     def forward(self, input):
+        print(input.shape)
         in_len = input.size(3)
+        print(f"in_len = {in_len}, receptive_field = {self.receptive_field}")
         if in_len<self.receptive_field:
             x = nn.functional.pad(input,(self.receptive_field-in_len,0,0,0))
         else:
             x = input
         x = self.start_conv(x)
         skip = 0
+
+        print(f"x.shape = {x.shape}")
 
         # calculate the current adaptive adj matrix once per iteration
         new_supports = None
@@ -181,6 +185,7 @@ class gwnet(nn.Module):
             gate = torch.sigmoid(gate)
             x = filter * gate
 
+            print(f"x = {x.shape} after filter and gate i = {i}")
             # parametrized skip connection
 
             s = x
@@ -200,14 +205,21 @@ class gwnet(nn.Module):
             else:
                 x = self.residual_convs[i](x)
 
+            print(f"residual = {residual.shape}, x = {x.shape} i = {i}")
             x = x + residual[:, :, :, -x.size(3):]
-
+            print(f"x = {x.shape} after residual i = {i}")
 
             x = self.bn[i](x)
+            print(f"x = {x.shape} after bn {i}")
+
+        print(f"x = {x.shape} before end conv")
 
         x = F.relu(skip)
         x = F.relu(self.end_conv_1(x))
+        print(f"x = {x.shape} before end conv 2")
         x = self.end_conv_2(x)
+        print(f"x = {x.shape} after end conv 2")
+        exit(0)
         self.new_supports = new_supports
         return x
 

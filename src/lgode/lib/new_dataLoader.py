@@ -8,6 +8,8 @@ import lgode.lib.utils as utils
 from torch.nn.utils.rnn import pad_sequence
 import pandas as pd
 import scipy.io
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 """
 ['pna', 'pacwarmpool', 'pacwarm', 'qbo', 'amon', 'ea', 
@@ -40,6 +42,7 @@ class ParseData(object):
         self.num_pre = args.pred_len
         self.args = args
         self.feature_set = self.args.feature_set
+        self.n_pcs = args.n_pcs
 
         torch.manual_seed(self.random_seed)
         np.random.seed(self.random_seed)
@@ -48,7 +51,7 @@ class ParseData(object):
     def preprocess_mat(self, data_type):
         print(f"processing mat file {self.args.input_file}...")
         print(f"generating graph and time series...")
-        X = scipy.io.loadmat(self.args.input_file)["pcs"]
+        X = scipy.io.loadmat(self.args.input_file)["pcs"][:,:self.n_pcs]
 
         time_series = []
         edges = []
@@ -61,7 +64,20 @@ class ParseData(object):
         
         if self.args.test == 1:
             X = X[:72]
+
         T, N = X.shape
+        original_max = np.max(X, axis=0)
+        original_min = np.min(X, axis=0)
+
+        std = np.std(X, axis=0)
+
+        if data_type == "train":
+            X = normalize(X, original_max, original_min)
+            self.original_max = original_max
+            self.original_min = original_min
+            self.std = std
+        else:
+            X = normalize(X, self.original_max, self.original_min)
         ###### Chunk into shorter time series 
         seq_len = self.args.cond_len + self.args.pred_len  
         for i in range(T-seq_len):
@@ -73,18 +89,18 @@ class ParseData(object):
             time_obs.append(np.tile(np.linspace(0,5,seq_len), (N,1)).reshape(N,-1))
          
         time_series = np.stack(time_series)  # train: n_seq x N x T x 1
+        print(f"time_series shape: {time_series.shape}")
         edges = np.stack(edges)
         time_obs = np.stack(time_obs)  
-        original_max =  np.max(time_series, 2, keepdims=True)
-        original_min =  np.min(time_series, 2, keepdims=True) 
-        time_series = normalize(time_series, original_max, original_min)
-        std = np.std(time_series, axis=2, keepdims=True)
+        print(f"original_max shape: {original_max.shape}")
+        print(f"original_min shape: {original_min.shape}")
         print('\ntime series max min', np.max(time_series), np.min(time_series)) 
         print(f"std: {std.shape}")
-        return time_series, edges, time_obs, original_max, original_min, std
+        
+        return time_series, edges, time_obs
 
     
-    def preproces_csv(self, data_type):
+    def preprocess_csv(self, data_type):
         '''
         Output:
             timeseries: [#seq, #node, #timestep, #feature] (#feature=1)
@@ -134,6 +150,15 @@ class ParseData(object):
             X = X[:72]
         
         T, N = X.shape
+        original_max = np.max(X, axis=0)
+        original_min = np.min(X, axis=0)
+        if data_type == "train":
+            X = normalize(X, original_max, original_min)
+            self.original_max = original_max
+            self.original_min = original_min
+        else:
+            X = normalize(X, self.original_max, self.original_min)
+
         ###### Chunk into shorter time series 
         seq_len = self.args.cond_len + self.args.pred_len  
         for i in range(T-seq_len):
@@ -146,38 +171,43 @@ class ParseData(object):
          
         time_series = np.stack(time_series)  # train: n_seq x N x T x 1
         edges = np.stack(edges)
-        time_obs = np.stack(time_obs)  
-        
-        
-        original_max =  np.max(time_series, 2, keepdims=True)
-        original_min =  np.min(time_series, 2, keepdims=True) 
-
-        time_series = normalize(time_series, original_max, original_min)
+        time_obs = np.stack(time_obs)                  
         print('\ntime series max min', np.max(time_series), np.min(time_series)) 
-        return time_series, edges, time_obs, original_max, original_min
+        return time_series, edges, time_obs
+
+    def plot_std(self):
+        sns.barplot(x=np.arange(len(self.std)), y=np.squeeze(self.std))
+        plt.xlabel("pcs")
+        plt.ylabel("standard deviation") 
+        plt.savefig(f"std_for_pcs_top{self.n_pcs}_lgode.png")
+
 
     def load_data(self,sample_percent,batch_size,data_type="train"):
         self.batch_size = batch_size
         self.sample_percent = sample_percent  
         if "sst" in self.args.input_file:
-            timeseries, edges, times, original_max, original_min, std = self.preprocess_mat(data_type)
+            timeseries, edges, times = self.preprocess_mat(data_type)
         else:  # csv 
-            timeseries, edges, times, original_max, original_min, std = self.preprocess_csv(data_type)  
+            timeseries, edges, times = self.preprocess_csv(data_type)  
         self.num_graph = timeseries.shape[0]
         self.num_atoms = timeseries.shape[1]
         self.args.n_balls = timeseries.shape[1]
         self.feature = timeseries.shape[-1]
-        self.std = std
         print("# graph in   " + data_type + "   is %d" % self.num_graph)
-        print("# nodes in   " + data_type + "   is %d" % self.num_atoms)
- 
-         
+        print("# nodes in   " + data_type + "   is %d" % self.num_atoms)     
         self.timelength = timeseries.shape[2]
+
+        print(f"timeseries shape: {timeseries.shape}")
   
         timeseries_en = timeseries[:,:,:self.args.cond_len]
         times_en = times[:,:,:self.args.cond_len]
         timeseries_de = timeseries[:,:,self.args.cond_len:]
         times_de = times[:,:,self.args.cond_len:]
+
+        print(f"timeseries_en shape: {timeseries_en.shape}")
+        print(f"times_en shape: {times_en.shape}")
+        print(f"timeseries_de shape: {timeseries_de.shape}")
+        print(f"times_de shape: {times_de.shape}")
         #Encoder dataloader
         series_list_observed, timeseries_observed, times_observed = self.split_data(timeseries_en, times_en)
         if self.mode == "interp":
@@ -224,7 +254,7 @@ class ParseData(object):
         graph_data_loader = utils.inf_generator(graph_data_loader)
         decoder_data_loader = utils.inf_generator(decoder_data_loader)
          
-        return encoder_data_loader, decoder_data_loader, graph_data_loader, num_batch, original_max , original_min
+        return encoder_data_loader, decoder_data_loader, graph_data_loader, num_batch
  
  
     def split_data(self,timeseries,times):

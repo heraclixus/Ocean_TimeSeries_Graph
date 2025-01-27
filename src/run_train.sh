@@ -84,4 +84,3 @@
 # CUDA_VISIBLE_DEVICES=4 nohup python run_lgode.py --feature_set=5 --save_name=cat5_nino_012 --eval_criterion=nino --fourier_coeff=0 --period=12 &> log_cat5_nino_012.txt & 
 # CUDA_VISIBLE_DEVICES=4 nohup python run_lgode.py --feature_set=5 --save_name=cat5_nino_024 --eval_criterion=nino --fourier_coeff=0 --period=24 &> log_cat5_nino_024.txt & 
 # CUDA_VISIBLE_DEVICES=4 nohup python run_lgode.py --feature_set=5 --save_name=cat5_nino_010000 --eval_criterion=nino --fourier_coeff=0 --period=10000 &> log_cat5_nino_010000.txt &
-

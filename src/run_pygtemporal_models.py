@@ -1,4 +1,4 @@
-from pygtemporal_models.pyg_temp_dataset import SSTDatasetLoader, inverse_normalize
+from pygtemporal_models.pyg_temp_dataset import SSTDatasetLoader, inverse_normalize, batch_data_to_timeseries
 import torch
 import torch.optim as optim
 import numpy as np
@@ -12,7 +12,6 @@ from pygtemporal_models.graphwavenet import gwnet
 from utils_pca import reconstruct_enso
 import os
 import matplotlib.pyplot as plt
-
 
 if __name__ == "__main__":
 
@@ -30,10 +29,11 @@ if __name__ == "__main__":
     parser.add_argument("--window", type=int, default=12)
     parser.add_argument("--horizon", type=int, default=24)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--learning_rate", type=float, default=0.00001)
-    parser.add_argument("--epochs", type=int, default=300)
+    parser.add_argument("--learning_rate", type=float, default=0.0001)
+    parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--eval_freq", type=int, default=1)
     parser.add_argument("--patience", type=int, default=50)
+    parser.add_argument("--n_pcs", type=int, default=20)
     parser.add_argument("--use_normalization", action="store_true")
     parser.add_argument("--use_loss_weights", action="store_true")
     args = parser.parse_args()
@@ -44,7 +44,9 @@ if __name__ == "__main__":
     else:
         device = torch.device("cpu")
 
-    sst_dataloader = SSTDatasetLoader(filepath=args.input_file, use_normalization=args.use_normalization)
+    sst_dataloader = SSTDatasetLoader(filepath=args.input_file, use_normalization=args.use_normalization, n_pcs=args.n_pcs)
+
+    # sst_dataloader.plot_std() # plot the std of each PCs
 
     print(f"max = {sst_dataloader._max.shape}, min = {sst_dataloader._min.shape}")
 
@@ -58,22 +60,26 @@ if __name__ == "__main__":
     print(f"test_input = {test_input.shape}")
     print(f"test_target = {test_target.shape}")
 
+    # np.save("train_input", train_input)
+    # np.save("train_target", train_target)
+    # np.save("test_input", test_input)
+    # np.save("test_target", test_target)
+    # exit(0)
 
     train_x_tensor = torch.from_numpy(train_input).type(torch.FloatTensor).unsqueeze(1).to(device)  # (B, F, N, T)
     train_target_tensor = torch.from_numpy(train_target).type(torch.FloatTensor).unsqueeze(1).to(device)
     train_dataset_new = torch.utils.data.TensorDataset(train_x_tensor, train_target_tensor)
-    train_loader = torch.utils.data.DataLoader(train_dataset_new, batch_size=32, shuffle=False, drop_last=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset_new, batch_size=args.batch_size, shuffle=False, drop_last=True)
 
     test_x_tensor = torch.from_numpy(test_input).type(torch.FloatTensor).unsqueeze(1).to(device) # (B, F, N, T)
     test_target_tensor = torch.from_numpy(test_target).type(torch.FloatTensor).unsqueeze(1).to(device)
     test_dataset_new = torch.utils.data.TensorDataset(test_x_tensor, test_target_tensor)
-    test_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=32, shuffle=False,drop_last=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, shuffle=False,drop_last=True)
 
     print(f"train_x_tensor = {train_x_tensor.shape}")
     print(f'train_target_tensor = {train_target_tensor.shape}')
     print(f"test_x_tensor = {test_x_tensor.shape}")
     print(f"test_target_tensor = {test_target_tensor.shape}")
-
 
     # MTGNN configurations
     # build_adj = True means the graph construction layer generates adjancy matrix on the fly (sparse)
@@ -93,9 +99,9 @@ if __name__ == "__main__":
                   residual_channels=32, 
                   skip_channels=64, 
                   end_channels=128, 
-                  seq_length=12, 
+                  seq_length=args.window, 
                   in_dim=1, 
-                  out_dim=24, 
+                  out_dim=args.horizon, 
                   layers=3, 
                   propalpha=0.05, 
                   tanhalpha=3, 
@@ -151,21 +157,24 @@ if __name__ == "__main__":
 
     losses_train, losses_test = [],[]
     rmses_train, rmses_test = [],[]
-
     rmses_train_reconstructed, rmses_test_reconstructed = [],[]
 
     for epoch in range(args.epochs):
         rmses_epoch = [] 
-        rmses_reconstructed_epoch = []
+        rmses_recon_epoch = []
         loss_list_epoch = []
+        offset = 0
         for i, (encoder_input, label) in enumerate(train_loader):
+            
+            offset = (i+1) * 12 # used to determine which mean to use
+            
             optimizer.zero_grad()
             if args.model_name == "stemgnn":
                 output, _ = model(encoder_input)
             else:
-                # print(f"label = {label.shape}")
+                print(f"label = {label.shape}")
                 output = model(encoder_input).permute(0,3,2,1)
-                # print(f"output = {output.shape}")
+                print(f"output = {output.shape}")
                 # exit(0)
             if args.use_loss_weights:
                 loss = weighted_mse(label, output, sst_dataloader._std)
@@ -176,25 +185,26 @@ if __name__ == "__main__":
             loss_list_epoch.append(loss.item())
 
             # compute rmse
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
+            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
             if args.use_normalization:
-                label_np = inverse_normalize(label.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
-                pred_np = inverse_normalize(output.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
-            else:
-                label_np = label.detach().cpu().numpy()
-                pred_np = output.detach().cpu().numpy()
+                label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
+                pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+           
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             rmses_epoch.append(rmse)
-            # reconstructenso
-            nino34, nino34_pred = reconstruct_enso(pred_np)
-            rmse_reconstructed = np.sqrt(np.mean((nino34 - nino34_pred)**2))
-            rmses_reconstructed_epoch.append(rmse_reconstructed)
+
+            nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="train")
+            rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
+            rmses_recon_epoch.append(rmse_recon)
+
         mean_loss_tr = np.mean(loss_list_epoch)
         mean_rmse_tr = np.mean(rmses_epoch)
-        mean_rmse_reconstructed_tr = np.mean(rmses_reconstructed_epoch)
-        print(f"Epoch {epoch} Train loss: {mean_loss_tr: .3f}, RMSE: {mean_rmse_tr :.3f}, RMSE Reconstructed: {mean_rmse_reconstructed_tr:.3f}")
+        mean_rmse_recon_tr = np.mean(rmses_recon_epoch)
+        print(f"Epoch {epoch} Train loss: {mean_loss_tr: .3f}, RMSE: {mean_rmse_tr :.3f}, RMSE Reconstructed: {mean_rmse_recon_tr:.3f}")
         losses_train.append(mean_loss_tr)
         rmses_train.append(mean_rmse_tr) 
-        rmses_train_reconstructed.append(mean_rmse_reconstructed_tr)
+        rmses_train_reconstructed.append(mean_rmse_recon_tr)
 
         # NOTE: 1/12, evaluate after every train to plot training dynamics
         model.eval()
@@ -206,7 +216,7 @@ if __name__ == "__main__":
                 output, _ = model(encoder_input)
             else:
                 output = model(encoder_input).permute(0,3,2,1)
-            # print(f"output = {output.shape}, label = {label.shape}")
+            print(f"output = {output.shape}, label = {label.shape}")
             assert output.size() == label.size()
             if args.use_loss_weights:
                 loss = weighted_mse(label, output, sst_dataloader._std)
@@ -214,16 +224,16 @@ if __name__ == "__main__":
                 loss = loss_fn(output, label)
             losses_test_epoch.append(loss.item())
             # compute rmse
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
+            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
             if args.use_normalization:
-                label_np = inverse_normalize(label.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
-                pred_np = inverse_normalize(output.detach().cpu().numpy(), sst_dataloader._max, sst_dataloader._min)
-            else:
-                label_np = label.detach().cpu().numpy()
-                pred_np = output.detach().cpu().numpy()
+                label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
+                pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+           
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             rmses_test_epoch.append(rmse)
             # reconstructenso
-            nino34, nino34_pred = reconstruct_enso(pred_np)
+            nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np)
             rmse_reconstructed = np.sqrt(np.mean((nino34 - nino34_pred)**2))
             rmses_test_reconstructed_epoch.append(rmse_reconstructed)
         test_rmse = np.mean(rmses_test_epoch)
@@ -251,11 +261,17 @@ if __name__ == "__main__":
     # save the final model's results
     # combine use_normalization and use_loss_weights to create save name
     save_name = f"{args.model_name}"
+    save_name += f"_pcs={args.n_pcs}"
+    save_name += f"_batch={args.batch_size}"
+    save_name += f"_window={args.window}"
     if args.use_normalization:
         save_name += "_normalization"
     if args.use_loss_weights:
         save_name += "_weighted_loss"
+    
     save_path = f"results/pytemporal/{save_name}"
+
+
 
     if not os.path.exists(save_path):
         os.makedirs(save_path)
@@ -301,14 +317,30 @@ if __name__ == "__main__":
         np.save(os.path.join(save_path, f"test_attention.npy"), attention.cpu().detach().numpy())
     else:
         output = model(test_x_tensor).permute(0,3,2,1)
+    
+    output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
+    test_target_np = batch_data_to_timeseries(test_target_tensor.detach().cpu().numpy(), n_pcs=args.n_pcs)
     if args.use_normalization:
-        output_np = inverse_normalize(output.cpu().detach().numpy(), sst_dataloader._max, sst_dataloader._min)
-        test_target_np = inverse_normalize(test_target_tensor.cpu().detach().numpy(), sst_dataloader._max, sst_dataloader._min)
-    else:
-        output_np = output.cpu().detach().numpy()
-        test_target_np = test_target_tensor.cpu().detach().numpy()  
+        output_np = inverse_normalize(output_np, sst_dataloader._max, sst_dataloader._min)
+        test_target_np = inverse_normalize(test_target_np, sst_dataloader._max, sst_dataloader._min)
+    
     np.save(os.path.join(save_path, f"test_pred.npy"), output_np)
     np.save(os.path.join(save_path, f"test_true.npy"), test_target_np)
+
+    enso34, enso34_pred = reconstruct_enso(pcs=output_np, real_pcs=test_target_np, top_n_pcs=args.n_pcs, flag="test")
+    np.save(os.path.join(save_path, f"test_enso34_pred.npy"), enso34_pred)
+    np.save(os.path.join(save_path, f"test_enso34_true.npy"), enso34)
+
+    fig_enso = plt.figure(figsize=(10,5))
+    plt.plot(enso34, label="True ENSO")
+    plt.plot(enso34_pred, label="Predicted ENSO")
+    plt.xlabel("Time stamp")
+    plt.ylabel("ENSO")
+    plt.title("True and Predicted ENSO in Test Split")
+    plt.legend()
+    plt.savefig(os.path.join(save_path, f"enso.png"))
+    plt.close()
+
     if args.model_name == "mtgnn":
         A_tilde = model._graph_constructor(model._idx.to(device))
         np.save(os.path.join(save_path, f"A_tilde.npy"), A_tilde.cpu().detach().numpy())

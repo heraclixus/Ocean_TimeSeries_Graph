@@ -1,7 +1,9 @@
 from torch_geometric_temporal.signal import StaticGraphTemporalSignal
 import numpy as np
 import scipy.io
-
+import seaborn as sns
+import matplotlib.pyplot as plt
+import torch
 
 # series in this case has dimension of (B, N)
 # max and min has dimension of (N,)
@@ -11,19 +13,34 @@ def normalize(series, original_max, original_min):
 # inverse normalize takes in data of size: (B, N, T)
 # the max and min are of shape (N,)
 def inverse_normalize(scaled_series, original_max, original_min):
-    original_max = np.expand_dims(original_max, axis=(0, 2))
-    original_min = np.expand_dims(original_min, axis=(0, 2))
     return scaled_series * (original_max-original_min) + original_min
 
 
+def batch_data_to_timeseries(batched_ts, n_pcs=20):
+    # The first window gives us the first 24 points
+    if len(batched_ts.shape) == 3:
+        # (b, n, t) -> (b, 1, n, t)
+        batched_ts = np.expand_dims(batched_ts, axis=1)
+    time_series = batched_ts[0, 0, 0, :].copy()  # Start with the first window
+    # Add one new point from each subsequent window
+    for i in range(1, len(batched_ts)):
+        time_series = np.append(time_series, batched_ts[i, 0, 0, -1])
+
+    # Reshape the data to (T, 20)
+    # We need to use sliding window again, but now on the reconstructed series
+    T = len(time_series) - (n_pcs-1)  # Total number of possible windows of size 20
+    final_series = np.array([time_series[i:i+n_pcs] for i in range(T)])
+    return final_series
+
 class SSTDatasetLoader():
 
-    def __init__(self, filepath, use_normalization):
+    def __init__(self, filepath, use_normalization, n_pcs):
         self.use_normalization = use_normalization
+        self.n_pcs = n_pcs
         self._read_data(filepath)
     
     def _read_data(self, filepath, split=0.9):
-        self._dataset = scipy.io.loadmat(filepath)['pcs']
+        self._dataset = scipy.io.loadmat(filepath)['pcs'][:, :self.n_pcs]
         self._n_nodes = self._dataset.shape[-1]
         self._train_dataset = self._dataset[:int(self._dataset.shape[0]*split)]
         self._test_dataset = self._dataset[int(self._dataset.shape[0]*split):]
@@ -31,6 +48,10 @@ class SSTDatasetLoader():
         self._min = np.min(self._train_dataset, axis=0)
         # std to be used for loss function weights
         self._std = np.std(self._train_dataset, axis=0)
+
+        self._train_dataset_orig = self._train_dataset
+        self._test_dataset_orig = self._test_dataset
+        
         if self.use_normalization:
             self._train_dataset = normalize(self._train_dataset, self._max, self._min)
             self._test_dataset = normalize(self._test_dataset, self._max, self._min)
@@ -56,7 +77,6 @@ class SSTDatasetLoader():
 
     def _get_targets_and_features(self):
         stacked_target = np.array(self._train_dataset)
-        print(stacked_target.shape)
         self.train_features = [
             stacked_target[i : i + self.window, :].T
             for i in range(stacked_target.shape[0] - self.horizon - self.window)
@@ -95,3 +115,52 @@ class SSTDatasetLoader():
             self._edges, self._edge_weights, self.test_features, self.test_targets
         )
         return train_dataset, test_dataset
+    
+
+    def plot_std(self):
+        sns.barplot(x=np.arange(len(self._std)) ,y=self._std)
+        plt.xlabel("pcs")
+        plt.ylabel("standard deviation") 
+        plt.savefig(f"std_for_pcs_top{self.n_pcs}.png")
+    
+
+# test
+if __name__ == "__main__":
+    input_file = "../../data/sst_pcs.mat"
+    n_pcs=20
+    sst_dataloader = SSTDatasetLoader(filepath=input_file, use_normalization=True, n_pcs=20)
+    
+    train_dataset_orig, test_dataset_orig = sst_dataloader._train_dataset_orig, sst_dataloader._test_dataset_orig
+
+    train_dataset, test_dataset = sst_dataloader.get_dataset(window=12, horizon=24)
+    train_input = np.array(train_dataset.features)
+    train_target = np.array(train_dataset.targets) 
+    test_input = np.array(test_dataset.features)
+    test_target = np.array(test_dataset.targets) 
+    train_x_tensor = torch.from_numpy(train_input).type(torch.FloatTensor).unsqueeze(1)  # (B, F, N, T)
+    train_target_tensor = torch.from_numpy(train_target).type(torch.FloatTensor).unsqueeze(1)
+    train_dataset_new = torch.utils.data.TensorDataset(train_x_tensor, train_target_tensor)
+    train_loader = torch.utils.data.DataLoader(train_dataset_new, batch_size=64, shuffle=False, drop_last=True)
+
+    test_x_tensor = torch.from_numpy(test_input).type(torch.FloatTensor).unsqueeze(1) # (B, F, N, T)
+    test_target_tensor = torch.from_numpy(test_target).type(torch.FloatTensor).unsqueeze(1)
+    test_dataset_new = torch.utils.data.TensorDataset(test_x_tensor, test_target_tensor)
+    test_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, shuffle=False,drop_last=True)
+
+    # make sure that loader de normalize gets back the actual data
+    _, label = next(iter(train_loader))
+    np.save("../label.npy", label.numpy())
+    print(f"label = {label.shape}")
+    print(label.max())
+    print(label.min())
+    label_transformed = inverse_normalize(label.numpy(), sst_dataloader._max, sst_dataloader._min)
+    print(label_transformed.shape)
+    print(label_transformed.max())
+    print(label_transformed.min())
+    print(train_dataset_orig.max())
+    print(test_dataset_orig.min())
+    np.save("../train_split.npy", train_dataset_orig)
+    np.save("../test_split.npy", test_dataset_orig)
+
+    print(train_target.shape)
+    
