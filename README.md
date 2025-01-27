@@ -1,52 +1,17 @@
-# Dynamic System Modeling for Ocean Indices
+# Dynamic System Modeling for ENSO Forecast
 
-Model the spatial-temporal interaction between ocean indices: https://psl.noaa.gov/data/climateindices/list/, which are important indicators for atmospheric and ocean dynamics, espcially for forecasting El Nino. 
+Forecasting ENSO using PCA Modes
 
 # Dataset 
-Multivariate time series in `data/indices_ocean_19_timeseries.csv` that includes 19 time series sampled from 1951 to 2023, with interval of one month. 
-Currently, we use year 2010 as the cutoff for train and test split; for time series forecasting, we use a window size of 12 (one year forecast) and training window of 24 (2 years). 
-
-
-## Feature Sets 
-
-Different stages of feature sets to use for the multivariate time series forecasting problems
-
-### ENSO & Pacific
-
-- nina1: Extreme Eastern Tropical Pacific SST
-- nina3: Eastern Tropical Pacific SST
-- nina34: East Central Tropical Pacific SST
-- nina4: Central Tropical Pacific SST
-- pacwarm: Pacific Warmpool Area Average
-- soi: Southern Oscillation Index
-- tni: Indices of El Niño Evolution
-- whwp: Western Hemisphere Warm Pool
-
-### SST: Atlantic
-- ammsst: Atlantic Meridional Mode
-- tna: Tropical Northern Atlantic Index
-- tsa: Tropical Southern Atlantic Index
-- amo: Atlantic Multidecadal Oscillation
-
-### Teleconnections
-- ea: Eastern Atlantic/Western Russia
-- epo: East Pacific/North Pacific Oscillation
-- nao: North Atlantic Oscillation
-- noi: Northern Oscillation Index
-- pna: Pacific North American Index
-- wp: Western Pacific Index 
-- pdo: Pacific Decadal Oscillation
-
-### Atmosphere and Solar 
-- qbo: Quasi-Biennial Oscillation
-- solar: Solar Flux
-
+Multivariate time series in `data/sst_pcs.mat` that includes 20 PCs for ENSO.
 
 
 # Models 
-We want to study the dynamical interaction between different ocean indices, using a Graph Neural Network (GNN) and perform __symbolic regression__ on the learned GNN to extract interpretable dynamical system information. Baselines: 
-- [ ] Latent Graph ODE
-- [ ] Fourier Neural Operator (FNO)
-- [ ] Spherical Fourier Neural Operator (SFNO)
-- [ ] Multivariate Linear Regression
-- [ ] Traditional Time Series Methods (ARIMA, GARCH, etc.)
+We want to study the dynamical interaction between PCs using a Graph Neural Network (GNN) based models, we use the following baseline models. 
+- Latent Graph ODE (LGODE), [Huang, 2020](https://github.com/ZijieH/LG-ODE)
+- Prototypical Graph ODE (PGODE), [Luo, 2024](https://proceedings.mlr.press/v235/luo24b.html)
+- Spectral Temporal Graph Neural Network (StemGNN), [Cao, 2021](https://github.com/microsoft/StemGNN)
+- Multivariate Time Series GNN (MTGNN), [Wu, 2020](https://github.com/nnzhan/MTGNN)
+- Adaptive Graph Convolutional Recurrent Network (AGRN), [Bai, 2020](https://github.com/LeiBAI/AGCRN)
+- FourierGNN (FGNN), [Yi, 2023](https://github.com/aikunyi/FourierGNN)
+
