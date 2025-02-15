@@ -15,3 +15,4 @@ We want to study the dynamical interaction between PCs using a Graph Neural Netw
 - Adaptive Graph Convolutional Recurrent Network (AGRN), [Bai, 2020](https://github.com/LeiBAI/AGCRN)
 - FourierGNN (FGNN), [Yi, 2023](https://github.com/aikunyi/FourierGNN)
 
+ 

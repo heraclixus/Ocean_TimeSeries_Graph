@@ -51,7 +51,8 @@ class ParseData(object):
     def preprocess_mat(self, data_type):
         print(f"processing mat file {self.args.input_file}...")
         print(f"generating graph and time series...")
-        X = scipy.io.loadmat(self.args.input_file)["pcs"][:,:self.n_pcs]
+        # X = scipy.io.loadmat(self.args.input_file)["pcs"][:,:self.n_pcs]
+        X = np.load(self.args.input_file)[:,:self.n_pcs]
 
         time_series = []
         edges = []

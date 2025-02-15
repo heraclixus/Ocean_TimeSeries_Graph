@@ -1,13 +1,20 @@
 mkdir -p logs_pgode
 # # LGODE without GAT 
 
-window=12
-batch=128
-horizon=24
+window=6
+batch=64
+horizon=12
 n_pcs=20
-# CUDA_VISIBLE_DEVICES=5 nohup python run_pgode.py --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat &> log_pgode_debug.txt &
 
-CUDA_VISIBLE_DEVICES=3 nohup python run_pgode.py --batch-size=$batch --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}_${batch}.txt &
+# CUDA_VISIBLE_DEVICES=3 nohup python run_pgode.py --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.npy --dataset=sst_pcs.npy &> log_pgode_debug.txt &
+CUDA_VISIBLE_DEVICES=6 nohup python run_pgode.py --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.npy --dataset=sst_pcs.npy &> log_pgode_debug1.txt &
+
+# CUDA_VISIBLE_DEVICES=0 nohup python run_pgode.py --batch-size=$batch --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.npy --dataset=sst_pcs.npy &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}_${batch}.txt &
+# CUDA_VISIBLE_DEVICES=3 nohup python run_pgode.py --batch-size=$batch --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.npy --dataset=sst_pcs.npy --use_scheduler &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}_${batch}_scheduler.txt &
+# CUDA_VISIBLE_DEVICES=3 nohup python run_pgode.py --batch-size=$batch --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.npy --dataset=sst_pcs.npy --use_scheduler --use_cosine &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}_${batch}_scheduler_cosine.txt &
+# CUDA_VISIBLE_DEVICES=7 nohup python run_pgode.py --batch-size=$batch --n_pcs=$n_pcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.npy --dataset=sst_pcs.npy --use_scheduler --use_warmup &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}_${batch}_scheduler_warmup.txt &
+
+
 # CUDA_VISIBLE_DEVICES=5 nohup python run_pgode.py --n_pcs=$npcs --cond_len=$window --pred_len=$horizon --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=pgode_sst_debug &> logs_pgode/log_pgode_${window}_${horizon}_${n_pcs}.txt &
 
 # CUDA_VISIBLE_DEVICES=0 nohup python run_lgode.py --input_file=../data/sst_pcs.mat --dataset=sst_pcs.mat --save_name=lgode_sst_0 &> log_lgode_sst.txt &

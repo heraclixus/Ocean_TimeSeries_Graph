@@ -16,21 +16,16 @@ def inverse_normalize(scaled_series, original_max, original_min):
     return scaled_series * (original_max-original_min) + original_min
 
 
-def batch_data_to_timeseries(batched_ts, n_pcs=20):
+def batch_data_to_timeseries(batched_ts):
     # The first window gives us the first 24 points
     if len(batched_ts.shape) == 3:
         # (b, n, t) -> (b, 1, n, t)
         batched_ts = np.expand_dims(batched_ts, axis=1)
-    time_series = batched_ts[0, 0, 0, :].copy()  # Start with the first window
+    time_series = batched_ts[0, 0, :, :].copy().T  # Start with the first window
     # Add one new point from each subsequent window
     for i in range(1, len(batched_ts)):
-        time_series = np.append(time_series, batched_ts[i, 0, 0, -1])
-
-    # Reshape the data to (T, 20)
-    # We need to use sliding window again, but now on the reconstructed series
-    T = len(time_series) - (n_pcs-1)  # Total number of possible windows of size 20
-    final_series = np.array([time_series[i:i+n_pcs] for i in range(T)])
-    return final_series
+        time_series = np.vstack((time_series, np.expand_dims(batched_ts[i, 0, :, -1], axis=0)))
+    return time_series
 
 class SSTDatasetLoader():
 
@@ -39,11 +34,12 @@ class SSTDatasetLoader():
         self.n_pcs = n_pcs
         self._read_data(filepath)
     
-    def _read_data(self, filepath, split=0.9):
-        self._dataset = scipy.io.loadmat(filepath)['pcs'][:, :self.n_pcs]
-        self._n_nodes = self._dataset.shape[-1]
-        self._train_dataset = self._dataset[:int(self._dataset.shape[0]*split)]
-        self._test_dataset = self._dataset[int(self._dataset.shape[0]*split):]
+    def _read_data(self, filepath):
+        self._dataset = np.load(filepath)[:, :self.n_pcs]
+        self._n_nodes = int(self._dataset.shape[-1])
+
+        self._train_dataset = self._dataset[:round(self._dataset.shape[0] * 0.9)]
+        self._test_dataset = self._dataset[round(self._dataset.shape[0] * 0.9):]
         self._max = np.max(self._train_dataset, axis=0)
         self._min = np.min(self._train_dataset, axis=0)
         # std to be used for loss function weights

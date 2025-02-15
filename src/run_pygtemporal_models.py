@@ -1,6 +1,7 @@
 from pygtemporal_models.pyg_temp_dataset import SSTDatasetLoader, inverse_normalize, batch_data_to_timeseries
 import torch
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR, CosineAnnealingWarmRestarts
 import numpy as np
 import argparse
 from pygtemporal_models.math_utils import weighted_mse
@@ -10,13 +11,16 @@ from pygtemporal_models.agcrn import AGCRN
 from pygtemporal_models.fouriergnn import FGN
 from pygtemporal_models.graphwavenet import gwnet
 from utils_pca import reconstruct_enso
+from utils_visualization_forecast import plot_channel_rmse, plot_enso_anomaly_correlation, plot_enso_forecast_vs_real, plot_enso_anomaly_rmse
 import os
 import matplotlib.pyplot as plt
+
+
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", type=str, default="../data/sst_pcs.mat")
+    parser.add_argument("--input_file", type=str, default="../data/sst_pcs.npy")
     parser.add_argument("--model_name", type=str, default="mtgnn")
     parser.add_argument("--multi_layer", type=int, default=5)
     parser.add_argument("--input_dim", type=int, default=1)
@@ -26,17 +30,28 @@ if __name__ == "__main__":
     parser.add_argument("--rnn_units", type=int, default=64)
     parser.add_argument("--hidden_size", type=int, default=64) # fgnn
     parser.add_argument("--embed_dim", type=int, default=32)
-    parser.add_argument("--window", type=int, default=12)
-    parser.add_argument("--horizon", type=int, default=24)
+    parser.add_argument("--window", type=int, default=6)
+    parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--eval_freq", type=int, default=1)
-    parser.add_argument("--patience", type=int, default=50)
+    parser.add_argument("--patience", type=int, default=150)
     parser.add_argument("--n_pcs", type=int, default=20)
     parser.add_argument("--use_normalization", action="store_true")
     parser.add_argument("--use_loss_weights", action="store_true")
+    parser.add_argument("--use_cosine", action="store_true")
+    parser.add_argument("--use_warmup", action="store_true")
+    parser.add_argument("--warmup_epochs", type=int, default=10)
+
     args = parser.parse_args()
+
+
+    # Warm-up function
+    def lr_lambda(epoch):
+        if epoch < args.warmup_epochs:
+            return epoch / args.warmup_epochs  # Linear warm-up
+        return 1  # Default multiplier after warm-up
 
 
     if torch.cuda.is_available():
@@ -60,16 +75,10 @@ if __name__ == "__main__":
     print(f"test_input = {test_input.shape}")
     print(f"test_target = {test_target.shape}")
 
-    # np.save("train_input", train_input)
-    # np.save("train_target", train_target)
-    # np.save("test_input", test_input)
-    # np.save("test_target", test_target)
-    # exit(0)
-
     train_x_tensor = torch.from_numpy(train_input).type(torch.FloatTensor).unsqueeze(1).to(device)  # (B, F, N, T)
     train_target_tensor = torch.from_numpy(train_target).type(torch.FloatTensor).unsqueeze(1).to(device)
     train_dataset_new = torch.utils.data.TensorDataset(train_x_tensor, train_target_tensor)
-    train_loader = torch.utils.data.DataLoader(train_dataset_new, batch_size=args.batch_size, shuffle=False, drop_last=True)
+    train_loader = torch.utils.data.DataLoader(train_dataset_new, batch_size=args.batch_size, shuffle=False, drop_last=False)
 
     test_x_tensor = torch.from_numpy(test_input).type(torch.FloatTensor).unsqueeze(1).to(device) # (B, F, N, T)
     test_target_tensor = torch.from_numpy(test_target).type(torch.FloatTensor).unsqueeze(1).to(device)
@@ -146,6 +155,14 @@ if __name__ == "__main__":
 
     # training
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    scheduler = CosineAnnealingLR(optimizer, T_max=500, eta_min=1e-6)
+    
+    # Warm-up scheduler
+    if args.use_warmup:
+        warmup_scheduler = LambdaLR(optimizer, lr_lambda)
+        # CosineAnnealingWarmRestarts scheduler (applied after warm-up)
+        scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=args.patience, T_mult=2, eta_min=1e-6)
+    
     total_param = 0
     for param_tensor in model.state_dict():
         total_param += np.prod(model.state_dict()[param_tensor].size())
@@ -154,6 +171,8 @@ if __name__ == "__main__":
     cumulative_patience = 0
     loss_fn = torch.nn.MSELoss()
     best_test_loss = np.inf
+    best_enso_reconstructed_loss = np.inf
+    best_model = None
 
     losses_train, losses_test = [],[]
     rmses_train, rmses_test = [],[]
@@ -172,9 +191,7 @@ if __name__ == "__main__":
             if args.model_name == "stemgnn":
                 output, _ = model(encoder_input)
             else:
-                print(f"label = {label.shape}")
                 output = model(encoder_input).permute(0,3,2,1)
-                print(f"output = {output.shape}")
                 # exit(0)
             if args.use_loss_weights:
                 loss = weighted_mse(label, output, sst_dataloader._std)
@@ -183,10 +200,9 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
             loss_list_epoch.append(loss.item())
-
             # compute rmse
-            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
-            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy())
+            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
                 pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
@@ -216,7 +232,6 @@ if __name__ == "__main__":
                 output, _ = model(encoder_input)
             else:
                 output = model(encoder_input).permute(0,3,2,1)
-            print(f"output = {output.shape}, label = {label.shape}")
             assert output.size() == label.size()
             if args.use_loss_weights:
                 loss = weighted_mse(label, output, sst_dataloader._std)
@@ -224,8 +239,11 @@ if __name__ == "__main__":
                 loss = loss_fn(output, label)
             losses_test_epoch.append(loss.item())
             # compute rmse
-            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
-            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
+            # (b, 1, 20, 24)
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy())
+            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
+            # (b+24, 20)
+
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
                 pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
@@ -246,14 +264,21 @@ if __name__ == "__main__":
 
         print(f"Epoch {epoch}, Test loss: {test_epoch_loss: .3f}, RMSE: {test_rmse: .3f}, RMSE Reconstructed: {test_rmse_reconstructed:.3f}")
 
-        if test_epoch_loss <= best_test_loss:
+        if test_rmse_reconstructed <= best_enso_reconstructed_loss:
             best_test_loss = test_epoch_loss
+            best_enso_reconstructed_loss = test_rmse_reconstructed
             cumulative_patience = 0
+            best_model = model
         else:
             cumulative_patience += 1 
         if cumulative_patience == args.patience:
             print(f"Early stopping at epoch {epoch}")
+            print(f"Best test loss: {best_test_loss:.3f}")
+            print(f"Best test rmse reconstructed: {best_enso_reconstructed_loss:.3f}")
             break
+
+        if args.use_cosine: 
+            scheduler.step()
 
         model.train()
     
@@ -267,16 +292,21 @@ if __name__ == "__main__":
     if args.use_normalization:
         save_name += "_normalization"
     if args.use_loss_weights:
-        save_name += "_weighted_loss"
+        save_name += "_weighted"
+    if args.use_cosine:
+        save_name += "_cosine"
+    if args.use_warmup:
+        save_name += "_warmup"
+
     
     save_path = f"results/pytemporal/{save_name}"
-
+    print(save_path)
 
 
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     
-    torch.save(model.state_dict(), os.path.join(save_path, "model.pth"))
+    torch.save(best_model.state_dict(), os.path.join(save_path, "model.pth"))
 
     # visualize train and test losses 
     fig_loss = plt.figure(figsize=(10,5))
@@ -316,30 +346,55 @@ if __name__ == "__main__":
         output, attention = model(test_x_tensor)
         np.save(os.path.join(save_path, f"test_attention.npy"), attention.cpu().detach().numpy())
     else:
-        output = model(test_x_tensor).permute(0,3,2,1)
-    
-    output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
-    test_target_np = batch_data_to_timeseries(test_target_tensor.detach().cpu().numpy(), n_pcs=args.n_pcs)
-    if args.use_normalization:
-        output_np = inverse_normalize(output_np, sst_dataloader._max, sst_dataloader._min)
-        test_target_np = inverse_normalize(test_target_np, sst_dataloader._max, sst_dataloader._min)
-    
-    np.save(os.path.join(save_path, f"test_pred.npy"), output_np)
-    np.save(os.path.join(save_path, f"test_true.npy"), test_target_np)
+        output = best_model(test_x_tensor).permute(0,3,2,1)
 
-    enso34, enso34_pred = reconstruct_enso(pcs=output_np, real_pcs=test_target_np, top_n_pcs=args.n_pcs, flag="test")
-    np.save(os.path.join(save_path, f"test_enso34_pred.npy"), enso34_pred)
-    np.save(os.path.join(save_path, f"test_enso34_true.npy"), enso34)
+    
+    # visualize the test split
+    model = best_model
+    true_npy, pred_npy = [],[]
+    true_nino, pred_nino = [],[] 
 
-    fig_enso = plt.figure(figsize=(10,5))
-    plt.plot(enso34, label="True ENSO")
-    plt.plot(enso34_pred, label="Predicted ENSO")
-    plt.xlabel("Time stamp")
-    plt.ylabel("ENSO")
-    plt.title("True and Predicted ENSO in Test Split")
-    plt.legend()
-    plt.savefig(os.path.join(save_path, f"enso.png"))
-    plt.close()
+    final_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, shuffle=False, drop_last=True)
+    for i, (encoder_input, label) in enumerate(final_loader):
+        if args.model_name == "stemgnn":
+            output, _ = model(encoder_input)
+        else:
+            output = model(encoder_input).permute(0,3,2,1)
+        assert output.size() == label.size()
+       
+        label_np = batch_data_to_timeseries(label.detach().cpu().numpy())
+        pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
+        if args.use_normalization:
+            label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min) # (1, 20, 24)
+            pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+        # reconstructenso
+        nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np)
+        true_npy.append(np.expand_dims(label_np,0))
+        pred_npy.append(np.expand_dims(pred_np,0))
+        true_nino.append(np.expand_dims(nino34,0))
+        pred_nino.append(np.expand_dims(nino34_pred,0))
+
+    true_npy = np.concatenate(true_npy, axis=0)
+    pred_npy = np.concatenate(pred_npy, axis=0)
+    true_nino = np.concatenate(true_nino, axis=0)
+    pred_nino = np.concatenate(pred_nino, axis=0)
+    # print(true_npy.shape)
+    # print(pred_npy.shape)
+    # print(true_nino.shape)
+    # print(pred_nino.shape)
+
+    # save some results
+    np.save(os.path.join(save_path, f"test_pred.npy"), pred_npy)
+    np.save(os.path.join(save_path, f"test_label.npy"), true_npy)
+    np.save(os.path.join(save_path, f"test_enso_reconstructed.npy"), pred_nino)
+    np.save(os.path.join(save_path, f"test_enso.npy"), true_nino)
+
+    # plot 
+    plot_channel_rmse(pred_npy, true_npy, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
+    plot_enso_anomaly_correlation(pred_nino, true_nino, args.model_name, save_path)
+    plot_enso_forecast_vs_real(pred_nino, true_nino, args.model_name, save_path)
+    plot_enso_anomaly_rmse(pred_nino, true_nino, args.model_name, save_path)
+    
 
     if args.model_name == "mtgnn":
         A_tilde = model._graph_constructor(model._idx.to(device))
