@@ -11,7 +11,7 @@ import argparse
 from utils_pca import reconstruct_enso
 # Import baseline models
 from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
-from baseline_models.ncde import TimeSeriesCDE
+from baseline_models.ncde import TimeSeriesCDE, NeuralCDEForecaster
 from baseline_models.nsde import TimeSeriesSDE, NeuralSDEForecaster
 from baseline_models.graphode import GraphNeuralODE
 from baseline_models.kalman_filter import KalmanForecaster
@@ -106,11 +106,19 @@ if __name__ == "__main__":
                 forecast_horizon=args.horizon
             ).to(device)
     elif args.model_name == "ncde":
-        model = TimeSeriesCDE(
-            input_dim=input_dim,
-            hidden_dim=args.hidden_size,
-            forecast_horizon=args.horizon
-        ).to(device)
+        if args.ode_encoder_decoder:
+            model = NeuralCDEForecaster(
+                input_dim=input_dim,
+                hidden_dim=args.hidden_size,
+                time_series_length=args.window,
+                forecast_length=args.horizon
+            ).to(device)
+        else:
+            model = TimeSeriesCDE(
+                input_dim=input_dim,
+                hidden_dim=args.hidden_size,
+                forecast_horizon=args.horizon
+            ).to(device)
     elif args.model_name == "nsde":
         if args.ode_encoder_decoder:
             model = NeuralSDEForecaster(
@@ -223,7 +231,10 @@ if __name__ == "__main__":
                 else:
                     loss = model.compute_loss(output, label, output_cov, add_sin_cos=args.add_sin_cos)
             else:
-                output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
+                if args.model_name == "nsde":
+                    output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
+                else:
+                    output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
                     if len(output.shape) == 4: # stochastic models
                         output = output[:, :, :-2, :]
