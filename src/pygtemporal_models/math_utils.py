@@ -3,12 +3,31 @@ import torch
 
 # weight each dimension by its std to be used in loss function
 # use torch 
-def weighted_mse(v, v_, std):
-    std = torch.from_numpy(std).to(v.device)
-    if len(v.shape) == 4:
-        std = std.view(1, 1, len(std), 1)
-    weighted_diff = torch.square(v_ - v) * std
-    return weighted_diff.mean()
+def weighted_mse(y_true, y_pred, std):
+    """
+    Compute weighted MSE loss
+    
+    Args:
+        y_true (torch.Tensor): True values
+        y_pred (torch.Tensor): Predicted values
+        std (torch.Tensor): Standard deviations for weighting
+    """
+    # If using sin/cos features, only compute loss on actual PCs
+    n_actual_features = len(std) - 2 if len(std) > y_true.shape[2] else len(std)
+    weights = 1.0 / (std[:n_actual_features] ** 2)
+    weights = torch.tensor(weights, device=y_pred.device)
+    
+    # Only compute loss on actual PCs
+    y_true = y_true[:, :, :n_actual_features]
+    y_pred = y_pred[:, :, :n_actual_features]
+
+    squared_diff = (y_true - y_pred) ** 2
+   
+    if len(y_true.shape) == 4:
+        weighted_squared_diff = weights.view(1, 1, -1, 1) * squared_diff
+    else:
+        weighted_squared_diff = weights.view(1, -1, 1) * squared_diff
+    return torch.mean(weighted_squared_diff)
 
 
 def masked_MAPE(v, v_, axis=None):

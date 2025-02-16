@@ -26,8 +26,8 @@ if __name__ == "__main__":
     parser.add_argument("--rnn_units", type=int, default=64)
     parser.add_argument("--hidden_size", type=int, default=64) # fgnn
     parser.add_argument("--embed_dim", type=int, default=32)
-    parser.add_argument("--window", type=int, default=12)
-    parser.add_argument("--horizon", type=int, default=24)
+    parser.add_argument("--window", type=int, default=6)
+    parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--epochs", type=int, default=500)
@@ -36,15 +36,24 @@ if __name__ == "__main__":
     parser.add_argument("--n_pcs", type=int, default=20)
     parser.add_argument("--use_normalization", action="store_true")
     parser.add_argument("--use_loss_weights", action="store_true")
+    parser.add_argument("--add_sin_cos", action="store_true",
+                       help="Add sine and cosine features with period 12")
+    parser.add_argument("--train_length", type=int, default=700,
+                       help="Number of time steps to use for training")
     args = parser.parse_args()
 
+    print(f"configuration: input_file = {args.input_file}, model_name = {args.model_name}, multi_layer = {args.multi_layer}, input_dim = {args.input_dim}, output_dim = {args.output_dim}, num_layers = {args.num_layers}, cheb_k = {args.cheb_k}, rnn_units = {args.rnn_units}, hidden_size = {args.hidden_size}, embed_dim = {args.embed_dim}, window = {args.window}, horizon = {args.horizon}, batch_size = {args.batch_size}, learning_rate = {args.learning_rate}, epochs = {args.epochs}, eval_freq = {args.eval_freq}, patience = {args.patience}, n_pcs = {args.n_pcs}, use_normalization = {args.use_normalization}, use_loss_weights = {args.use_loss_weights}, add_sin_cos = {args.add_sin_cos}, train_length = {args.train_length}")
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
 
-    sst_dataloader = SSTDatasetLoader(filepath=args.input_file, use_normalization=args.use_normalization, n_pcs=args.n_pcs)
+    sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
+                                     use_normalization=args.use_normalization,
+                                     n_pcs=args.n_pcs,
+                                     add_sin_cos=args.add_sin_cos,
+                                     train_length=args.train_length)
 
     # sst_dataloader.plot_std() # plot the std of each PCs
 
@@ -159,37 +168,49 @@ if __name__ == "__main__":
     rmses_train, rmses_test = [],[]
     rmses_train_reconstructed, rmses_test_reconstructed = [],[]
 
+    if args.add_sin_cos:
+        max = sst_dataloader._max[:-2]
+        min = sst_dataloader._min[:-2]
+    else:
+        max = sst_dataloader._max
+        min = sst_dataloader._min
+
     for epoch in range(args.epochs):
         rmses_epoch = [] 
         rmses_recon_epoch = []
         loss_list_epoch = []
         offset = 0
         for i, (encoder_input, label) in enumerate(train_loader):
-            
             offset = (i+1) * 12 # used to determine which mean to use
             
             optimizer.zero_grad()
             if args.model_name == "stemgnn":
                 output, _ = model(encoder_input)
             else:
-                print(f"label = {label.shape}")
                 output = model(encoder_input).permute(0,3,2,1)
-                print(f"output = {output.shape}")
-                # exit(0)
             if args.use_loss_weights:
-                loss = weighted_mse(label, output, sst_dataloader._std)
+                if args.add_sin_cos:
+                    output = output[:, :, :-2, :]
+                    label = label[:, :, :-2, :]
+                    std = sst_dataloader._std[:-2]
+                    loss = weighted_mse(label, output, std)
+                else:
+                    loss = weighted_mse(label, output, sst_dataloader._std)
             else:
+                if args.add_sin_cos:
+                    output = output[:, :, :-2, :]
+                    label = label[:, :, :-2, :]
                 loss = loss_fn(output, label)
             loss.backward()
             optimizer.step()
             loss_list_epoch.append(loss.item())
 
             # compute rmse
-            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
-            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             if args.use_normalization:
-                label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
-                pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+                label_np = inverse_normalize(label_np, max, min)
+                pred_np = inverse_normalize(pred_np, max, min)
            
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             rmses_epoch.append(rmse)
@@ -212,23 +233,32 @@ if __name__ == "__main__":
         losses_test_epoch = []
         rmses_test_reconstructed_epoch = []
         for i, (encoder_input, label) in enumerate(test_loader):
-            if args.model_name == "stemgnn":
-                output, _ = model(encoder_input)
-            else:
-                output = model(encoder_input).permute(0,3,2,1)
-            print(f"output = {output.shape}, label = {label.shape}")
-            assert output.size() == label.size()
-            if args.use_loss_weights:
-                loss = weighted_mse(label, output, sst_dataloader._std)
-            else:
-                loss = loss_fn(output, label)
+            with torch.no_grad():
+                if args.model_name == "stemgnn":
+                    output, _ = model(encoder_input)
+                else:
+                    output = model(encoder_input).permute(0,3,2,1)
+                
+                if args.use_loss_weights:
+                    if args.add_sin_cos:
+                        output = output[:, :, :-2, :]
+                        label = label[:, :, :-2, :]
+                        std = sst_dataloader._std[:-2]
+                        loss = weighted_mse(label, output, std)
+                    else:
+                        loss = weighted_mse(label, output, sst_dataloader._std)
+                else:
+                    if args.add_sin_cos:
+                        output = output[:, :, :-2, :]
+                        label = label[:, :, :-2, :]
+                    loss = loss_fn(output, label)
             losses_test_epoch.append(loss.item())
             # compute rmse
-            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
-            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             if args.use_normalization:
-                label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
-                pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+                label_np = inverse_normalize(label_np, max, min)
+                pred_np = inverse_normalize(pred_np, max, min)
            
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             rmses_test_epoch.append(rmse)
@@ -317,12 +347,14 @@ if __name__ == "__main__":
         np.save(os.path.join(save_path, f"test_attention.npy"), attention.cpu().detach().numpy())
     else:
         output = model(test_x_tensor).permute(0,3,2,1)
+    if args.add_sin_cos:
+        output = output[:, :, :-2, :]
     
-    output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
-    test_target_np = batch_data_to_timeseries(test_target_tensor.detach().cpu().numpy(), n_pcs=args.n_pcs)
+    output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+    test_target_np = batch_data_to_timeseries(test_target_tensor.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
     if args.use_normalization:
-        output_np = inverse_normalize(output_np, sst_dataloader._max, sst_dataloader._min)
-        test_target_np = inverse_normalize(test_target_np, sst_dataloader._max, sst_dataloader._min)
+        output_np = inverse_normalize(output_np, max, min)
+        test_target_np = inverse_normalize(test_target_np, max, min)
     
     np.save(os.path.join(save_path, f"test_pred.npy"), output_np)
     np.save(os.path.join(save_path, f"test_true.npy"), test_target_np)

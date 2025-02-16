@@ -358,7 +358,15 @@ def anomaly(data):
 # to be used by model evaluation
 # take only the last T time stamps to agree with the prediction length 
 # use only the post 317 ENSO modes to reconstruct the time series from PCs 
-def reconstruct_enso(pcs,  real_pcs=None, top_n_pcs=20, flag="test"):
+def reconstruct_enso(pcs, real_pcs, top_n_pcs=20, flag="test"):
+    """
+    Only use actual PCs (excluding sin/cos) for reconstruction
+    """
+    # If pcs has more features than real_pcs, assume the extra ones are sin/cos
+    n_actual_pcs = min(top_n_pcs, real_pcs.shape[-1])
+    pcs = pcs[..., :n_actual_pcs]
+    real_pcs = real_pcs[..., :n_actual_pcs]
+    
     pcs = np.squeeze(pcs)
     data = np.load("../data/pc_metadata.npz")
     if real_pcs is None:

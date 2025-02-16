@@ -16,11 +16,19 @@ def inverse_normalize(scaled_series, original_max, original_min):
     return scaled_series * (original_max-original_min) + original_min
 
 
-def batch_data_to_timeseries(batched_ts, n_pcs=20):
+def batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
+
+    if len(batched_ts) == 1:
+        return batched_ts.squeeze().T 
+
     # The first window gives us the first 24 points
     if len(batched_ts.shape) == 3:
         # (b, n, t) -> (b, 1, n, t)
         batched_ts = np.expand_dims(batched_ts, axis=1)
+
+    if sin_cos:
+        batched_ts = batched_ts[:, :, :-2, :] # Start with the first window
+   
     time_series = batched_ts[0, 0, 0, :].copy()  # Start with the first window
     # Add one new point from each subsequent window
     for i in range(1, len(batched_ts)):
@@ -34,20 +42,73 @@ def batch_data_to_timeseries(batched_ts, n_pcs=20):
 
 class SSTDatasetLoader():
 
-    def __init__(self, filepath, use_normalization, n_pcs):
+    def __init__(self, filepath, use_normalization, n_pcs, add_sin_cos=False, train_length=700):
+        """
+        Initialize dataset loader
+        
+        Args:
+            filepath (str): Path to data file
+            use_normalization (bool): Whether to normalize data
+            n_pcs (int): Number of principal components to use
+            add_sin_cos (bool): Whether to add sinusoidal features
+            train_length (int): Number of time steps to use for training
+        """
         self.use_normalization = use_normalization
         self.n_pcs = n_pcs
+        self.add_sin_cos = add_sin_cos
+        self.train_length = train_length
         self._read_data(filepath)
     
-    def _read_data(self, filepath, split=0.9):
+    def _read_data(self, filepath):
+        """
+        Read and preprocess data
+        
+        Args:
+            filepath (str): Path to data file
+        """
         self._dataset = scipy.io.loadmat(filepath)['pcs'][:, :self.n_pcs]
+        
+        # Add sinusoidal features if requested
+        if self.add_sin_cos:
+            time_steps = np.arange(len(self._dataset))
+            period = 12
+            sin_wave = np.sin(2 * np.pi * time_steps / period)
+            cos_wave = np.cos(2 * np.pi * time_steps / period)
+            
+            # Add as new columns
+            sin_wave = sin_wave.reshape(-1, 1)
+            cos_wave = cos_wave.reshape(-1, 1)
+            self._dataset = np.concatenate([self._dataset, sin_wave, cos_wave], axis=1)
+            
+            self._n_actual_pcs = self.n_pcs
+            self.n_pcs += 2
+        else:
+            self._n_actual_pcs = self.n_pcs
+        
         self._n_nodes = self._dataset.shape[-1]
-        self._train_dataset = self._dataset[:int(self._dataset.shape[0]*split)]
-        self._test_dataset = self._dataset[int(self._dataset.shape[0]*split):]
-        self._max = np.max(self._train_dataset, axis=0)
-        self._min = np.min(self._train_dataset, axis=0)
-        # std to be used for loss function weights
-        self._std = np.std(self._train_dataset, axis=0)
+        
+        # Split using train_length instead of ratio
+        self._train_dataset = self._dataset[:self.train_length]
+        self._test_dataset = self._dataset[self.train_length:]
+        
+        # Only compute statistics on actual PCs (not sin/cos)
+        if self.add_sin_cos:
+            self._max = np.concatenate([
+                np.max(self._train_dataset[:, :self._n_actual_pcs], axis=0),
+                np.ones(2)  # For sin/cos features
+            ])
+            self._min = np.concatenate([
+                np.min(self._train_dataset[:, :self._n_actual_pcs], axis=0),
+                -np.ones(2)  # For sin/cos features
+            ])
+            self._std = np.concatenate([
+                np.std(self._train_dataset[:, :self._n_actual_pcs], axis=0),
+                np.ones(2)  # For sin/cos features
+            ])
+        else:
+            self._max = np.max(self._train_dataset, axis=0)
+            self._min = np.min(self._train_dataset, axis=0)
+            self._std = np.std(self._train_dataset, axis=0)
 
         self._train_dataset_orig = self._train_dataset
         self._test_dataset_orig = self._test_dataset
