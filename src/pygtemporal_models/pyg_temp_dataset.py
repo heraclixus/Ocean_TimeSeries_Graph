@@ -16,6 +16,28 @@ def inverse_normalize(scaled_series, original_max, original_min):
     return scaled_series * (original_max-original_min) + original_min
 
 
+
+def stochastic_batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
+
+    if batched_ts.shape[1] == 1: 
+        # (n_samples, n, t)
+        return batched_ts.squeeze().transpose(0, 2, 1)
+
+    batched_ts = np.expand_dims(batched_ts, axis=2) # (n_samples, b, 1, n, t)
+    if sin_cos:
+        batched_ts = batched_ts[:,:,:,:-2, :]
+    n_timeseries = []
+    for i in range(batched_ts.shape[0]):
+        batched_ts_i = batched_ts[i].copy()
+        time_series = batched_ts_i[0,0,0,:].copy()
+        for j in range(1, len(batched_ts_i)):
+            time_series = np.append(time_series, batched_ts_i[j,0,0,-1])
+        T = len(time_series) - (n_pcs-1)  # Total number of possible windows of size 20
+        final_series = np.array([time_series[i:i+n_pcs] for i in range(T)])
+        n_timeseries.append(final_series)
+    return np.array(n_timeseries)
+
+
 def batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
 
     if len(batched_ts) == 1:

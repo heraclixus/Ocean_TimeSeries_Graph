@@ -1,4 +1,9 @@
-from pygtemporal_models.pyg_temp_dataset import SSTDatasetLoader, inverse_normalize, batch_data_to_timeseries
+from pygtemporal_models.pyg_temp_dataset import (
+    SSTDatasetLoader, 
+    inverse_normalize, 
+    batch_data_to_timeseries,
+    stochastic_batch_data_to_timeseries
+)
 import torch
 import torch.optim as optim
 import numpy as np
@@ -7,7 +12,7 @@ from utils_pca import reconstruct_enso
 # Import baseline models
 from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
 from baseline_models.ncde import TimeSeriesCDE
-from baseline_models.nsde import TimeSeriesSDE
+from baseline_models.nsde import TimeSeriesSDE, NeuralSDEForecaster
 from baseline_models.graphode import GraphNeuralODE
 from baseline_models.kalman_filter import KalmanForecaster
 from baseline_models.dmd import DMDForecast
@@ -42,6 +47,8 @@ if __name__ == "__main__":
                        help="Number of time steps to use for training")
     parser.add_argument("--ode_encoder_decoder", action="store_true",
                        help="Use Neural ODE encoder-decoder structure")
+    parser.add_argument("--n_samples", type=int, default=20,
+                       help="Number of sample paths for NSDE")
 
     args = parser.parse_args()
 
@@ -105,11 +112,19 @@ if __name__ == "__main__":
             forecast_horizon=args.horizon
         ).to(device)
     elif args.model_name == "nsde":
-        model = TimeSeriesSDE(
-            input_dim=input_dim,
-            hidden_dim=args.hidden_size,
-            forecast_horizon=args.horizon
-        ).to(device)
+        if args.ode_encoder_decoder:
+            model = NeuralSDEForecaster(
+                input_dim=input_dim,
+                hidden_dim=args.hidden_size,
+                time_series_length=args.window,
+                forecast_length=args.horizon
+            ).to(device)
+        else:
+            model = TimeSeriesSDE(
+                input_dim=input_dim,
+                hidden_dim=args.hidden_size,
+                forecast_horizon=args.horizon
+            ).to(device)
     elif args.model_name == "graphode":
         model = GraphNeuralODE(
             node_features=1,
@@ -165,8 +180,6 @@ if __name__ == "__main__":
             predictions, volatility = model.predict(test_x_tensor.squeeze(1), args.horizon)
         else:
             predictions = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        
-        
 
         # Compute and save results
         save_results(args, model, test_x_tensor, test_target_tensor, sst_dataloader)
@@ -174,7 +187,6 @@ if __name__ == "__main__":
 
     # Training neural models
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-    loss_fn = torch.nn.MSELoss()
     best_test_loss = np.inf
     patience_counter = 0
 
@@ -211,9 +223,12 @@ if __name__ == "__main__":
                 else:
                     loss = model.compute_loss(output, label, output_cov, add_sin_cos=args.add_sin_cos)
             else:
-                output = model(encoder_input.squeeze(1))
+                output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
                 if args.add_sin_cos:
-                    output = output[:, :-2, :]
+                    if len(output.shape) == 4: # stochastic models
+                        output = output[:, :, :-2, :]
+                    else:
+                        output = output[:, :-2, :]
                     label = label[:, :, :-2, :].squeeze(1)
                 if args.use_loss_weights:
                     loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
@@ -225,11 +240,13 @@ if __name__ == "__main__":
 
             # Compute metrics
             train_losses.append(loss.item())
-            
-            # Compute RMSE
+
+            if args.model_name == "nsde":
+                pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = np.mean(pred_np, axis=0)
+            else:
+                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
@@ -261,11 +278,9 @@ if __name__ == "__main__":
                     else:
                         loss = model.compute_loss(output, label, output_cov, add_sin_cos=args.add_sin_cos)
                 elif args.model_name == "nsde":
-                    # For NSDE, use single sample during training
-                    output = model(encoder_input.squeeze(1), n_samples=1)
-                    output = output.squeeze(0).unsqueeze(1)  # Remove sample dimension
+                    output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
                     if args.add_sin_cos:
-                        output = output[:, :-2, :]
+                        output = output[:, :, :-2, :]
                         label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
                         loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
@@ -274,7 +289,10 @@ if __name__ == "__main__":
                 else:
                     output = model(encoder_input.squeeze(1))
                     if args.add_sin_cos:
-                        output = output[:, :-2, :]
+                        if len(output.shape) == 4: # stochastic models
+                            output = output[:, :, -2, :]
+                        else:
+                            output = output[:, :-2, :]
                         label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
                         loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
@@ -284,8 +302,12 @@ if __name__ == "__main__":
                 test_losses.append(loss.item())
 
                 # Compute metrics
+                if args.model_name == "nsde":
+                    pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                    pred_np = np.mean(pred_np, axis=0)
+                else:
+                    pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
                 label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
                 if args.use_normalization:
                     label_np = inverse_normalize(label_np, max, min)
                     pred_np = inverse_normalize(pred_np, max, min)

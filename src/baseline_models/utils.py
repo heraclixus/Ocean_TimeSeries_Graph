@@ -1,5 +1,9 @@
 import os
-from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries, inverse_normalize
+from pygtemporal_models.pyg_temp_dataset import (
+    batch_data_to_timeseries, 
+    inverse_normalize, 
+    stochastic_batch_data_to_timeseries
+)
 from utils_pca import reconstruct_enso
 import numpy as np
 import matplotlib.pyplot as plt
@@ -136,18 +140,17 @@ def save_results(args, model, test_x_tensor, test_target_tensor, dataloader, max
     else:
         # Neural models and GP
         with torch.no_grad():
+            n_samples = args.n_samples
             if args.model_name == "kalman":
                 output, output_cov = model(test_x_tensor.squeeze(1), args.horizon)
                 output = output.unsqueeze(1)
             elif args.model_name == "nsde":
                 # Generate multiple trajectories for NSDE
-                n_samples = 100  # Number of sample paths
                 output = model(test_x_tensor.squeeze(1), n_samples=n_samples)
             elif args.model_name == "gp":
                 # Get mean and standard deviation from GP (these are numpy arrays)
                 mean, std = model.predict(test_x_tensor.squeeze(1), return_std=True)
                 # Generate samples from the predictive distribution
-                n_samples = 100
                 output = []
                 for _ in range(n_samples):
                     # Use numpy random for numpy arrays
@@ -155,21 +158,32 @@ def save_results(args, model, test_x_tensor, test_target_tensor, dataloader, max
                     output.append(sample)
                 output = np.stack(output)  # Shape: (n_samples, B, N, H)
             else: # node, gaussian process
-                output = model(test_x_tensor.squeeze(1))
+                if args.model_name == "nsde":
+                    output = model(test_x_tensor.squeeze(1), n_samples=n_samples)
+                else:
+                    output = model(test_x_tensor.squeeze(1))
                 output = output.unsqueeze(1)
                 print(f"test_x_tensor = {test_x_tensor.shape}")
                 print(f"output = {output.shape}")
-                exit(0)
-
         # Process predictions
         output_np = []
-        for i in range(n_samples):
-            sample_output = output[i]  # Already in correct shape
-            sample_np = batch_data_to_timeseries(sample_output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        if args.model_name == "nsde":
+            output_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            print(f"output_np = {output_np.shape}")
+            for i in range(len(output_np)):
+                sample_output = output_np[i]  # Already in correct shape
+                if args.use_normalization:
+                    sample_output = inverse_normalize(sample_output, max, min)
+                print(f"sample_output = {sample_output.shape}")
+                output_np[i] = sample_output
+            output_np = np.stack(output_np)
+        else: # node 
+            output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            print(f"output_np = {output_np.shape}")
+            
             if args.use_normalization:
-                sample_np = inverse_normalize(sample_np, max, min)
-            output_np.append(sample_np)
-        output_np = np.stack(output_np)  # Shape: (n_samples, time_steps, n_pcs)
+                output_np = inverse_normalize(output_np, max, min)
+        print(f"output_np = {output_np.shape}")
 
     # Process target
     test_target_np = batch_data_to_timeseries(test_target_tensor.cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
