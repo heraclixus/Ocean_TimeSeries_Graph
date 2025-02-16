@@ -105,7 +105,7 @@ def plot_training_history(save_path, losses_train, losses_test,
     plt.savefig(os.path.join(save_path, "rmses_reconstructed.png"))
     plt.close()
 
-def save_results(args, model, test_x_tensor, test_target_tensor, dataloader,
+def save_results(args, model, test_x_tensor, test_target_tensor, dataloader, max, min,
                 losses_train=None, losses_test=None, rmses_train=None, rmses_test=None,
                 rmses_train_reconstructed=None, rmses_test_reconstructed=None):
     """Save model results and plots"""
@@ -113,7 +113,9 @@ def save_results(args, model, test_x_tensor, test_target_tensor, dataloader,
     # Create save directory
     save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}"
     if args.use_normalization:
-        save_name += "_normalization"
+        save_name += "_normalization"   
+    if args.add_sin_cos:
+        save_name += "_sin_cos"
     if args.use_loss_weights:
         save_name += "_weighted_loss"
     save_path = f"results/baseline_models/{save_name}"
@@ -123,12 +125,12 @@ def save_results(args, model, test_x_tensor, test_target_tensor, dataloader,
     if args.model_name in ["arima", "arimax"]:
         # These models return numpy arrays directly
         output = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        output_np = batch_data_to_timeseries(output, n_pcs=args.n_pcs)
+        output_np = batch_data_to_timeseries(output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
     elif args.model_name == "garch":
         # GARCH returns both predictions and volatility
         output, volatility = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        output_np = batch_data_to_timeseries(output, n_pcs=args.n_pcs)
-        volatility_np = batch_data_to_timeseries(volatility, n_pcs=args.n_pcs)
+        output_np = batch_data_to_timeseries(output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        volatility_np = batch_data_to_timeseries(volatility, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
         # Save volatility predictions
         np.save(os.path.join(save_path, "test_volatility.npy"), volatility_np)
     else:
@@ -163,16 +165,16 @@ def save_results(args, model, test_x_tensor, test_target_tensor, dataloader,
         output_np = []
         for i in range(n_samples):
             sample_output = output[i]  # Already in correct shape
-            sample_np = batch_data_to_timeseries(sample_output, n_pcs=args.n_pcs)
+            sample_np = batch_data_to_timeseries(sample_output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             if args.use_normalization:
-                sample_np = inverse_normalize(sample_np, dataloader._max, dataloader._min)
+                sample_np = inverse_normalize(sample_np, max, min)
             output_np.append(sample_np)
         output_np = np.stack(output_np)  # Shape: (n_samples, time_steps, n_pcs)
 
     # Process target
-    test_target_np = batch_data_to_timeseries(test_target_tensor.cpu().numpy(), n_pcs=args.n_pcs)
+    test_target_np = batch_data_to_timeseries(test_target_tensor.cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
     if args.use_normalization:
-        test_target_np = inverse_normalize(test_target_np, dataloader._max, dataloader._min)
+        test_target_np = inverse_normalize(test_target_np, max, min)
 
     # Save predictions
     np.save(os.path.join(save_path, "test_pred.npy"), output_np)

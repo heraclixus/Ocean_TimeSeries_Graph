@@ -5,7 +5,7 @@ import numpy as np
 import argparse
 from utils_pca import reconstruct_enso
 # Import baseline models
-from baseline_models.node import TimeSeriesNODE
+from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
 from baseline_models.ncde import TimeSeriesCDE
 from baseline_models.nsde import TimeSeriesSDE
 from baseline_models.graphode import GraphNeuralODE
@@ -40,6 +40,9 @@ if __name__ == "__main__":
                        help="Add sine and cosine features with period 12")
     parser.add_argument("--train_length", type=int, default=700,
                        help="Number of time steps to use for training")
+    parser.add_argument("--ode_encoder_decoder", action="store_true",
+                       help="Use Neural ODE encoder-decoder structure")
+
     args = parser.parse_args()
 
     # Device setup
@@ -74,22 +77,36 @@ if __name__ == "__main__":
     test_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, 
                                             shuffle=False, drop_last=True)
 
+    
+    if args.add_sin_cos:
+        input_dim = args.n_pcs + 2 
+    else:
+        input_dim = args.n_pcs
+    
     # Model initialization
     if args.model_name == "node":
-        model = TimeSeriesNODE(
-            input_dim=args.n_pcs,
-            hidden_dim=args.hidden_size,
-            forecast_horizon=args.horizon
-        ).to(device)
+        if args.ode_encoder_decoder:
+            model = NeuralODEForecaster(
+                input_dim=input_dim,
+                hidden_dim=args.hidden_size,
+                time_series_length=args.window,
+                forecast_length=args.horizon
+            ).to(device)
+        else:
+            model = TimeSeriesNODE(
+                input_dim=input_dim,
+                hidden_dim=args.hidden_size,
+                forecast_horizon=args.horizon
+            ).to(device)
     elif args.model_name == "ncde":
         model = TimeSeriesCDE(
-            input_dim=args.n_pcs,
+            input_dim=input_dim,
             hidden_dim=args.hidden_size,
             forecast_horizon=args.horizon
         ).to(device)
     elif args.model_name == "nsde":
         model = TimeSeriesSDE(
-            input_dim=args.n_pcs,
+            input_dim=input_dim,
             hidden_dim=args.hidden_size,
             forecast_horizon=args.horizon
         ).to(device)
@@ -101,17 +118,17 @@ if __name__ == "__main__":
         ).to(device)
     elif args.model_name == "kalman":
         model = KalmanForecaster(
-            input_dim=args.n_pcs,
+            input_dim=input_dim,
             filter_type='extended'
         ).to(device)
     elif args.model_name == "dmd":
         model = DMDForecast(
-            input_dim=args.n_pcs,
+            input_dim=input_dim,
             rank=args.n_pcs//2
         )
     elif args.model_name == "gp":
         model = TimeSeriesGP(
-            input_dim=args.n_pcs,
+            input_dim=input_dim,
             forecast_horizon=args.horizon
         )
         # Store dataloader for normalization
@@ -119,7 +136,7 @@ if __name__ == "__main__":
         model.add_sin_cos = args.add_sin_cos
     elif args.model_name == "koopman":
         model = DeepKoopman(
-            input_dim=args.n_pcs,
+            input_dim=input_dim,
             latent_dim=args.hidden_size,
             hidden_dims=[args.hidden_size, args.hidden_size]
         ).to(device)
@@ -165,6 +182,14 @@ if __name__ == "__main__":
     rmses_train, rmses_test = [], []
     rmses_train_reconstructed, rmses_test_reconstructed = [], []
 
+
+    if args.add_sin_cos:
+        max = sst_dataloader._max[:-2]
+        min = sst_dataloader._min[:-2]
+    else:
+        max = sst_dataloader._max
+        min = sst_dataloader._min
+
     print(f"Training {args.model_name} model...")
     for epoch in range(args.epochs):
         # Training
@@ -175,18 +200,21 @@ if __name__ == "__main__":
 
         for encoder_input, label in train_loader:
             optimizer.zero_grad()
-            
             # Forward pass
             if args.model_name == "kalman":
                 output, output_cov = model(encoder_input.squeeze(1), args.horizon)
-                output = output.unsqueeze(1)
+                if args.add_sin_cos:
+                    output = output[:, :-2, :]
+                    label = label[:, :, :-2, :]
                 if args.use_loss_weights:
                     loss = model.compute_loss(output, label, output_cov, sst_dataloader._std, args.add_sin_cos)
                 else:
                     loss = model.compute_loss(output, label, output_cov, add_sin_cos=args.add_sin_cos)
             else:
                 output = model(encoder_input.squeeze(1))
-                output = output.unsqueeze(1)
+                if args.add_sin_cos:
+                    output = output[:, :-2, :]
+                    label = label[:, :, :-2, :].squeeze(1)
                 if args.use_loss_weights:
                     loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
                 else:
@@ -199,12 +227,12 @@ if __name__ == "__main__":
             train_losses.append(loss.item())
             
             # Compute RMSE
-            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
-            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             
             if args.use_normalization:
-                label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
-                pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+                label_np = inverse_normalize(label_np, max, min)
+                pred_np = inverse_normalize(pred_np, max, min)
             
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             train_rmses.append(rmse)
@@ -225,7 +253,9 @@ if __name__ == "__main__":
             for encoder_input, label in test_loader:
                 if args.model_name == "kalman":
                     output, output_cov = model(encoder_input.squeeze(1), args.horizon)
-                    output = output.unsqueeze(1)
+                    if args.add_sin_cos:
+                        output = output[:, :-2, :]
+                        label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
                         loss = model.compute_loss(output, label, output_cov, sst_dataloader._std, args.add_sin_cos)
                     else:
@@ -234,13 +264,18 @@ if __name__ == "__main__":
                     # For NSDE, use single sample during training
                     output = model(encoder_input.squeeze(1), n_samples=1)
                     output = output.squeeze(0).unsqueeze(1)  # Remove sample dimension
+                    if args.add_sin_cos:
+                        output = output[:, :-2, :]
+                        label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
                         loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
                     else:
                         loss = model.compute_loss(output, label, add_sin_cos=args.add_sin_cos)
                 else:
                     output = model(encoder_input.squeeze(1))
-                    output = output.unsqueeze(1)
+                    if args.add_sin_cos:
+                        output = output[:, :-2, :]
+                        label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
                         loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
                     else:
@@ -249,17 +284,16 @@ if __name__ == "__main__":
                 test_losses.append(loss.item())
 
                 # Compute metrics
-                label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs)
-                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs)
-                
+                label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
                 if args.use_normalization:
-                    label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min)
-                    pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+                    label_np = inverse_normalize(label_np, max, min)
+                    pred_np = inverse_normalize(pred_np, max, min)
                 
                 rmse = np.sqrt(np.mean((label_np - pred_np)**2))
                 test_rmses.append(rmse)
 
-                nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np)
+                nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="test")
                 rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
                 test_rmses_recon.append(rmse_recon)
 
@@ -293,7 +327,7 @@ if __name__ == "__main__":
                 break
 
     # Save results
-    save_results(args, model, test_x_tensor, test_target_tensor, sst_dataloader,
+    save_results(args, model, test_x_tensor, test_target_tensor, sst_dataloader, max, min,
                 losses_train, losses_test, rmses_train, rmses_test,
                 rmses_train_reconstructed, rmses_test_reconstructed)
 
