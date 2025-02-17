@@ -49,18 +49,13 @@ def batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
         batched_ts = np.expand_dims(batched_ts, axis=1)
 
     if sin_cos:
-        batched_ts = batched_ts[:, :, :-2, :] # Start with the first window
+        batched_ts = batched_ts[:, :, :-2, :]
    
     time_series = batched_ts[0, 0, 0, :].copy()  # Start with the first window
     # Add one new point from each subsequent window
     for i in range(1, len(batched_ts)):
-        time_series = np.append(time_series, batched_ts[i, 0, 0, -1])
-
-    # Reshape the data to (T, 20)
-    # We need to use sliding window again, but now on the reconstructed series
-    T = len(time_series) - (n_pcs-1)  # Total number of possible windows of size 20
-    final_series = np.array([time_series[i:i+n_pcs] for i in range(T)])
-    return final_series
+        time_series = np.vstack((time_series, np.expand_dims(batched_ts[i, 0, :, -1], axis=0)))
+    return time_series
 
 class SSTDatasetLoader():
 

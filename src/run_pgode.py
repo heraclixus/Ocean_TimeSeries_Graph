@@ -16,6 +16,10 @@ from pgode.lib.utils import compute_loss_all_batches
 from utils_pca import reconstruct_enso
 import matplotlib.pyplot as plt
 from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
+import xarray as xr
+import xskillscore as xs
+from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingWarmRestarts
+from utils_visualization_forecast import plot_enso_forecast_vs_real, plot_enso_anomaly_correlation, plot_channel_rmse, plot_enso_anomaly_rmse
 
 
 def plot_rmse_and_rmse_recon(save_path, rmses_train, rmses_test, rmses_train_reconstructed, rmses_test_reconstructed):
@@ -46,8 +50,8 @@ parser = argparse.ArgumentParser('Latent ODE')
 parser.add_argument('--n-balls', type=int, default=20,
                     help='Number of objects in the dataset.')
 parser.add_argument('--niters', type=int, default=1000)
-parser.add_argument('--lr',  type=float, default=5e-5, help="Starting learning rate.")
-parser.add_argument('-b', '--batch-size', type=int, default=64)
+parser.add_argument('--lr',  type=float, default=1e-5, help="Starting learning rate.")
+parser.add_argument('-b', '--batch-size', type=int, default=96)
 parser.add_argument('--save', type=str, default='experiments/', help="Path for save checkpoints")
 parser.add_argument('--save-graph', type=str, default='plot/', help="Path for save checkpoints")
 parser.add_argument('--load', type=str, default=None, help="name of ckpt. If None, run a new experiment.")
@@ -69,7 +73,7 @@ parser.add_argument('--augment_dim', type=int, default=64, help='augmented dimen
 parser.add_argument('--edge_types', type=int, default=2, help='edge number in NRI')
 parser.add_argument('--odenet', type=str, default="NRI", help='NRI')
 parser.add_argument('--solver', type=str, default="rk4", help='dopri5,rk4,euler')
-parser.add_argument('--l2', type=float, default=1e-3, help='l2 regulazer')
+parser.add_argument('--l2', type=float, default=1e-2, help='l2 regulazer')
 parser.add_argument('--optimizer', type=str, default="AdamW", help='Adam, AdamW')
 parser.add_argument('--clip', type=float, default=10, help='Gradient Norm Clipping')
 parser.add_argument('--cutting_edge', type=bool, default=True, help='True/False')
@@ -78,6 +82,11 @@ parser.add_argument('--extrap_num', type=int, default=12, help='extrap num ')
 parser.add_argument('--rec_attention', type=str, default="attention")
 parser.add_argument('--alias', type=str, default="run")
 parser.add_argument('--moe_level', type=str, default="node_level")
+
+parser.add_argument("--use_cosine", action="store_true")
+parser.add_argument("--use_scheduler", action="store_true")
+parser.add_argument("--use_warmup", action="store_true")
+
 
 parser.add_argument('--expert_num', type=int, default=5)
 parser.add_argument('--use_bn', type=int, default=0)
@@ -88,10 +97,10 @@ parser.add_argument('--disen_coef', type=float, default=0.01)
 parser.add_argument('--gate_use_global', type=int, default=1)
 parser.add_argument('--wo_local', type=int, default=0)
 
-parser.add_argument('--cond_len', type=int, default=12)
-parser.add_argument('--pred_len', type=int, default=24)
+parser.add_argument('--cond_len', type=int, default=6)
+parser.add_argument('--pred_len', type=int, default=12)
 parser.add_argument('--test', type=int, default=0)
-parser.add_argument("--patience", type=int, default=10)
+parser.add_argument("--patience", type=int, default=50)
 parser.add_argument("--save_name", type=str, default="")
 parser.add_argument("--input_file", type=str, default="../data/ocean_timeseries.csv")
 parser.add_argument("--eval_criterion", type=str, default="all") # if all, this means report rmse for all dimensions together, else we stop by nino3.4 
@@ -121,6 +130,12 @@ args.suffix = ''
 criterion = args.eval_criterion
 
 
+def lr_lambda(epoch):
+    if epoch < 5:
+        return epoch / 5  # Linear warm-up
+    return 1  # Default multiplier after warm-up
+
+
 ############ CPU AND GPU related, Mode related, Dataset Related
 if torch.cuda.is_available():
 	print("Using GPU" + "-"*80)
@@ -140,6 +155,15 @@ elif args.extrap=="False":
 save_name = f"window={args.cond_len}_horizon={args.pred_len}_npcs={args.n_pcs}_batch={args.batch_size}"
 if args.use_gat:
     save_name += f"_gat"
+
+if args.use_scheduler:
+    save_name += "_scheduler"
+
+if args.use_cosine:
+    save_name += "_cosine"
+
+if args.use_warmup:
+    save_name += "_warmup"
 
 #####################################################################################################
 
@@ -187,10 +211,10 @@ if __name__ == '__main__':
     train_original_min = dataloader.original_min
 
 
-    print(f"train_original_max = {train_original_max.shape}, train_original_min = {train_original_min.shape}")
+    # print(f"train_original_max = {train_original_max.shape}, train_original_min = {train_original_min.shape}")
 
     input_dim = dataloader.feature
-    print(f"n_nodes ={input_dim}")
+
     if args.single_target:
         nino_col = dataloader.nino_feature_index
         n_features = len(dataloader.features)
@@ -242,8 +266,14 @@ if __name__ == '__main__':
     elif args.optimizer == "Adam":
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.l2)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 1000, eta_min=1e-9)
 
+    if args.use_cosine:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 1000, eta_min=1e-9)
+    if args.use_warmup:
+        warmup_scheduler = LambdaLR(optimizer, lr_lambda)
+        scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=args.patience, T_mult=2, eta_min=1e-6)
+    else:
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50,100,150], gamma=0.1)
 
     wait_until_kl_inc = 10
     best_test_rmse = np.inf
@@ -336,16 +366,15 @@ if __name__ == '__main__':
             # convert to time series format and reconstruct
             pred_y = pred_y.reshape(-1, 1, args.n_pcs, args.pred_len)
             true_y = true_y.reshape(-1, 1, args.n_pcs, args.pred_len)
-            # print(f"pred_y = {pred_y.shape}, true_y = {true_y.shape}")
-            pred_y = batch_data_to_timeseries(pred_y, args.n_pcs)
-            true_y = batch_data_to_timeseries(true_y, args.n_pcs)
-            # print(f"pred_y = {pred_y.shape}, true_y = {true_y.shape}")
+            pred_y = batch_data_to_timeseries(pred_y)
+            true_y = batch_data_to_timeseries(true_y)
+
+            
 
             pred_enso, true_enso = reconstruct_enso(pcs=inverse_normalize(pred_y, train_original_max, train_original_min), 
                                                     real_pcs=inverse_normalize(true_y,train_original_min, train_original_min),
                                                     top_n_pcs=args.n_pcs, flag="train")
-
-            # print(f"true_enso = {true_enso.shape}, pred_enso = {pred_enso.shape}")
+            
             total_true_enso.append(true_enso)
             total_pred_enso.append(pred_enso)
             total_true_y.append(true_y)
@@ -354,8 +383,8 @@ if __name__ == '__main__':
             del batch_dict_encoder, batch_dict_graph, batch_dict_decoder
                 #train_res, loss
             torch.cuda.empty_cache()
-
-        scheduler.step()
+        if args.use_scheduler:
+            scheduler.step()
         train_true_y, train_pred_y = np.concatenate(total_true_y, axis=0), np.concatenate(total_pred_y, axis=0)
         train_true_enso, train_pred_enso = np.concatenate(total_true_enso, axis=0), np.concatenate(total_pred_enso, axis=0)
         true = inverse_normalize(train_true_y, train_original_max, train_original_min)
@@ -406,6 +435,8 @@ if __name__ == '__main__':
     best_epo = 0
     rmses_train, rmses_test = [],[]
     reconstructed_rmses_train, reconstructed_rmses_test = [],[]
+    bestmodel = None
+    kl_coef = 0.0 
 
     for epo in range(1, args.niters + 1):
         time_start = time.time()
@@ -418,7 +449,6 @@ if __name__ == '__main__':
         
         # message_train = "deug"
         # kl_coef = 0
-        # train_pred_y, train_true_y = [],[]
         
         logger.info("cost_time: {:.6f} s".format(time.time() - time_start))
 
@@ -428,24 +458,22 @@ if __name__ == '__main__':
                                                 n_batches=test_batch, device=device,
                                                 n_traj_samples=3, kl_coef=kl_coef)
             
-            # print(f"test_true_y = {test_true_y.shape}")
-            # print(f"test_pred_y = {test_pred_y.shape}")
-            test_true = np.squeeze(test_true_y)
-            test_pred = np.squeeze(test_pred_y)            
+            test_true_y = np.squeeze(test_true_y)
+            test_pred_y = np.squeeze(test_pred_y)            
             # compute reconstruction
             # (batch, 20, 24) 
-            test_true = test_true.reshape(-1, args.n_pcs, args.pred_len)
-            test_pred = test_pred.reshape(-1, args.n_pcs, args.pred_len)
-            test_true = batch_data_to_timeseries(test_true, n_pcs=args.n_pcs)
-            test_pred = batch_data_to_timeseries(test_pred, n_pcs=args.n_pcs)
+            test_true_y = test_true_y.reshape(-1, args.n_pcs, args.pred_len)
+            test_pred_y = test_pred_y.reshape(-1, args.n_pcs, args.pred_len)
+
+            test_true = batch_data_to_timeseries(test_true_y)
+            test_pred = batch_data_to_timeseries(test_pred_y)
 
             test_true = inverse_normalize(test_true, train_original_max, train_original_min)
             test_pred = inverse_normalize(test_pred, train_original_max, train_original_min)
 
-            # print(f"test_true = {test_true.shape}, test_pred = {test_pred.shape}")
 
             test_enso, test_enso_pred = reconstruct_enso(pcs=test_pred, real_pcs=test_true, top_n_pcs=args.n_pcs, flag="test")
-            # print(f"test_enso = {test_enso.shape}, test_enso_pred = {test_enso_pred.shape}")
+                        
             rmse = np.sqrt(np.mean((test_true - test_pred)**2))
             mape = np.mean(np.abs(test_true - test_pred)/test_true)
             rmse_recon = np.sqrt(np.mean((test_enso - test_enso_pred)**2))
@@ -482,24 +510,58 @@ if __name__ == '__main__':
                 cumulative_patience = 0 
                 np.save(f"results/pgode/{save_name}/test_pred.npy", test_pred)
                 np.save(f"results/pgode/{save_name}/test_true.npy", test_true)
-                np.save(f"results/pgode/{save_name}/train_pred.npy", train_pred_y)
-                np.save(f"results/pgode/{save_name}/train_true.npy", train_true_y)
+                np.save(f"results/pgode/{save_name}/test_pred_y.npy", test_pred_y)
+                np.save(f"results/pgode/{save_name}/test_true_y.npy", test_true_y)
                 np.save(f"results/pgode/{save_name}/test_pred_enso.npy", test_enso_pred)
                 np.save(f"results/pgode/{save_name}/test_enso.npy", test_enso)
 
+                # plot forecast skills
+
+                test_enso_pred_skill, test_enso_true_skill = [],[] 
+                for i in range(len(test_pred_y)):
+                    test_pred_y_i = test_pred_y[i].T # (24, 20)
+                    test_true_y_i = test_true_y[i].T # (24, 20)
+                    # (24)
+                    test_true_enso_i, test_pred_enso_i = reconstruct_enso(pcs=inverse_normalize(test_pred_y_i, train_original_max, train_original_min), 
+                                                                        real_pcs=inverse_normalize(test_true_y_i,train_original_min, train_original_min),
+                                                                        top_n_pcs=args.n_pcs, flag="test")
+                    test_enso_pred_skill.append(test_pred_enso_i)
+                    test_enso_true_skill.append(test_true_enso_i)
+                # (b, 24)
+                test_enso_pred_skill = np.stack(test_enso_pred_skill)
+                test_enso_true_skill = np.stack(test_enso_true_skill)
+
+                plot_enso_anomaly_correlation(prediction=test_enso_pred_skill, 
+                                               test=test_enso_true_skill, 
+                                               model_name="PGODE", 
+                                               save_path=f"results/pgode/{save_name}")
+
+                # TODO: hack                
+                plot_enso_forecast_vs_real(prediction=test_enso_true_skill, 
+                                           test=test_enso_pred_skill,
+                                           model_name="PGODE",
+                                           save_path=f"results/pgode/{save_name}")
+                
+                plot_enso_anomaly_rmse(prediction=test_enso_true_skill, 
+                                       test=test_enso_pred_skill,
+                                       model_name="PGODE",
+                                       save_path=f"results/pgode/{save_name}")
+                
+                test_pred_y = test_pred_y.transpose(0,2,1)
+                test_true_y = test_true_y.transpose(0,2,1)
+
+                plot_channel_rmse(prediction=test_pred_y, test=test_true_y, model_name="PGODE", n_pcs=args.n_pcs, save_path=f"results/pgode/{save_name}")
+
+                np.save(f"results/pgode/{save_name}/test_enso_pred_skill", test_enso_pred_skill)
+                np.save(f"results/pgode/{save_name}/test_enso_true_skill", test_enso_true_skill)
+                
             else:
                 cumulative_patience += 1 
 
             if cumulative_patience >= args.patience:
                 print(f"Early stopping: curernt best rmse is {best_test_rmse} at epoch {best_epo}.")
-
-                plot_rmse_and_rmse_recon(save_path=f"results/pgode/{save_name}", 
-                                         rmses_train=rmses_train, 
-                                         rmses_test=rmses_test, 
-                                         rmses_train_reconstructed=reconstructed_rmses_train, 
-                                         rmses_test_reconstructed=reconstructed_rmses_test)
-
                 torch.cuda.empty_cache()
+                break
                 
             
             torch.cuda.empty_cache()
@@ -510,5 +572,4 @@ if __name__ == '__main__':
                              rmses_test=rmses_test, 
                              rmses_train_reconstructed=reconstructed_rmses_train, 
                              rmses_test_reconstructed=reconstructed_rmses_test)
-
 

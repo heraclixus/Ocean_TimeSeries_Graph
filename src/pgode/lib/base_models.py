@@ -130,8 +130,8 @@ class VAE_Baseline(nn.Module):
 		if torch.isnan(loss):
 			loss = - torch.mean(rec_likelihood - kl_coef * kldiv_z0,0) + self.args.disen_coef * disen_loss
 
-		print(f"loss = {loss}")
-		print(f"fourier_loss = {fourier_loss}")
+		# print(f"loss = {loss}")
+		# print(f"fourier_loss = {fourier_loss}")
 		loss = loss + self.fourier_coeff * fourier_loss
  
 
