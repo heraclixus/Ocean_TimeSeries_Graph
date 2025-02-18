@@ -15,7 +15,15 @@ from utils_visualization_forecast import (
     plot_channel_rmse, 
     plot_enso_forecast_vs_real
 )
+import torch.nn as nn
 
+class PeriodicActivation(nn.Module):
+    def __init__(self, a=0.5):
+        super().__init__()
+        self.a = a
+
+    def forward(self, x):
+        return x + torch.sin(self.a * x) ** 2 / self.a
 
 
 def plot_predictions(save_path, true_values, predicted_values, title):
@@ -126,6 +134,8 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     # Create save directory
     if args.ode_encoder_decoder:
         args.model_name = f"{args.model_name}-encoder-decoder"
+    if args.use_periodic_activation:
+        args.model_name = f"{args.model_name}-periodic-activation"
     save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}" 
     if args.use_loss_weights:
         save_name += "_weighted_loss"

@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 from torchsde import sdeint
 import torchsde
-
+from utils import PeriodicActivation
 
 class TimeSeriesSDE(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64, forecast_horizon=10, noise_type="diagonal"):
+    def __init__(self, input_dim, hidden_dim=64, forecast_horizon=10, noise_type="diagonal", use_periodic_activation=False):
         """
         Neural SDE for time series forecasting
         
@@ -20,23 +20,29 @@ class TimeSeriesSDE(nn.Module):
         self.hidden_dim = hidden_dim
         self.forecast_horizon = forecast_horizon
         self.noise_type = noise_type
+        self.use_periodic_activation = use_periodic_activation
         self.sde_type = "ito"  # Using Itô SDE formulation
         
         # Drift network (deterministic part)
-        self.drift_net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, input_dim)
-        )
+        if use_periodic_activation:
+            self.drift_net = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                PeriodicActivation(),
+                nn.Linear(hidden_dim, input_dim)
+            )
+        else:
+            self.drift_net = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.Tanh(),
+                nn.Linear(hidden_dim, input_dim)
+            )
         
-        # Diffusion network (stochastic part)
+
         self.diffusion_net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.Tanh(),
+            nn.Softplus(),
             nn.Linear(hidden_dim, input_dim),
-            nn.Softplus()  # Ensures positive diffusion
+            nn.Softplus()
         )
     
     def f(self, t, y):
@@ -134,16 +140,22 @@ class TimeSeriesSDE(nn.Module):
 
 # Define the Neural SDE Function
 class SDEFunc(torchsde.SDEIto):  # Inherits from torchsde's Ito SDE class
-    def __init__(self, hidden_dim):
+    def __init__(self, hidden_dim, use_periodic_activation=False):
         super(SDEFunc, self).__init__(noise_type="diagonal")
         self.hidden_dim = hidden_dim
-
-        # Drift function f (deterministic part)
-        self.f_net = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim)
-        )
+        self.use_periodic_activation = use_periodic_activation
+        if use_periodic_activation:
+            self.f_net = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                PeriodicActivation(),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
+        else:
+            self.f_net = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.Tanh(),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
 
         # Diffusion function g (stochastic part)
         self.g_net = nn.Sequential(
@@ -161,18 +173,18 @@ class SDEFunc(torchsde.SDEIto):  # Inherits from torchsde's Ito SDE class
 
 # Define the full model with Encoder-SDE-Decoder structure
 class NeuralSDEForecaster(nn.Module):
-    def __init__(self, input_dim, hidden_dim, time_series_length, forecast_length):
+    def __init__(self, input_dim, hidden_dim, time_series_length, forecast_length, use_periodic_activation=False):
         super(NeuralSDEForecaster, self).__init__()
         self.input_dim = input_dim
         self.time_series_length = time_series_length
         self.forecast_length = forecast_length
         self.hidden_dim = hidden_dim
-
+        self.use_periodic_activation = use_periodic_activation
         # Encoder (GRU)
         self.encoder_gru = nn.GRU(input_dim, hidden_dim, batch_first=True)
 
         # SDE Function
-        self.sde_func = SDEFunc(hidden_dim)
+        self.sde_func = SDEFunc(hidden_dim, use_periodic_activation)
 
         # Decoder (GRU)
         self.decoder_gru = nn.GRU(hidden_dim, hidden_dim, batch_first=True)

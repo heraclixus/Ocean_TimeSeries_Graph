@@ -49,6 +49,8 @@ if __name__ == "__main__":
                        help="Use Neural ODE encoder-decoder structure")
     parser.add_argument("--n_samples", type=int, default=10,
                        help="Number of sample paths for NSDE")
+    parser.add_argument("--use_periodic_activation", action="store_true",
+                       help="Use periodic activation")
 
     args = parser.parse_args()
 
@@ -97,13 +99,15 @@ if __name__ == "__main__":
                 input_dim=input_dim,
                 hidden_dim=args.hidden_size,
                 time_series_length=args.window,
-                forecast_length=args.horizon
+                forecast_length=args.horizon,
+                use_periodic_activation=args.use_periodic_activation
             ).to(device)
         else:
             model = TimeSeriesNODE(
                 input_dim=input_dim,
                 hidden_dim=args.hidden_size,
-                forecast_horizon=args.horizon
+                forecast_horizon=args.horizon,
+                use_periodic_activation=args.use_periodic_activation
             ).to(device)
     elif args.model_name == "ncde":
         if args.ode_encoder_decoder:
@@ -125,13 +129,15 @@ if __name__ == "__main__":
                 input_dim=input_dim,
                 hidden_dim=args.hidden_size,
                 time_series_length=args.window,
-                forecast_length=args.horizon
+                forecast_length=args.horizon,
+                use_periodic_activation=args.use_periodic_activation
             ).to(device)
         else:
             model = TimeSeriesSDE(
                 input_dim=input_dim,
                 hidden_dim=args.hidden_size,
-                forecast_horizon=args.horizon
+                forecast_horizon=args.horizon,
+                use_periodic_activation=args.use_periodic_activation
             ).to(device)
     elif args.model_name == "graphode":
         model = GraphNeuralODE(
