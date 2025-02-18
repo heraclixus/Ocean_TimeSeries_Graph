@@ -32,8 +32,6 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=32)
     parser.add_argument("--window", type=int, default=6)
     parser.add_argument("--horizon", type=int, default=12)
-    parser.add_argument("--window", type=int, default=6)
-    parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--epochs", type=int, default=1000)
@@ -195,6 +193,8 @@ if __name__ == "__main__":
     else:
         max = sst_dataloader._max
         min = sst_dataloader._min
+    
+    print(f"max = {max.shape}, min = {min.shape}")
 
     for epoch in range(args.epochs):
         rmses_epoch = [] 
@@ -294,7 +294,7 @@ if __name__ == "__main__":
         rmses_test.append(test_rmse)
         rmses_test_reconstructed.append(test_rmse_reconstructed)
 
-        print(f"Epoch {epoch}, Test loss: {test_epoch_loss: .3f}, RMSE: {test_rmse: .3f}, RMSE Reconstructed: {test_rmse_reconstructed:.3f}")
+        print(f"Epoch {epoch}, Test loss: {test_epoch_loss: .5f}, RMSE: {test_rmse: .3f}, RMSE Reconstructed: {test_rmse_reconstructed:.3f}")
 
         if test_rmse_reconstructed <= best_enso_reconstructed_loss:
             best_test_loss = test_epoch_loss
@@ -329,6 +329,8 @@ if __name__ == "__main__":
         save_name += "_cosine"
     if args.use_warmup:
         save_name += "_warmup"
+    if args.add_sin_cos:
+        save_name += "_extra_sin_cos"
 
     
     save_path = f"results/pytemporal/{save_name}"
@@ -379,8 +381,10 @@ if __name__ == "__main__":
         np.save(os.path.join(save_path, f"test_attention.npy"), attention.cpu().detach().numpy())
     else:
         output = model(test_x_tensor).permute(0,3,2,1)
+
     if args.add_sin_cos:
         output = output[:, :, :-2, :]
+        test_target_tensor = test_target_tensor[:, :, :-2, :]
     
     output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
     test_target_np = batch_data_to_timeseries(test_target_tensor.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
@@ -404,12 +408,16 @@ if __name__ == "__main__":
         else:
             output = model(encoder_input).permute(0,3,2,1)
         assert output.size() == label.size()
+
+        if args.add_sin_cos:
+            output = output[:, :, :-2, :]
+            label = label[:, :, :-2, :]
        
-        label_np = batch_data_to_timeseries(label.detach().cpu().numpy())
-        pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
+        label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
         if args.use_normalization:
-            label_np = inverse_normalize(label_np, sst_dataloader._max, sst_dataloader._min) # (1, 20, 24)
-            pred_np = inverse_normalize(pred_np, sst_dataloader._max, sst_dataloader._min)
+            label_np = inverse_normalize(label_np, max, min) # (1, 20, 24)
+            pred_np = inverse_normalize(pred_np, max, min)
         # reconstructenso
         nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np)
         true_npy.append(np.expand_dims(label_np,0))

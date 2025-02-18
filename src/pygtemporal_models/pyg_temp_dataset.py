@@ -22,19 +22,13 @@ def stochastic_batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
     if batched_ts.shape[1] == 1: 
         # (n_samples, n, t)
         return batched_ts.squeeze().transpose(0, 2, 1)
-
-    batched_ts = np.expand_dims(batched_ts, axis=2) # (n_samples, b, 1, n, t)
-    if sin_cos:
-        batched_ts = batched_ts[:,:,:,:-2, :]
     n_timeseries = []
     for i in range(batched_ts.shape[0]):
         batched_ts_i = batched_ts[i].copy()
-        time_series = batched_ts_i[0,0,0,:].copy()
-        for j in range(1, len(batched_ts_i)):
-            time_series = np.append(time_series, batched_ts_i[j,0,0,-1])
-        T = len(time_series) - (n_pcs-1)  # Total number of possible windows of size 20
-        final_series = np.array([time_series[i:i+n_pcs] for i in range(T)])
+        # (b, 1, n, t) -> (n, t)
+        final_series = batch_data_to_timeseries(batched_ts_i, n_pcs, sin_cos)
         n_timeseries.append(final_series)
+    # (n_samples, n, t)
     return np.array(n_timeseries)
 
 
@@ -43,18 +37,14 @@ def batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
     if len(batched_ts) == 1:
         return batched_ts.squeeze().T 
 
-    # The first window gives us the first 24 points
-    if len(batched_ts.shape) == 3:
-        # (b, n, t) -> (b, 1, n, t)
-        batched_ts = np.expand_dims(batched_ts, axis=1)
-
-    if sin_cos:
-        batched_ts = batched_ts[:, :, :-2, :]
-   
-    time_series = batched_ts[0, 0, 0, :].copy()  # Start with the first window
+    batched_ts = batched_ts.squeeze() # remove extra dimension
+    # (1, t, n)
+    time_series = batched_ts[0, :, :].T.copy()  # Start with the first window
     # Add one new point from each subsequent window
     for i in range(1, len(batched_ts)):
-        time_series = np.vstack((time_series, np.expand_dims(batched_ts[i, 0, :, -1], axis=0)))
+        # each appending is: (1, n)
+        time_series = np.concatenate((time_series, np.expand_dims(batched_ts[i, :, -1],axis=0)),axis=0)
+    # (T,n)
     return time_series
 
 class SSTDatasetLoader():
@@ -83,7 +73,7 @@ class SSTDatasetLoader():
         Args:
             filepath (str): Path to data file
         """
-        self._dataset = scipy.io.loadmat(filepath)['pcs'][:, :self.n_pcs]
+        self._dataset =  np.load(filepath)[:, :self.n_pcs]
         
         # Add sinusoidal features if requested
         if self.add_sin_cos:

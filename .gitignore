@@ -10,3 +10,4 @@ src/*.npy
 src/logs
 src/logs/*
 src/logs_report/*
+src/oldlogs/*

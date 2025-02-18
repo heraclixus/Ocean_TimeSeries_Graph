@@ -45,10 +45,8 @@ class TimeSeriesNODE(nn.Module):
         # Get the last state from the input sequence
         initial_state = x[:, :, -1]  # Shape: (B, N)
         
-        print(f"initial_state = {initial_state.shape}")
         # Create time points for forecasting
         t = torch.linspace(0, self.forecast_horizon, self.forecast_horizon).to(x.device)
-        print(f"t = {t.shape}")
         # Define the ODE function
         def ode_func(t, state):
             return self.ode_func(state)

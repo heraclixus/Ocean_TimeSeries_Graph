@@ -13,6 +13,33 @@ models = ["agcrn", "fgnn", "mtgnn", "stemgnn", "pgode"]
 components = np.arange(20)
 
 
+# prediction = (T, 20)
+def plot_ts_channel_rmse(prediction, test, model_name, n_pcs=20, save_path=None):
+    rmses = [] 
+    prediction = prediction.T 
+    test = test.T
+    for i in range(len(prediction)):
+        rmse_per_channel = np.sqrt(np.mean((prediction[i]-test[i])**2, axis=0))
+        rmses.append(rmse_per_channel)
+    # Create bar plot
+    plt.figure(figsize=(12, 6))
+    channels = np.arange(1, n_pcs+1)  # 1-20 for x-axis labels
+    plt.bar(channels, rmses)
+    # Customize plot
+    plt.title('RMSE per PC', fontsize=14)
+    plt.xlabel('PC', fontsize=12)
+    plt.ylabel('RMSE', fontsize=12)
+    plt.grid(True, alpha=0.3)
+    plt.xticks(channels)
+    # Add value labels on top of each bar
+    for i, v in enumerate(rmses):
+        plt.text(i + 1, v, f'{v:.3f}', 
+                ha='center', va='bottom')
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, f"{model_name}_rmse_perchannel_ts.png"), dpi=300, bbox_inches='tight')    
+    plt.close()
+    
+     
 
 # plots for pred and true values, forecast skills
 # prediction = (B, 24, 20)

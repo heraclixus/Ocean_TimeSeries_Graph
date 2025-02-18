@@ -16,7 +16,7 @@ from baseline_models.nsde import TimeSeriesSDE, NeuralSDEForecaster
 from baseline_models.graphode import GraphNeuralODE
 from baseline_models.kalman_filter import KalmanForecaster
 from baseline_models.dmd import DMDForecast
-from baseline_models.gaussian_process import TimeSeriesGP
+# from baseline_models.gaussian_process import TimeSeriesGP
 from baseline_models.koopman import DeepKoopman
 from baseline_models.utils import save_results
 from baseline_models.arima import MultiARIMA
@@ -27,7 +27,7 @@ from baseline_models.garch import MultiGARCH
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", type=str, default="../data/sst_pcs.mat")
+    parser.add_argument("--input_file", type=str, default="../data/sst_pcs.npy")
     parser.add_argument("--model_name", type=str, default="node",
                        choices=["node", "ncde", "nsde", "graphode", "kalman", 
                                "dmd", "gp", "koopman", "arima", "arimax", "garch"])
@@ -47,7 +47,7 @@ if __name__ == "__main__":
                        help="Number of time steps to use for training")
     parser.add_argument("--ode_encoder_decoder", action="store_true",
                        help="Use Neural ODE encoder-decoder structure")
-    parser.add_argument("--n_samples", type=int, default=20,
+    parser.add_argument("--n_samples", type=int, default=10,
                        help="Number of sample paths for NSDE")
 
     args = parser.parse_args()
@@ -149,14 +149,14 @@ if __name__ == "__main__":
             input_dim=input_dim,
             rank=args.n_pcs//2
         )
-    elif args.model_name == "gp":
-        model = TimeSeriesGP(
-            input_dim=input_dim,
-            forecast_horizon=args.horizon
-        )
-        # Store dataloader for normalization
-        model.dataloader = sst_dataloader
-        model.add_sin_cos = args.add_sin_cos
+    # elif args.model_name == "gp":
+    #     model = TimeSeriesGP(
+    #         input_dim=input_dim,
+    #         forecast_horizon=args.horizon
+    #     )
+    #     # Store dataloader for normalization
+    #     model.dataloader = sst_dataloader
+    #     model.add_sin_cos = args.add_sin_cos
     elif args.model_name == "koopman":
         model = DeepKoopman(
             input_dim=input_dim,
@@ -360,7 +360,7 @@ if __name__ == "__main__":
                 break
 
     # Save results
-    save_results(args, model, test_x_tensor, test_target_tensor, sst_dataloader, max, min,
+    save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train, losses_test, rmses_train, rmses_test,
                 rmses_train_reconstructed, rmses_test_reconstructed)
 
