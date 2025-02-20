@@ -13,7 +13,7 @@ from utils_pca import reconstruct_enso
 from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
 from baseline_models.ncde import TimeSeriesCDE, NeuralCDEForecaster
 from baseline_models.nsde import TimeSeriesSDE, NeuralSDEForecaster
-from baseline_models.graphode import GraphNeuralODE
+from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
 from baseline_models.kalman_filter import KalmanForecaster
 from baseline_models.dmd import DMDForecast
 # from baseline_models.gaussian_process import TimeSeriesGP
@@ -140,11 +140,20 @@ if __name__ == "__main__":
                 use_periodic_activation=args.use_periodic_activation
             ).to(device)
     elif args.model_name == "graphode":
-        model = GraphNeuralODE(
-            node_features=1,
-            hidden_dim=args.hidden_size,
-            forecast_horizon=args.horizon
-        ).to(device)
+        if args.ode_encoder_decoder:
+            model = NeuralGDEForecaster(
+                input_dim=input_dim,
+                hidden_dim=args.hidden_size,
+                time_series_length=args.window,
+                forecast_length=args.horizon,
+                num_nodes=sst_dataloader.num_nodes
+            ).to(device)
+        else:
+            model = GraphNeuralODE(
+                node_features=1,
+                hidden_dim=args.hidden_size,
+                forecast_horizon=args.horizon
+            ).to(device)
     elif args.model_name == "kalman":
         model = KalmanForecaster(
             input_dim=input_dim,
@@ -242,7 +251,7 @@ if __name__ == "__main__":
                 else:
                     output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
-                    if len(output.shape) == 4: # stochastic models
+                    if len(output.shape) == 4 and args.model_name == "nsde": # stochastic models
                         output = output[:, :, :-2, :]
                     else:
                         output = output[:, :-2, :]
@@ -308,8 +317,8 @@ if __name__ == "__main__":
                 else:
                     output = model(encoder_input.squeeze(1))
                     if args.add_sin_cos:
-                        if len(output.shape) == 4: # stochastic models
-                            output = output[:, :, -2, :]
+                        if len(output.shape) == 4 and args.model_name == "nsde": # stochastic models
+                            output = output[:, :, :-2, :]
                         else:
                             output = output[:, :-2, :]
                         label = label[:, :, :-2, :].squeeze(1)

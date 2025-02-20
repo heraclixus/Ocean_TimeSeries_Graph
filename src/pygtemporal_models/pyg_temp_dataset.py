@@ -64,6 +64,7 @@ class SSTDatasetLoader():
         self.n_pcs = n_pcs
         self.add_sin_cos = add_sin_cos
         self.train_length = train_length
+        self.num_nodes = n_pcs + 2 if add_sin_cos else n_pcs
         self._read_data(filepath)
     
     def _read_data(self, filepath):

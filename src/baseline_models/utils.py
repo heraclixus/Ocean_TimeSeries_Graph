@@ -303,10 +303,6 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     pred_npy = np.concatenate(pred_npy, axis=0)
     true_nino = np.concatenate(true_nino, axis=0)
     pred_nino = np.concatenate(pred_nino, axis=0)
-    print(true_npy.shape)
-    print(pred_npy.shape)
-    print(true_nino.shape)
-    print(pred_nino.shape)
 
     np.save(os.path.join(save_path, f"test_pred_batched.npy"), pred_npy)
     np.save(os.path.join(save_path, f"test_label_batched.npy"), true_npy)
