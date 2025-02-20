@@ -9,6 +9,7 @@ dir_top5 = "logs_report_5"
 windows = [4,5,6]
 
 graphmodels = ["agcrn", "stemgnn", "mtgnn", "fgnn"]
+node_models = ["node"]
 
 def obtain_dataframe(dir=dir_top20, top=20):
     df = pd.DataFrame()
@@ -24,7 +25,7 @@ def obtain_dataframe(dir=dir_top20, top=20):
         if file.endswith("txt"):
             try:
                 model = file.split("_")[1]
-                if model not in graphmodels:
+                if model not in graphmodels and model not in node_models:
                     continue
                 batch_size = file.split("_")[3]
                 window_size = file.split("_")[4]

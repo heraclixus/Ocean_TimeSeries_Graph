@@ -19,11 +19,14 @@ test_rmse_reconstructed,n_pcs,model,batch_size,window_size,schedule,add_sin_cos
 0.685,20,fgnn,64,5,cosine,0
 0.736,20,agcrn,32,4,cosine_warmup,1
 0.68,20,mtgnn,32,4,standard,1
+0.647,20,agcrn,64,6,cosine_warmup,1
 0.638,20,fgnn,32,5,cosine_warmup,1
 0.646,20,fgnn,64,6,standard,0
 0.708,20,fgnn,96,4,cosine,0
 0.677,20,mtgnn,64,6,cosine,0
 0.653,20,agcrn,96,6,cosine_warmup,1
+0.64,20,agcrn,64,5,cosine,1
+0.756,20,agcrn,64,6,standard,1
 0.656,20,fgnn,32,6,standard,0
 0.767,20,stemgnn,64,4,standard,1
 0.686,20,mtgnn,32,6,cosine,1
@@ -113,6 +116,7 @@ test_rmse_reconstructed,n_pcs,model,batch_size,window_size,schedule,add_sin_cos
 0.633,20,agcrn,32,6,cosine_warmup,1
 0.653,20,fgnn,96,5,standard,1
 0.646,20,agcrn,64,5,standard,0
+0.813,20,agcrn,96,6,standard,0
 0.649,20,fgnn,32,6,cosine,0
 0.722,20,mtgnn,96,6,cosine,1
 0.692,20,mtgnn,64,4,cosine,1
@@ -321,6 +325,7 @@ test_rmse_reconstructed,n_pcs,model,batch_size,window_size,schedule,add_sin_cos
 0.619,5,fgnn,32,6,cosine,1
 0.608,5,agcrn,64,5,standard,0
 0.613,5,agcrn,96,6,standard,1
+0.597,5,agcrn,64,5,cosine,1
 0.663,5,mtgnn,64,5,standard,0
 0.613,5,fgnn,32,4,standard,0
 0.644,5,mtgnn,32,6,standard,0

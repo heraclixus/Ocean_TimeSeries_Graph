@@ -282,6 +282,8 @@ if __name__ == "__main__":
         test_losses = []
         test_rmses = []
         test_rmses_recon = []
+        best_enso_reconstructed_loss = np.inf
+        best_model = None
 
         with torch.no_grad():
             for encoder_input, label in test_loader:
@@ -356,17 +358,20 @@ if __name__ == "__main__":
         print(f"Train RMSE Recon: {train_rmse_recon:.4f}, Test RMSE Recon: {test_rmse_recon:.4f}")
 
         # Early stopping
-        if test_loss < best_test_loss:
-            best_test_loss = test_loss
+        if test_rmse_recon < best_enso_reconstructed_loss:
+            best_enso_reconstructed_loss = test_rmse_recon
             patience_counter = 0
+            best_model = model
         else:
             patience_counter += 1
             if patience_counter >= args.patience:
                 print(f"Early stopping at epoch {epoch}")
+                print(f"Best test loss: {best_test_loss:.3f}")
+                print(f"Best test rmse reconstructed: {best_enso_reconstructed_loss:.3f}")
                 break
 
     # Save results
-    save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
+    save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train, losses_test, rmses_train, rmses_test,
                 rmses_train_reconstructed, rmses_test_reconstructed)
 

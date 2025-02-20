@@ -90,12 +90,12 @@
 
 #     done
 # done
-model=agcrn
-CUDA_VISIBLE_DEVICES=1 nohup python run_pygtemporal_models.py --n_pcs=5 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=5 --use_cosine --add_sin_cos &> logs_report_5/log_${model}_weighted_64_5_cosine_sin-cos.txt &
-CUDA_VISIBLE_DEVICES=2 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=6 --use_cosine --use_warmup --add_sin_cos &> logs_report/log_${model}_weighted_64_6_cosine_warmup_sin-cos.txt &
-CUDA_VISIBLE_DEVICES=3 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=5 --use_cosine --add_sin_cos &> logs_report/log_${model}_weighted_64_5_cosine_sin-cos.txt &
-CUDA_VISIBLE_DEVICES=4 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=6 --add_sin_cos &> logs_report/log_${model}_weighted_64_6_sin-cos.txt &
-CUDA_VISIBLE_DEVICES=5 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=96 --window=6 --use_cosine &> logs_report/log_${model}_weighted_96_6_cosine.txt &
+# model=agcrn
+# CUDA_VISIBLE_DEVICES=1 nohup python run_pygtemporal_models.py --n_pcs=5 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=5 --use_cosine --add_sin_cos &> logs_report_5/log_${model}_weighted_64_5_cosine_sin-cos.txt &
+# CUDA_VISIBLE_DEVICES=2 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=6 --use_cosine --use_warmup --add_sin_cos &> logs_report/log_${model}_weighted_64_6_cosine_warmup_sin-cos.txt &
+# CUDA_VISIBLE_DEVICES=3 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=5 --use_cosine --add_sin_cos &> logs_report/log_${model}_weighted_64_5_cosine_sin-cos.txt &
+# CUDA_VISIBLE_DEVICES=4 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=64 --window=6 --add_sin_cos &> logs_report/log_${model}_weighted_64_6_sin-cos.txt &
+# CUDA_VISIBLE_DEVICES=5 nohup python run_pygtemporal_models.py --n_pcs=20 --use_loss_weights --use_normalization --model_name=$model --batch_size=96 --window=6 --use_cosine &> logs_report/log_${model}_weighted_96_6_cosine.txt &
 
 
 # CUDA_VISIBLE_DEVICES=3 nohup python run_pygtemporal_models.py --epochs=2 --model_name=fgnn --use_normalization --use_loss_weights --use_cosine --add_sin_cos &> log_fgnn_debug.txt &

@@ -185,29 +185,22 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output = model(test_x_tensor.squeeze(1))
                     if args.add_sin_cos: 
                         output = output[:, :-2, :]
-                output = output.unsqueeze(1)
-                print(f"test_x_tensor = {test_x_tensor.shape}")
-                print(f"output = {output.shape}")
-        
+                output = output.unsqueeze(1)        
         # Process predictions
         output_np = []
         if args.model_name == "nsde":
             output_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            print(f"output_np = {output_np.shape}")
             for i in range(len(output_np)):
                 sample_output = output_np[i]  # Already in correct shape
                 if args.use_normalization:
                     sample_output = inverse_normalize(sample_output, max, min)
-                print(f"sample_output = {sample_output.shape}")
                 output_np[i] = sample_output
             output_np = np.stack(output_np)
         else: # node 
             output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            print(f"output_np = {output_np.shape}")
             
             if args.use_normalization:
                 output_np = inverse_normalize(output_np, max, min)
-        print(f"output_np = {output_np.shape}")
 
     # Process target
     if args.add_sin_cos:
@@ -217,8 +210,6 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         test_target_np = inverse_normalize(test_target_np, max, min)
 
 
-    print(f"output_np = {output_np.shape}")
-    print(f"test_target_np = {test_target_np.shape}")
     # Save predictions
     np.save(os.path.join(save_path, "test_pred.npy"), output_np)
     np.save(os.path.join(save_path, "test_true.npy"), test_target_np)
