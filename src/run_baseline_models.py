@@ -146,13 +146,15 @@ if __name__ == "__main__":
                 hidden_dim=args.hidden_size,
                 time_series_length=args.window,
                 forecast_length=args.horizon,
-                num_nodes=sst_dataloader.num_nodes
+                num_nodes=sst_dataloader.num_nodes,
+                use_periodic_activation=args.use_periodic_activation
             ).to(device)
         else:
             model = GraphNeuralODE(
                 node_features=1,
                 hidden_dim=args.hidden_size,
-                forecast_horizon=args.horizon
+                forecast_horizon=args.horizon,
+                use_periodic_activation=args.use_periodic_activation
             ).to(device)
     elif args.model_name == "kalman":
         model = KalmanForecaster(

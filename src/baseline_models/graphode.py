@@ -4,12 +4,16 @@ from torchdiffeq import odeint
 import torch.nn.functional as F
 import numpy as np
 from torch_geometric.nn import GCNConv, GATConv
+from baseline_models.utils import PeriodicActivation
 
 class GraphODEFunc_GNODE(nn.Module):
     """ODE function using GNN"""
-    def __init__(self, node_features, hidden_dim):
+    def __init__(self, node_features, hidden_dim, use_periodic_activation=False):
         super().__init__()
-        
+        self.use_periodic_activation = use_periodic_activation
+
+        self.periodic_activation = PeriodicActivation()
+        self.tanh_activation = nn.Tanh()
         self.graph_layers = nn.ModuleList([
             GCNConv(node_features, hidden_dim),
             GCNConv(hidden_dim, hidden_dim),
@@ -26,11 +30,14 @@ class GraphODEFunc_GNODE(nn.Module):
         for i, layer in enumerate(self.graph_layers):
             x = layer(x, edge_index)
             if i < len(self.graph_layers) - 1:
-                x = F.tanh(x)
+                if self.use_periodic_activation:
+                    x = self.periodic_activation(x)
+                else:
+                    x = self.tanh_activation(x)
         return x
 
 class GraphNeuralODE(nn.Module):
-    def __init__(self, node_features, hidden_dim=64, forecast_horizon=10):
+    def __init__(self, node_features, hidden_dim=64, forecast_horizon=10, use_periodic_activation=False):
         """
         Graph Neural ODE for time series forecasting
         
@@ -43,9 +50,10 @@ class GraphNeuralODE(nn.Module):
         self.node_features = node_features
         self.hidden_dim = hidden_dim
         self.forecast_horizon = forecast_horizon
+        self.use_periodic_activation = use_periodic_activation
         
         # ODE function with GNN
-        self.ode_func = GraphODEFunc_GNODE(node_features, hidden_dim)
+        self.ode_func = GraphODEFunc_GNODE(node_features, hidden_dim, self.use_periodic_activation)
         
         # Optional: learnable adjacency matrix
         self.learn_adj = True
@@ -151,7 +159,8 @@ class GraphNeuralODE(nn.Module):
         return torch.mean((pred - target) ** 2)
 
 class NeuralGDEForecaster(nn.Module):
-    def __init__(self, input_dim, hidden_dim, time_series_length, forecast_length, num_nodes):
+    def __init__(self, input_dim, hidden_dim, time_series_length, forecast_length, 
+                 num_nodes, use_periodic_activation):
         """
         Neural GDE with encoder-decoder structure for forecasting
         
@@ -168,7 +177,8 @@ class NeuralGDEForecaster(nn.Module):
         self.time_series_length = time_series_length
         self.forecast_length = forecast_length
         self.num_nodes = num_nodes
-        
+        self.use_periodic_activation = use_periodic_activation
+
         # GCN layers for spatial relationships - input is 1 since we have scalar time series
         self.spatial_gcn = nn.ModuleList([
             GCNConv(1, hidden_dim),  # Changed from input_dim to 1
@@ -176,11 +186,18 @@ class NeuralGDEForecaster(nn.Module):
         ])
         
         # Temporal attention
-        self.temporal_attention = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
-            nn.Linear(hidden_dim, 1)
-        )
+        if self.use_periodic_activation:
+            self.temporal_attention = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                PeriodicActivation(), 
+                nn.Linear(hidden_dim, 1)
+            )
+        else:
+            self.temporal_attention = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.Tanh(),
+                nn.Linear(hidden_dim, 1)
+            )
         
         # GRU for temporal dependencies
         self.encoder_gru = nn.GRU(
@@ -273,7 +290,8 @@ class NeuralGDEForecaster(nn.Module):
         # Define GDE function
         ode_func = GraphODEFunc(
             hidden_dim=self.hidden_dim,
-            edge_index=edge_index
+            edge_index=edge_index,
+            use_periodic_activation=self.use_periodic_activation
         )
         
         # Solve GDE
@@ -307,7 +325,7 @@ class NeuralGDEForecaster(nn.Module):
 
 class GraphODEFunc(nn.Module):
     """ODE function for graph evolution"""
-    def __init__(self, hidden_dim, edge_index):
+    def __init__(self, hidden_dim, edge_index, use_periodic_activation):
         super(GraphODEFunc, self).__init__()
         self.edge_index = edge_index
         
@@ -316,6 +334,8 @@ class GraphODEFunc(nn.Module):
             GCNConv(hidden_dim, hidden_dim),
             GCNConv(hidden_dim, hidden_dim)
         ])
+        self.use_periodic_activation = use_periodic_activation
+        self.periodic_activation = PeriodicActivation()
 
     def forward(self, t, h):
         """
@@ -331,6 +351,9 @@ class GraphODEFunc(nn.Module):
         # Process through GCN layers
         for gcn in self.gcn_layers:
             h = gcn(h, self.edge_index)
-            h = F.tanh(h)
-        
+            if self.use_periodic_activation:
+                h = self.periodic_activation(h)
+            else:
+                h = F.tanh(h)
+    
         return h
