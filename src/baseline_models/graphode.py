@@ -158,6 +158,45 @@ class GraphNeuralODE(nn.Module):
             return torch.mean(weights * (pred - target) ** 2)
         return torch.mean((pred - target) ** 2)
 
+class GraphODEFunc(nn.Module):
+    """ODE function for graph evolution"""
+    def __init__(self, hidden_dim, edge_index, use_periodic_activation):
+        super(GraphODEFunc, self).__init__()
+        self.edge_index = edge_index
+        
+        # GCN layers for state evolution
+        self.gcn_layers = nn.ModuleList([
+            GCNConv(hidden_dim, hidden_dim),
+            GCNConv(hidden_dim, hidden_dim)
+        ])
+        self.use_periodic_activation = use_periodic_activation
+        self.periodic_activation = PeriodicActivation()
+
+    def forward(self, t, h):
+        """
+        Compute the derivative at current time point
+        
+        Args:
+            t (torch.Tensor): Current time point
+            h (torch.Tensor): Current hidden state (batch, nodes, hidden)
+            
+        Returns:
+            torch.Tensor: Derivative of hidden state
+        """
+        # Ensure edge_index is on the same device as h
+        if self.edge_index.device != h.device:
+            self.edge_index = self.edge_index.to(h.device)
+            
+        # Process through GCN layers
+        for gcn in self.gcn_layers:
+            h = gcn(h, self.edge_index)
+            if self.use_periodic_activation:
+                h = self.periodic_activation(h)
+            else:
+                h = F.tanh(h)
+    
+        return h
+
 class NeuralGDEForecaster(nn.Module):
     def __init__(self, input_dim, hidden_dim, time_series_length, forecast_length, 
                  num_nodes, use_periodic_activation):
@@ -290,9 +329,9 @@ class NeuralGDEForecaster(nn.Module):
         # Define GDE function
         ode_func = GraphODEFunc(
             hidden_dim=self.hidden_dim,
-            edge_index=edge_index,
+            edge_index=edge_index.to(device),  # Ensure edge_index is on correct device
             use_periodic_activation=self.use_periodic_activation
-        )
+        ).to(device)  # Move entire ODE function to correct device
         
         # Solve GDE
         evolved_hidden = odeint(
@@ -322,38 +361,3 @@ class NeuralGDEForecaster(nn.Module):
             weights = weights.view(1, -1, 1)
             return torch.mean(weights * (pred - target) ** 2)
         return torch.mean((pred - target) ** 2)
-
-class GraphODEFunc(nn.Module):
-    """ODE function for graph evolution"""
-    def __init__(self, hidden_dim, edge_index, use_periodic_activation):
-        super(GraphODEFunc, self).__init__()
-        self.edge_index = edge_index
-        
-        # GCN layers for state evolution
-        self.gcn_layers = nn.ModuleList([
-            GCNConv(hidden_dim, hidden_dim),
-            GCNConv(hidden_dim, hidden_dim)
-        ])
-        self.use_periodic_activation = use_periodic_activation
-        self.periodic_activation = PeriodicActivation()
-
-    def forward(self, t, h):
-        """
-        Compute the derivative at current time point
-        
-        Args:
-            t (torch.Tensor): Current time point
-            h (torch.Tensor): Current hidden state (batch, nodes, hidden)
-            
-        Returns:
-            torch.Tensor: Derivative of hidden state
-        """
-        # Process through GCN layers
-        for gcn in self.gcn_layers:
-            h = gcn(h, self.edge_index)
-            if self.use_periodic_activation:
-                h = self.periodic_activation(h)
-            else:
-                h = F.tanh(h)
-    
-        return h
