@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torchdiffeq import odeint
-from utils import PeriodicActivation
+from baseline_models.utils import PeriodicActivation
 
 # Time Series Neural ODE this model is only using the last time step of the input sequence
 class TimeSeriesNODE(nn.Module):

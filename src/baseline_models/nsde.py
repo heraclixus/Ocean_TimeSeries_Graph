@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torchsde import sdeint
 import torchsde
-from utils import PeriodicActivation
+from baseline_models.utils import PeriodicActivation
 
 class TimeSeriesSDE(nn.Module):
     def __init__(self, input_dim, hidden_dim=64, forecast_horizon=10, noise_type="diagonal", use_periodic_activation=False):
