@@ -350,9 +350,6 @@ class NeuralGDEForecaster(nn.Module):
         """
         Compute MSE loss between predictions and targets
         """
-        print(f"pred.shape = {pred.shape}")
-        print(f"target.shape = {target.shape}")
-
         if std is not None:
             if add_sin_cos:
                 std = std[:-2]
