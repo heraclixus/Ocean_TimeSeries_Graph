@@ -47,6 +47,7 @@ class DMDForecast:
                 N: number of features
                 T: time steps
         """
+        print(X.shape)
         # Convert to numpy for computation
         X = X.cpu().numpy()
         

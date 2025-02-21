@@ -147,15 +147,25 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     # Generate predictions
     if args.model_name in ["arima", "arimax"]:
         # These models return numpy arrays directly
-        output = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        output_np = batch_data_to_timeseries(output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        output_np = model.predict(test_x_tensor.squeeze(1), args.horizon)
+        output_np_ts = batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        if args.use_normalization:
+            output_np_ts = inverse_normalize(output_np_ts, max, min)
     elif args.model_name == "garch":
         # GARCH returns both predictions and volatility
         output, volatility = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        output_np = batch_data_to_timeseries(output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-        volatility_np = batch_data_to_timeseries(volatility, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        output_np_ts = batch_data_to_timeseries(output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        volatility_np_ts = batch_data_to_timeseries(volatility, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        if args.use_normalization:
+            volatility_np_ts = inverse_normalize(volatility_np_ts, max, min)
+            output_np_ts = inverse_normalize(output_np_ts, max, min)
         # Save volatility predictions
-        np.save(os.path.join(save_path, "test_volatility.npy"), volatility_np)
+        np.save(os.path.join(save_path, "test_volatility.npy"), volatility_np_ts)
+    elif args.model_name == "dmd":
+        output_np = model.predict(test_x_tensor.squeeze(1), args.horizon)
+        output_np_ts = batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        if args.use_normalization:
+            output_np_ts = inverse_normalize(output_np_ts, max, min)
     else:
         # Neural models and GP
         with torch.no_grad():
@@ -202,38 +212,41 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
             if args.use_normalization:
                 output_np = inverse_normalize(output_np, max, min)
 
+    if isinstance(output_np, torch.Tensor):
+        output_np = output_np.cpu().numpy()
     # Process target
     if args.add_sin_cos:
         test_target_tensor = test_target_tensor[:,:, :-2, :]
-    test_target_np = batch_data_to_timeseries(test_target_tensor.cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+    test_target_np = test_target_tensor.cpu().numpy().squeeze(1)
+    test_target_np_ts = batch_data_to_timeseries(test_target_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
     if args.use_normalization:
-        test_target_np = inverse_normalize(test_target_np, max, min)
+        test_target_np_ts = inverse_normalize(test_target_np_ts, max, min)
 
 
     # Save predictions
-    np.save(os.path.join(save_path, "test_pred.npy"), output_np)
-    np.save(os.path.join(save_path, "test_true.npy"), test_target_np)
+    np.save(os.path.join(save_path, "test_pred.npy"), output_np_ts)
+    np.save(os.path.join(save_path, "test_true.npy"), test_target_np_ts)
 
     # Save ENSO reconstructions
     if args.model_name in ["nsde", "gp"]:
         # Handle probabilistic models
         enso34_preds = []
         for i in range(n_samples):
-            _, enso34_pred = reconstruct_enso(pcs=output_np[i], 
-                                            real_pcs=test_target_np,
+            _, enso34_pred = reconstruct_enso(pcs=output_np_ts[i], 
+                                            real_pcs=test_target_np_ts,
                                             top_n_pcs=args.n_pcs,
                                             flag="test")
             enso34_preds.append(enso34_pred)
         enso34_preds = np.stack(enso34_preds)
     else:
         # Handle deterministic models
-        _, enso34_pred = reconstruct_enso(pcs=output_np,
-                                        real_pcs=test_target_np,
+        _, enso34_pred = reconstruct_enso(pcs=output_np_ts,
+                                        real_pcs=test_target_np_ts,
                                         top_n_pcs=args.n_pcs,
                                         flag="test")
         
-    enso34, _ = reconstruct_enso(pcs=test_target_np, 
-                                real_pcs=test_target_np,
+    enso34, _ = reconstruct_enso(pcs=test_target_np_ts, 
+                                real_pcs=test_target_np_ts,
                                 top_n_pcs=args.n_pcs,
                                 flag="test")
     
@@ -261,49 +274,76 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     
 
     # plot skills 
-    final_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, shuffle=False, drop_last=True)
-    model.eval()
-    true_npy, pred_npy = [], []
-    true_nino, pred_nino = [],[] 
-    for encoder_input, label in final_loader:
-        if args.model_name == "kalman":
-            output, output_cov = model(encoder_input.squeeze(1), args.horizon)
-            if args.add_sin_cos:
-                output = output[:, :-2, :]
-                label = label[:, :, :-2, :].squeeze(1)
-        elif args.model_name == "nsde":
-            output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
-            if args.add_sin_cos:
-                output = output[:, :, :-2, :]
-                label = label[:, :, :-2, :].squeeze(1)
-        else:
-            output = model(encoder_input.squeeze(1))
-            if args.add_sin_cos:
-                if len(output.shape) == 4: # stochastic models
-                    output = output[:, :, -2, :]
-                else:
-                    output = output[:, :-2, :]
-                label = label[:, :, :-2, :].squeeze(1)
-        if args.model_name == "nsde":
-            pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            pred_np = np.mean(pred_np, axis=0)
-        else:
-            pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-        label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-        if args.use_normalization:
-            label_np = inverse_normalize(label_np, max, min)
-            pred_np = inverse_normalize(pred_np, max, min)
-        nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="test")
-        true_npy.append(np.expand_dims(label_np, 0))
-        pred_npy.append(np.expand_dims(pred_np, 0))
-        true_nino.append(np.expand_dims(nino34, 0))
-        pred_nino.append(np.expand_dims(nino34_pred, 0))
-    
-    true_npy = np.concatenate(true_npy, axis=0)
-    pred_npy = np.concatenate(pred_npy, axis=0)
-    true_nino = np.concatenate(true_nino, axis=0)
-    pred_nino = np.concatenate(pred_nino, axis=0)
+    if args.model_name in ['nsde', 'node', 'graphode']:
 
+        final_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, shuffle=False, drop_last=True)
+        if isinstance(model, nn.Module): # only for neural models
+            model.eval()
+        true_npy, pred_npy = [], []
+        true_nino, pred_nino = [],[] 
+        for encoder_input, label in final_loader:
+            if args.model_name == "kalman":
+                output, output_cov = model(encoder_input.squeeze(1), args.horizon)
+                if args.add_sin_cos:
+                    output = output[:, :-2, :]
+                    label = label[:, :, :-2, :].squeeze(1)
+            elif args.model_name == "nsde":
+                output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
+                if args.add_sin_cos:
+                    output = output[:, :, :-2, :]
+                    label = label[:, :, :-2, :].squeeze(1)
+            else:
+                output = model(encoder_input.squeeze(1))
+                if args.add_sin_cos:
+                    if len(output.shape) == 4: # stochastic models
+                        output = output[:, :, -2, :]
+                    else:
+                        output = output[:, :-2, :]
+                    label = label[:, :, :-2, :].squeeze(1)
+            if args.model_name == "nsde":
+                pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = np.mean(pred_np, axis=0)
+            else:
+                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            if args.use_normalization:
+                label_np = inverse_normalize(label_np, max, min)
+                pred_np = inverse_normalize(pred_np, max, min)
+            nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="test")
+            true_npy.append(np.expand_dims(label_np, 0))
+            pred_npy.append(np.expand_dims(pred_np, 0))
+            true_nino.append(np.expand_dims(nino34, 0))
+            pred_nino.append(np.expand_dims(nino34_pred, 0))
+        
+        true_npy = np.concatenate(true_npy, axis=0)
+        pred_npy = np.concatenate(pred_npy, axis=0)
+        true_nino = np.concatenate(true_nino, axis=0)
+        pred_nino = np.concatenate(pred_nino, axis=0)
+
+    else: # only for non-neural models
+        test_recon_rmses = []
+        true_npy, pred_npy = [], []
+        true_nino, pred_nino = [],[] 
+        for i in range(len(output_np)):
+            output_np_i = np.expand_dims(output_np[i], 0)
+            test_target_np_i = np.expand_dims(test_target_np[i], 0)
+            pred_np = batch_data_to_timeseries(output_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            label_np = batch_data_to_timeseries(test_target_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            if args.use_normalization:
+                label_np = inverse_normalize(label_np, max, min)
+                pred_np = inverse_normalize(pred_np, max, min)
+            nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="test")
+            test_recon_rmses.append(np.sqrt(np.mean((nino34_pred-nino34)**2)))
+            pred_npy.append(np.expand_dims(pred_np, 0))
+            true_npy.append(np.expand_dims(label_np, 0))
+            pred_nino.append(np.expand_dims(nino34_pred, 0))
+            true_nino.append(np.expand_dims(nino34, 0))
+        pred_npy = np.concatenate(pred_npy, axis=0)
+        true_npy = np.concatenate(true_npy, axis=0)
+        pred_nino = np.concatenate(pred_nino, axis=0)
+        true_nino = np.concatenate(true_nino, axis=0)
+        print(f"average test_recon_rmses: {np.mean(np.array(test_recon_rmses))}")
+        
     np.save(os.path.join(save_path, f"test_pred_batched.npy"), pred_npy)
     np.save(os.path.join(save_path, f"test_label_batched.npy"), true_npy)
     np.save(os.path.join(save_path, f"test_enso_reconstructed_batched.npy"), pred_nino)
@@ -311,7 +351,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
 
     # skills
     plot_channel_rmse(pred_npy, true_npy, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
-    plot_ts_channel_rmse(output_np, test_target_np, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
+    plot_ts_channel_rmse(output_np_ts, test_target_np_ts, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
     plot_enso_anomaly_correlation(pred_nino, true_nino, args.model_name, save_path)
     plot_enso_anomaly_rmse(pred_nino, true_nino, args.model_name, save_path)
     plot_enso_forecast_vs_real(pred_nino, true_nino, args.model_name, save_path)    

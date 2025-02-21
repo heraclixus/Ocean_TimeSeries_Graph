@@ -196,6 +196,8 @@ if __name__ == "__main__":
         if args.model_name == "gp":
             # Pass both input and target for tracking RMSE during training
             model.fit(train_x_tensor.squeeze(1), train_target_tensor.squeeze(1), n_iter=args.epochs)
+        elif args.model_name == "dmd":
+            model.fit(train_x_tensor.squeeze(1))
         else:
             model.fit(train_x_tensor.squeeze(1), n_iter=args.epochs)
         
@@ -206,8 +208,7 @@ if __name__ == "__main__":
         else:
             predictions = model.predict(test_x_tensor.squeeze(1), args.horizon)
 
-        # Compute and save results
-        save_results(args, model, test_x_tensor, test_target_tensor, sst_dataloader)
+        save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, sst_dataloader._max, sst_dataloader._min)
         exit(0)
 
     # Training neural models
