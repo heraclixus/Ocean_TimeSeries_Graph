@@ -197,23 +197,30 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                         output = output[:, :-2, :]
                 output = output.unsqueeze(1)        
         # Process predictions
-        output_np = []
-        if args.model_name == "nsde":
-            output_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            for i in range(len(output_np)):
-                sample_output = output_np[i]  # Already in correct shape
+        if args.model_name == "nsde" or args.model_name == "gp":
+            if isinstance(output, torch.Tensor):
+                output_np = output.detach().cpu().numpy()
+            else:
+                output_np = output
+            output_np_ts = stochastic_batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            for i in range(len(output_np_ts)):
+                sample_output = output_np_ts[i]  # Already in correct shape
                 if args.use_normalization:
                     sample_output = inverse_normalize(sample_output, max, min)
-                output_np[i] = sample_output
-            output_np = np.stack(output_np)
-        else: # node 
-            output_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                output_np_ts[i] = sample_output
+            output_np_ts = np.stack(output_np_ts)
+        else: 
+            if isinstance(output, torch.Tensor):
+                output_np = output.detach().cpu().numpy()
+            else:
+                output_np = output
+            output_np_ts = batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             
             if args.use_normalization:
-                output_np = inverse_normalize(output_np, max, min)
+                output_np_ts = inverse_normalize(output_np_ts, max, min)
 
-    if isinstance(output_np, torch.Tensor):
-        output_np = output_np.cpu().numpy()
+    if isinstance(output_np_ts, torch.Tensor):
+        output_np_ts = output_np_ts.cpu().numpy()
     # Process target
     if args.add_sin_cos:
         test_target_tensor = test_target_tensor[:,:, :-2, :]
@@ -324,10 +331,19 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         test_recon_rmses = []
         true_npy, pred_npy = [], []
         true_nino, pred_nino = [],[] 
+        if args.model_name == "gp":
+            output_np = output_np.transpose(1,0,2,3)
         for i in range(len(output_np)):
-            output_np_i = np.expand_dims(output_np[i], 0)
+            if args.model_name == "gp":
+                output_np_i = np.expand_dims(output_np[i], 1)
+            else:
+                output_np_i = np.expand_dims(output_np[i], 0)
             test_target_np_i = np.expand_dims(test_target_np[i], 0)
-            pred_np = batch_data_to_timeseries(output_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            if args.model_name == "gp":
+                pred_np = stochastic_batch_data_to_timeseries(output_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = np.mean(pred_np, axis=0)
+            else:   
+                pred_np = batch_data_to_timeseries(output_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             label_np = batch_data_to_timeseries(test_target_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
@@ -343,7 +359,10 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         pred_nino = np.concatenate(pred_nino, axis=0)
         true_nino = np.concatenate(true_nino, axis=0)
         print(f"average test_recon_rmses: {np.mean(np.array(test_recon_rmses))}")
-        
+
+        if args.model_name == "gp":
+            output_np_ts = np.mean(output_np_ts, axis=0)
+
     np.save(os.path.join(save_path, f"test_pred_batched.npy"), pred_npy)
     np.save(os.path.join(save_path, f"test_label_batched.npy"), true_npy)
     np.save(os.path.join(save_path, f"test_enso_reconstructed_batched.npy"), pred_nino)

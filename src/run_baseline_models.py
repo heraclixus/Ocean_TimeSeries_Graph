@@ -16,14 +16,12 @@ from baseline_models.nsde import TimeSeriesSDE, NeuralSDEForecaster
 from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
 from baseline_models.kalman_filter import KalmanForecaster
 from baseline_models.dmd import DMDForecast
-# from baseline_models.gaussian_process import TimeSeriesGP
+from baseline_models.gaussian_process import run_gp_regression
 from baseline_models.koopman import DeepKoopman
 from baseline_models.utils import save_results
 from baseline_models.arima import MultiARIMA
 from baseline_models.arimax import ARIMAX
 from baseline_models.garch import MultiGARCH
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -56,6 +54,20 @@ if __name__ == "__main__":
 
     # Device setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    
+    # gp is specially handled here
+    if args.model_name == "gp":
+        # in this case we use the enso 1d data to fit the gp model
+        data = np.load("../data/sst_pcs.npy")
+        train_data = data[:args.train_length, :]
+        test_data = data[args.train_length:, :]
+        train_y, _ = reconstruct_enso(train_data, train_data, args.n_pcs, "train")
+        test_y, _ = reconstruct_enso(test_data, test_data, args.n_pcs, "test")
+        train_y = torch.from_numpy(train_y).type(torch.FloatTensor).to(device)
+        test_y = torch.from_numpy(test_y).type(torch.FloatTensor).to(device)
+        run_gp_regression(train_y, test_y, args.epochs)
+        exit(0)
 
     # Data loading
     sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
@@ -166,14 +178,6 @@ if __name__ == "__main__":
             input_dim=input_dim,
             rank=args.n_pcs//2
         )
-    # elif args.model_name == "gp":
-    #     model = TimeSeriesGP(
-    #         input_dim=input_dim,
-    #         forecast_horizon=args.horizon
-    #     )
-    #     # Store dataloader for normalization
-    #     model.dataloader = sst_dataloader
-    #     model.add_sin_cos = args.add_sin_cos
     elif args.model_name == "koopman":
         model = DeepKoopman(
             input_dim=input_dim,
@@ -191,19 +195,14 @@ if __name__ == "__main__":
         model.add_sin_cos = args.add_sin_cos
 
     # Handle non-neural models separately
-    if args.model_name in ["dmd", "gp", "arima", "arimax", "garch"]:
+    if args.model_name in ["dmd", "arima", "arimax", "garch"]:
         print(f"Fitting {args.model_name} model...")
-        if args.model_name == "gp":
-            # Pass both input and target for tracking RMSE during training
-            model.fit(train_x_tensor.squeeze(1), train_target_tensor.squeeze(1), n_iter=args.epochs)
-        elif args.model_name == "dmd":
+        if args.model_name == "dmd":
             model.fit(train_x_tensor.squeeze(1))
         else:
             model.fit(train_x_tensor.squeeze(1), n_iter=args.epochs)
         
-        if args.model_name == "gp":
-            predictions, std = model.predict(test_x_tensor.squeeze(1), return_std=True)
-        elif args.model_name == "garch":
+        if args.model_name == "arimax":
             predictions, volatility = model.predict(test_x_tensor.squeeze(1), args.horizon)
         else:
             predictions = model.predict(test_x_tensor.squeeze(1), args.horizon)

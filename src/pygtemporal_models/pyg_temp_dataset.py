@@ -23,9 +23,11 @@ def stochastic_batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
         # (n_samples, n, t)
         return batched_ts.squeeze().transpose(0, 2, 1)
     n_timeseries = []
+    print(f"batched_ts = {batched_ts.shape}")
     for i in range(batched_ts.shape[0]):
         batched_ts_i = batched_ts[i].copy()
         # (b, 1, n, t) -> (n, t)
+        print(f"batched_ts_i = {batched_ts_i.shape}")
         final_series = batch_data_to_timeseries(batched_ts_i, n_pcs, sin_cos)
         n_timeseries.append(final_series)
     # (n_samples, n, t)
@@ -33,14 +35,11 @@ def stochastic_batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
 
 
 def batch_data_to_timeseries(batched_ts, n_pcs=20, sin_cos=False):
-
     if isinstance(batched_ts, torch.Tensor): 
         batched_ts = batched_ts.detach().cpu().numpy()
 
     if len(batched_ts) == 1:
         return batched_ts.squeeze().T 
-
-    batched_ts = batched_ts.squeeze() # remove extra dimension
     # (1, t, n)
     time_series = batched_ts[0, :, :].T.copy()  # Start with the first window
     # Add one new point from each subsequent window
