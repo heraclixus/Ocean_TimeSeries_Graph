@@ -267,7 +267,8 @@ class NeuralGDEForecaster(nn.Module):
         
         # Create edges for each batch
         for b in range(batch_size):
-            edges = []
+            all_edges = []
+            temporal_edges = []
             
             # For each timestep
             for t in range(time_steps):
@@ -279,33 +280,27 @@ class NeuralGDEForecaster(nn.Module):
                     # Add the provided spatial edges with appropriate time offset
                     src = edge_index[0] + current_offset
                     dst = edge_index[1] + current_offset
-                    timestep_edges = torch.stack([src, dst], dim=0)
-                    edges.append(timestep_edges)
+                    all_edges.extend(torch.stack([src, dst], dim=0).t().tolist())
                 else:
                     # Create fully connected spatial edges within timestep
                     for i in range(self.num_nodes):
                         for j in range(self.num_nodes):
                             if i != j:  # Exclude self-loops
-                                edges.append([current_offset + i, current_offset + j])
+                                all_edges.append([current_offset + i, current_offset + j])
                 
                 # Add temporal edges (connecting to next timestep)
                 if t < time_steps - 1:
                     next_offset = (t + 1) * self.num_nodes
                     for i in range(self.num_nodes):
                         # Forward temporal edge
-                        edges.append([current_offset + i, next_offset + i])
+                        temporal_edges.append([current_offset + i, next_offset + i])
                         # Backward temporal edge
-                        edges.append([next_offset + i, current_offset + i])
+                        temporal_edges.append([next_offset + i, current_offset + i])
             
-            # Convert edges to tensor
-            if edge_index is not None:
-                # Concatenate spatial edges from all timesteps
-                spatial_edges = torch.cat(edges, dim=1)
-                # Add temporal edges
-                temporal_edges = torch.tensor(edges[len(edges)//2:], device=device).T
-                edge_index = torch.cat([spatial_edges, temporal_edges], dim=1)
-            else:
-                edge_index = torch.tensor(edges, device=device).T
+            # Combine all edges and convert to tensor
+            all_edges.extend(temporal_edges)
+            edge_index = torch.tensor(all_edges, device=device).t()
+            print(f"edge_index = {edge_index.shape}")
             
             # Create Data object for this batch
             data = Data(
