@@ -420,3 +420,12 @@ def create_comparison_animation_data(original_data, coarse_data, output_path='ss
     # Save animation
     anim.save(output_path, writer='ffmpeg', fps=fps)
     plt.close()
+
+
+
+if __name__ == "__main__":
+    original_data = np.random.randn(100, 128, 128)
+    coarse_data = np.random.randn(100, 32, 32)
+    print(original_data.shape)
+    print(coarse_data.shape)
+    # create_comparison_animation_data(original_data, coarse_data)

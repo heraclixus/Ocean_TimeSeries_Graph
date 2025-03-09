@@ -394,12 +394,14 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     np.save(os.path.join(save_path, f"test_enso_batched.npy"), true_nino)
 
     if args.input_file == "../data/ersst_anomaly.npy":
-        true_npy_ts = batch_data_to_timeseries(true_npy.transpose(1,2,0))
-        pred_npy_ts = batch_data_to_timeseries(pred_npy.transpose(1,2,0))
+        true_npy_ts = batch_data_to_timeseries(true_npy.transpose(1,2,0)).reshape(-1, lat, lon)
+        pred_npy_ts = batch_data_to_timeseries(pred_npy.transpose(1,2,0)).reshape(-1, lat, lon)
         print(f"true_npy_ts.shape: {true_npy_ts.shape}")
         print(f"pred_npy_ts.shape: {pred_npy_ts.shape}")
-        create_comparison_animation(true_npy_ts.reshape(-1, lat, lon), 
-                                    pred_npy_ts.reshape(-1, lat, lon), save_path)
+        np.save(os.path.join(save_path, f"true_npy_ts.npy"), true_npy_ts)
+        np.save(os.path.join(save_path, f"pred_npy_ts.npy"), pred_npy_ts)
+        # create_comparison_animation(true_npy_ts.reshape(-1, lat, lon), 
+        #                             pred_npy_ts.reshape(-1, lat, lon), save_path)
     else:
         plot_channel_rmse(pred_npy, true_npy, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
         plot_ts_channel_rmse(output_np_ts, test_target_np_ts, args.model_name, n_pcs=args.n_pcs, save_path=save_path)

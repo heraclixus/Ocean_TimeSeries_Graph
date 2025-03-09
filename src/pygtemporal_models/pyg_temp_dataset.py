@@ -287,10 +287,10 @@ class SSTGridDataLoader():
         time_steps, self.lat_dim, self.lon_dim = grid_data.shape
 
         # show animation from the result of coarse-graining
-        if not os.path.exists(f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4"):
-            create_comparison_animation_data(original_data=grid_data_orig, 
-                                            coarse_data=grid_data, 
-                                            output_path=f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4")
+        # if not os.path.exists(f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4"):
+        #     create_comparison_animation_data(original_data=grid_data_orig, 
+        #                                     coarse_data=grid_data, 
+        #                                     output_path=f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4")
         
         # Reshape to (time, nodes) where nodes = lat * lon
         self._dataset = grid_data.reshape(time_steps, self.lat_dim * self.lon_dim)        

@@ -82,12 +82,13 @@ class GraphNeuralODE(nn.Module):
                 for j in range(num_nodes):
                     if i != j:  # Exclude self-loops as GCNConv adds them automatically
                         edges.append([i, j])
-            
-            edge_index = torch.tensor(edges, device=device).t() if edge_index is None else edge_index
+            if edge_index == None:
+               edge_index = torch.tensor(edges, device=device).t()
+            else:
+                edge_index = edge_index.to(device)
             
             # Take the last timestep as initial condition
-            x_last = x[b, :, -1].unsqueeze(-1)  # (num_nodes, 1)
-            
+            x_last = x[b, :, -1].unsqueeze(-1)  # (num_nodes, 1)            
             # Create Data object for this batch item
             data = Data(
                 x=x_last,  # (num_nodes, 1)
