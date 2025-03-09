@@ -300,7 +300,6 @@ class NeuralGDEForecaster(nn.Module):
             # Combine all edges and convert to tensor
             all_edges.extend(temporal_edges)
             edge_index = torch.tensor(all_edges, device=device).t()
-            print(f"edge_index = {edge_index.shape}")
             
             # Create Data object for this batch
             data = Data(
