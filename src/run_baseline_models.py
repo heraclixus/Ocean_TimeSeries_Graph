@@ -8,6 +8,7 @@ import torch
 import torch.optim as optim
 import numpy as np
 import argparse
+from tqdm import tqdm
 from utils_pca import reconstruct_enso
 # Import baseline models
 from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
@@ -22,10 +23,10 @@ from baseline_models.utils import save_results
 from baseline_models.arima import MultiARIMA
 from baseline_models.arimax import ARIMAX
 from baseline_models.garch import MultiGARCH
-
+from pygtemporal_models.pyg_temp_dataset import SSTGridDataLoader
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", type=str, default="../data/sst_pcs.npy")
+    parser.add_argument("--input_file", type=str, default="../data/ersst_anomaly.npy")
     parser.add_argument("--model_name", type=str, default="node",
                        choices=["node", "ncde", "nsde", "graphode", "kalman", 
                                "dmd", "gp", "koopman", "arima", "arimax", "garch"])
@@ -70,11 +71,21 @@ if __name__ == "__main__":
         exit(0)
 
     # Data loading
-    sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
-                                     use_normalization=args.use_normalization,
-                                     n_pcs=args.n_pcs,
-                                     add_sin_cos=args.add_sin_cos,
-                                     train_length=args.train_length)
+    lat, lon = None, None
+    grid_size = args.n_pcs
+    if args.input_file == "../data/ersst_anomaly.npy":
+        sst_dataloader = SSTGridDataLoader(filepath=args.input_file, 
+                                         use_normalization=args.use_normalization,
+                                         add_sin_cos=args.add_sin_cos,
+                                         train_length=args.train_length)
+        lat, lon = sst_dataloader.lat, sst_dataloader.lon
+        grid_size = lat * lon 
+    else:
+        sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
+                                         use_normalization=args.use_normalization,
+                                         n_pcs=args.n_pcs,
+                                         add_sin_cos=args.add_sin_cos,
+                                         train_length=args.train_length)
 
     train_dataset, test_dataset = sst_dataloader.get_dataset(window=args.window, 
                                                            horizon=args.horizon)
@@ -100,9 +111,9 @@ if __name__ == "__main__":
 
     
     if args.add_sin_cos:
-        input_dim = args.n_pcs + 2 
+        input_dim = grid_size + 2 
     else:
-        input_dim = args.n_pcs
+        input_dim = grid_size
     
     # Model initialization
     if args.model_name == "node":
@@ -154,11 +165,11 @@ if __name__ == "__main__":
     elif args.model_name == "graphode":
         if args.ode_encoder_decoder:
             model = NeuralGDEForecaster(
-                input_dim=input_dim,
+                input_dim=1,
                 hidden_dim=args.hidden_size,
                 time_series_length=args.window,
                 forecast_length=args.horizon,
-                num_nodes=sst_dataloader.num_nodes,
+                num_nodes=grid_size,
                 use_periodic_activation=args.use_periodic_activation
             ).to(device)
         else:
@@ -228,7 +239,7 @@ if __name__ == "__main__":
         min = sst_dataloader._min
 
     print(f"Training {args.model_name} model...")
-    for epoch in range(args.epochs):
+    for epoch in tqdm(range(args.epochs)):
         # Training
         model.train()
         train_losses = []
@@ -250,7 +261,9 @@ if __name__ == "__main__":
             else:
                 if args.model_name == "nsde":
                     output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
-                else:
+                elif args.model_name == "graphode":
+                    output = model(encoder_input.squeeze(1), edge_index=sst_dataloader._edges)
+                else: # node 
                     output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
                     if len(output.shape) == 4 and args.model_name == "nsde": # stochastic models
@@ -262,7 +275,6 @@ if __name__ == "__main__":
                     loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
                 else:
                     loss = model.compute_loss(output, label, add_sin_cos=args.add_sin_cos)
-
             loss.backward()
             optimizer.step()
 
@@ -270,11 +282,11 @@ if __name__ == "__main__":
             train_losses.append(loss.item())
 
             if args.model_name == "nsde":
-                pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy())
                 pred_np = np.mean(pred_np, axis=0)
             else:
-                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy())
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
@@ -283,8 +295,12 @@ if __name__ == "__main__":
             train_rmses.append(rmse)
 
             # Compute reconstructed RMSE
-            nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
-                                                 top_n_pcs=args.n_pcs, flag="train")
+            if args.input_file == "../data/ersst_anomaly.npy":
+                # spatial average
+                nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+            else:   
+                nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
+                                                    top_n_pcs=args.n_pcs, flag="train")
             rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
             train_rmses_recon.append(rmse_recon)
 
@@ -317,7 +333,10 @@ if __name__ == "__main__":
                     else:
                         loss = model.compute_loss(output, label, add_sin_cos=args.add_sin_cos)
                 else:
-                    output = model(encoder_input.squeeze(1))
+                    if args.model_name == "graphode":
+                        output = model(encoder_input.squeeze(1), edge_index=sst_dataloader._edges)
+                    else:
+                        output = model(encoder_input.squeeze(1))
                     if args.add_sin_cos:
                         if len(output.shape) == 4 and args.model_name == "nsde": # stochastic models
                             output = output[:, :, :-2, :]
@@ -333,11 +352,11 @@ if __name__ == "__main__":
 
                 # Compute metrics
                 if args.model_name == "nsde":
-                    pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                    pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy())
                     pred_np = np.mean(pred_np, axis=0)
                 else:
-                    pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-                label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                    pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
+                label_np = batch_data_to_timeseries(label.detach().cpu().numpy())
                 if args.use_normalization:
                     label_np = inverse_normalize(label_np, max, min)
                     pred_np = inverse_normalize(pred_np, max, min)
@@ -345,7 +364,12 @@ if __name__ == "__main__":
                 rmse = np.sqrt(np.mean((label_np - pred_np)**2))
                 test_rmses.append(rmse)
 
-                nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="test")
+                if args.input_file == "../data/ersst_anomaly.npy":
+                    # spatial average
+                    nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+                else:   
+                    nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
+                                                        top_n_pcs=args.n_pcs, flag="test")
                 rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
                 test_rmses_recon.append(rmse_recon)
 
@@ -384,5 +408,6 @@ if __name__ == "__main__":
     # Save results
     save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train, losses_test, rmses_train, rmses_test,
-                rmses_train_reconstructed, rmses_test_reconstructed)
+                rmses_train_reconstructed, rmses_test_reconstructed, edge_index=sst_dataloader._edges,
+                lat=lat, lon=lon)
 

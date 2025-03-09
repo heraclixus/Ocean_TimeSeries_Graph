@@ -13,7 +13,8 @@ from utils_visualization_forecast import (
     plot_enso_anomaly_correlation, 
     plot_enso_anomaly_rmse, 
     plot_channel_rmse, 
-    plot_enso_forecast_vs_real
+    plot_enso_forecast_vs_real,
+    create_comparison_animation
 )
 import torch.nn as nn
 
@@ -128,15 +129,18 @@ def plot_training_history(save_path, losses_train, losses_test,
 
 def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train=None, losses_test=None, rmses_train=None, rmses_test=None,
-                rmses_train_reconstructed=None, rmses_test_reconstructed=None):
+                rmses_train_reconstructed=None, rmses_test_reconstructed=None, edge_index=None,
+                lat=None, lon=None):
     """Save model results and plots"""
     
-    # Create save directory
     if args.ode_encoder_decoder:
         args.model_name = f"{args.model_name}-encoder-decoder"
     if args.use_periodic_activation:
         args.model_name = f"{args.model_name}-periodic-activation"
-    save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}" 
+    if args.input_file == "../data/ersst_anomaly.npy":
+        save_name = f"grid_{args.model_name}_window={args.window}"
+    else:
+        save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}" 
     if args.use_loss_weights:
         save_name += "_weighted_loss"
     if args.add_sin_cos:
@@ -148,14 +152,14 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     if args.model_name in ["arima", "arimax"]:
         # These models return numpy arrays directly
         output_np = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        output_np_ts = batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        output_np_ts = batch_data_to_timeseries(output_np)
         if args.use_normalization:
             output_np_ts = inverse_normalize(output_np_ts, max, min)
     elif args.model_name == "garch":
         # GARCH returns both predictions and volatility
         output, volatility = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        output_np_ts = batch_data_to_timeseries(output, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-        volatility_np_ts = batch_data_to_timeseries(volatility, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        output_np_ts = batch_data_to_timeseries(output)
+        volatility_np_ts = batch_data_to_timeseries(volatility)
         if args.use_normalization:
             volatility_np_ts = inverse_normalize(volatility_np_ts, max, min)
             output_np_ts = inverse_normalize(output_np_ts, max, min)
@@ -163,7 +167,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         np.save(os.path.join(save_path, "test_volatility.npy"), volatility_np_ts)
     elif args.model_name == "dmd":
         output_np = model.predict(test_x_tensor.squeeze(1), args.horizon)
-        output_np_ts = batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+        output_np_ts = batch_data_to_timeseries(output_np)
         if args.use_normalization:
             output_np_ts = inverse_normalize(output_np_ts, max, min)
     else:
@@ -187,7 +191,9 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output.append(sample)
                 output = np.stack(output)  # Shape: (n_samples, B, N, H)
             else: # node, gaussian process
-                if args.model_name == "nsde":
+                if args.model_name == "graphode":
+                    output = model(test_x_tensor.squeeze(1), edge_index=edge_index)
+                elif args.model_name == "nsde":
                     output = model(test_x_tensor.squeeze(1), n_samples=n_samples)
                     if args.add_sin_cos:
                         output = output[:, :, :-2, :]
@@ -202,7 +208,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 output_np = output.detach().cpu().numpy()
             else:
                 output_np = output
-            output_np_ts = stochastic_batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            output_np_ts = stochastic_batch_data_to_timeseries(output_np)
             for i in range(len(output_np_ts)):
                 sample_output = output_np_ts[i]  # Already in correct shape
                 if args.use_normalization:
@@ -214,7 +220,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 output_np = output.detach().cpu().numpy()
             else:
                 output_np = output
-            output_np_ts = batch_data_to_timeseries(output_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+            output_np_ts = batch_data_to_timeseries(output_np)
             
             if args.use_normalization:
                 output_np_ts = inverse_normalize(output_np_ts, max, min)
@@ -225,7 +231,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     if args.add_sin_cos:
         test_target_tensor = test_target_tensor[:,:, :-2, :]
     test_target_np = test_target_tensor.cpu().numpy().squeeze(1)
-    test_target_np_ts = batch_data_to_timeseries(test_target_np, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+    test_target_np_ts = batch_data_to_timeseries(test_target_np)
     if args.use_normalization:
         test_target_np_ts = inverse_normalize(test_target_np_ts, max, min)
 
@@ -247,15 +253,20 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         enso34_preds = np.stack(enso34_preds)
     else:
         # Handle deterministic models
-        _, enso34_pred = reconstruct_enso(pcs=output_np_ts,
-                                        real_pcs=test_target_np_ts,
-                                        top_n_pcs=args.n_pcs,
-                                        flag="test")
-        
-    enso34, _ = reconstruct_enso(pcs=test_target_np_ts, 
-                                real_pcs=test_target_np_ts,
-                                top_n_pcs=args.n_pcs,
-                                flag="test")
+        if args.model_name == "graphode":
+            enso34_pred = output_np_ts.mean(axis=1)
+        else:
+            _, enso34_pred = reconstruct_enso(pcs=output_np_ts,
+                                            real_pcs=test_target_np_ts,
+                                            top_n_pcs=args.n_pcs,
+                                            flag="test")
+    if args.input_file == "../data/ersst_anomaly.npy":
+        enso34 = test_target_np_ts.mean(axis=1)
+    else:
+        enso34, _ = reconstruct_enso(pcs=test_target_np_ts, 
+                                    real_pcs=test_target_np_ts,
+                                    top_n_pcs=args.n_pcs,
+                                    flag="test")
     
     # Save ENSO predictions
     if args.model_name in ["nsde", "gp"]:
@@ -299,6 +310,11 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 if args.add_sin_cos:
                     output = output[:, :, :-2, :]
                     label = label[:, :, :-2, :].squeeze(1)
+            elif args.model_name == "graphode":
+                output = model(encoder_input.squeeze(1), edge_index=edge_index)
+                if args.add_sin_cos:
+                    output = output[:, :-2, :]
+                    label = label[:, :, :-2, :].squeeze(1)
             else:
                 output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
@@ -308,15 +324,19 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                         output = output[:, :-2, :]
                     label = label[:, :, :-2, :].squeeze(1)
             if args.model_name == "nsde":
-                pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy())
                 pred_np = np.mean(pred_np, axis=0)
             else:
-                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            label_np = batch_data_to_timeseries(label.detach().cpu().numpy(), n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
+            label_np = batch_data_to_timeseries(label.detach().cpu().numpy())
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
-            nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="test")
+            if args.input_file == "../data/ersst_anomaly.npy":
+                nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+            else:
+                nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
+                                                        top_n_pcs=args.n_pcs, flag="test")
             true_npy.append(np.expand_dims(label_np, 0))
             pred_npy.append(np.expand_dims(pred_np, 0))
             true_nino.append(np.expand_dims(nino34, 0))
@@ -340,11 +360,11 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 output_np_i = np.expand_dims(output_np[i], 0)
             test_target_np_i = np.expand_dims(test_target_np[i], 0)
             if args.model_name == "gp":
-                pred_np = stochastic_batch_data_to_timeseries(output_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = stochastic_batch_data_to_timeseries(output_np_i)
                 pred_np = np.mean(pred_np, axis=0)
             else:   
-                pred_np = batch_data_to_timeseries(output_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
-            label_np = batch_data_to_timeseries(test_target_np_i, n_pcs=args.n_pcs, sin_cos=args.add_sin_cos)
+                pred_np = batch_data_to_timeseries(output_np_i)
+            label_np = batch_data_to_timeseries(test_target_np_i)
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
@@ -363,14 +383,27 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         if args.model_name == "gp":
             output_np_ts = np.mean(output_np_ts, axis=0)
 
+    print(f"pred_npy.shape: {pred_npy.shape}")
+    print(f"true_npy.shape: {true_npy.shape}")
+    print(f"pred_nino.shape: {pred_nino.shape}")
+    print(f"true_nino.shape: {true_nino.shape}")
+
     np.save(os.path.join(save_path, f"test_pred_batched.npy"), pred_npy)
     np.save(os.path.join(save_path, f"test_label_batched.npy"), true_npy)
     np.save(os.path.join(save_path, f"test_enso_reconstructed_batched.npy"), pred_nino)
     np.save(os.path.join(save_path, f"test_enso_batched.npy"), true_nino)
 
-    # skills
-    plot_channel_rmse(pred_npy, true_npy, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
-    plot_ts_channel_rmse(output_np_ts, test_target_np_ts, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
+    if args.input_file == "../data/ersst_anomaly.npy":
+        true_npy_ts = batch_data_to_timeseries(true_npy.transpose(1,2,0))
+        pred_npy_ts = batch_data_to_timeseries(pred_npy.transpose(1,2,0))
+        print(f"true_npy_ts.shape: {true_npy_ts.shape}")
+        print(f"pred_npy_ts.shape: {pred_npy_ts.shape}")
+        create_comparison_animation(true_npy_ts.reshape(-1, lat, lon), 
+                                    pred_npy_ts.reshape(-1, lat, lon), save_path)
+    else:
+        plot_channel_rmse(pred_npy, true_npy, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
+        plot_ts_channel_rmse(output_np_ts, test_target_np_ts, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
+    
     plot_enso_anomaly_correlation(pred_nino, true_nino, args.model_name, save_path)
     plot_enso_anomaly_rmse(pred_nino, true_nino, args.model_name, save_path)
     plot_enso_forecast_vs_real(pred_nino, true_nino, args.model_name, save_path)    

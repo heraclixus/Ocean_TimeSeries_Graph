@@ -10,6 +10,7 @@ from pygtemporal_models.stemgnn import StemGNN
 from pygtemporal_models.agcrn import AGCRN
 from pygtemporal_models.fouriergnn import FGN
 from pygtemporal_models.graphwavenet import gwnet
+from pygtemporal_models.pyg_temp_dataset import SSTGridDataLoader
 from utils_pca import reconstruct_enso
 from utils_visualization_forecast import plot_channel_rmse, plot_enso_anomaly_correlation, plot_enso_forecast_vs_real, plot_enso_anomaly_rmse
 import os
@@ -64,7 +65,13 @@ if __name__ == "__main__":
     else:
         device = torch.device("cpu")
 
-    sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
+    if args.input_file == "../data/ersst_anomaly.npy":
+        sst_dataloader = SSTGridDataLoader(filepath=args.input_file, 
+                                     use_normalization=args.use_normalization,
+                                     add_sin_cos=args.add_sin_cos,
+                                     train_length=args.train_length)
+    else:
+        sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
                                      use_normalization=args.use_normalization,
                                      n_pcs=args.n_pcs,
                                      add_sin_cos=args.add_sin_cos,
