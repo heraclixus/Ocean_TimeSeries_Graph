@@ -138,7 +138,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     if args.use_periodic_activation:
         args.model_name = f"{args.model_name}-periodic-activation"
     if args.input_file == "../data/ersst_anomaly.npy":
-        save_name = f"grid_{args.model_name}_window={args.window}"
+        save_name = f"grid_{args.model_name}_window={args.window}_coarse_grain={args.coarse_grain_factor}"
     else:
         save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}" 
     if args.use_loss_weights:

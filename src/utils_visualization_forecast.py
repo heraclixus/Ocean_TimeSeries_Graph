@@ -324,5 +324,99 @@ def create_comparison_animation(original_data,
     plt.tight_layout()
     
     # Save animation
-    anim.save(os.path.join(savepath, output_path), writer='ffmpeg', fps=fps)
+    anim.save(f"{savepath}/{output_path}", writer='ffmpeg', fps=fps)
+    plt.close()
+
+
+
+
+def create_comparison_animation_data(original_data, coarse_data, output_path='sst_comparison.mp4', fps=10):
+    """
+    Create a side-by-side animation of grids and their time series
+    """
+    # Calculate spatial means for time series
+    original_means = original_data.mean(axis=(1,2))
+    coarse_means = coarse_data.mean(axis=(1,2))
+    
+    # Create figure with subplots: 2x2 grid
+    fig = plt.figure(figsize=(20, 12))
+    gs = fig.add_gridspec(2, 2, height_ratios=[2, 1])
+    
+    # Grid visualization subplots
+    ax1 = fig.add_subplot(gs[0, 0])  # top left
+    ax2 = fig.add_subplot(gs[0, 1])  # top right
+    
+    # Time series subplots
+    ax3 = fig.add_subplot(gs[1, 0])  # bottom left
+    ax4 = fig.add_subplot(gs[1, 1])  # bottom right
+    
+    # Calculate global min and max for consistent colormap
+    vmin = min(original_data.min(), coarse_data.min())
+    vmax = max(original_data.max(), coarse_data.max())
+    
+    # Initialize grid plots
+    im1 = ax1.imshow(original_data[0], 
+                     cmap='RdBu_r',
+                     aspect='auto',
+                     vmin=vmin,
+                     vmax=vmax)
+    im2 = ax2.imshow(coarse_data[0], 
+                     cmap='RdBu_r',
+                     aspect='auto',
+                     vmin=vmin,
+                     vmax=vmax)
+    
+    # Add colorbars
+    plt.colorbar(im1, ax=ax1, label='Temperature Anomaly (°C)')
+    plt.colorbar(im2, ax=ax2, label='Temperature Anomaly (°C)')
+    
+    # Set titles
+    ax1.set_title(f'Original Grid ({original_data.shape[1]}x{original_data.shape[2]})')
+    ax2.set_title(f'Coarse Grid ({coarse_data.shape[1]}x{coarse_data.shape[2]})')
+    
+    # Initialize time series plots
+    time_points = np.arange(len(original_means))
+    line1, = ax3.plot(time_points[0:1], original_means[0:1], 'b-')
+    line2, = ax4.plot(time_points[0:1], coarse_means[0:1], 'r-')
+    
+    # Set time series plot properties
+    for ax, title in [(ax3, 'Original Grid Mean'), (ax4, 'Coarse Grid Mean')]:
+        ax.set_xlim(0, len(time_points))
+        ax.set_ylim(min(original_means.min(), coarse_means.min()),
+                   max(original_means.max(), coarse_means.max()))
+        ax.set_title(title)
+        ax.set_xlabel('Time Step')
+        ax.set_ylabel('Spatial Mean Temperature')
+        ax.grid(True)
+    
+    # Add time step counter
+    time_text = fig.text(0.5, 0.95, '', ha='center')
+    
+    def update(frame):
+        """Update function for animation"""
+        # Update grid plots
+        im1.set_array(original_data[frame])
+        im2.set_array(coarse_data[frame])
+        
+        # Update time series (show up to current frame)
+        line1.set_data(time_points[:frame+1], original_means[:frame+1])
+        line2.set_data(time_points[:frame+1], coarse_means[:frame+1])
+        
+        # Update time counter
+        time_text.set_text(f'Time step: {frame}')
+        
+        return im1, im2, line1, line2, time_text
+    
+    # Create animation
+    anim = animation.FuncAnimation(fig, 
+                                 update, 
+                                 frames=len(original_data),
+                                 interval=1000/fps,
+                                 blit=True)
+    
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+    
+    # Save animation
+    anim.save(output_path, writer='ffmpeg', fps=fps)
     plt.close()

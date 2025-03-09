@@ -1,10 +1,12 @@
 from torch_geometric_temporal.signal import StaticGraphTemporalSignal
 import numpy as np
-import scipy.io
+import scipy.io 
+import os
 import seaborn as sns
 import matplotlib.pyplot as plt
 import torch
 from torch_geometric.data import Data
+from utils_visualization_forecast import create_comparison_animation_data
 
 # series in this case has dimension of (B, N)
 # max and min has dimension of (N,)
@@ -277,12 +279,18 @@ class SSTGridDataLoader():
     def _read_data(self, filepath):
         """Read and preprocess grid data"""
         # Load grid data of shape (time, lat, lon)
-        grid_data = np.load(filepath)
-        time_steps, lat, lon = grid_data.shape
+        grid_data_orig = np.load(filepath)
+        time_steps, lat, lon = grid_data_orig.shape
         
         # Apply coarse graining
-        grid_data = self._coarse_grain(grid_data)
+        grid_data = self._coarse_grain(grid_data_orig)
         time_steps, self.lat_dim, self.lon_dim = grid_data.shape
+
+        # show animation from the result of coarse-graining
+        if not os.path.exists(f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4"):
+            create_comparison_animation_data(original_data=grid_data_orig, 
+                                            coarse_data=grid_data, 
+                                            output_path=f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4")
         
         # Reshape to (time, nodes) where nodes = lat * lon
         self._dataset = grid_data.reshape(time_steps, self.lat_dim * self.lon_dim)        

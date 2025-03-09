@@ -35,6 +35,7 @@ if __name__ == "__main__":
     parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
+    parser.add_argument("--coarse_grain_factor", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--n_pcs", type=int, default=20)
@@ -77,7 +78,8 @@ if __name__ == "__main__":
         sst_dataloader = SSTGridDataLoader(filepath=args.input_file, 
                                          use_normalization=args.use_normalization,
                                          add_sin_cos=args.add_sin_cos,
-                                         train_length=args.train_length)
+                                         train_length=args.train_length,
+                                         coarse_grain_factor=args.coarse_grain_factor)
         lat, lon = sst_dataloader.lat, sst_dataloader.lon
         grid_size = lat * lon 
     else:
