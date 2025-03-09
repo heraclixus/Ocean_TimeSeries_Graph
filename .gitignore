@@ -12,3 +12,4 @@ src/logs/*
 src/logs_report/*
 src/oldlogs/*
 *.mp4
+notebooks/*.mp4
