@@ -11,7 +11,7 @@ import argparse
 from tqdm import tqdm
 from utils_pca import reconstruct_enso
 # Import baseline models
-from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
+from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster, TimeSeriesODE_Conv 
 from baseline_models.ncde import TimeSeriesCDE, NeuralCDEForecaster
 from baseline_models.nsde import TimeSeriesSDE, NeuralSDEForecaster
 from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--coarse_grain_factor", type=int, default=5)
+    parser.add_argument("--coarse_grain_factor", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--n_pcs", type=int, default=20)
@@ -51,6 +51,8 @@ if __name__ == "__main__":
                        help="Number of sample paths for NSDE")
     parser.add_argument("--use_periodic_activation", action="store_true",
                        help="Use periodic activation")
+    parser.add_argument("--use_convnet", action="store_true",
+                       help="Use convnet")
 
     args = parser.parse_args()
 
@@ -120,7 +122,13 @@ if __name__ == "__main__":
     
     # Model initialization
     if args.model_name == "node":
-        if args.ode_encoder_decoder:
+        if args.use_convnet and args.input_file == "../data/ersst_anomaly.npy":
+            model = TimeSeriesODE_Conv(
+                hidden_dim=args.hidden_size,
+                forecast_horizon=args.horizon,
+                use_periodic_activation=args.use_periodic_activation
+            ).to(device)
+        elif args.ode_encoder_decoder:
             model = NeuralODEForecaster(
                 input_dim=input_dim,
                 hidden_dim=args.hidden_size,
@@ -267,7 +275,10 @@ if __name__ == "__main__":
                 elif args.model_name == "graphode":
                     output = model(encoder_input.squeeze(1), edge_index=sst_dataloader._edges)
                 else: # node 
-                    output = model(encoder_input.squeeze(1))
+                    if args.use_convnet:
+                        output = model(encoder_input.view(-1, 1, lat, lon, args.window))
+                    else:
+                        output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
                     if len(output.shape) == 4 and args.model_name == "nsde": # stochastic models
                         output = output[:, :, :-2, :]
@@ -338,8 +349,10 @@ if __name__ == "__main__":
                 else:
                     if args.model_name == "graphode":
                         output = model(encoder_input.squeeze(1), edge_index=sst_dataloader._edges)
-                    else:
-                        output = model(encoder_input.squeeze(1))
+                    if args.use_convnet:
+                        encoder_input = encoder_input.view(-1, 1, lat, lon, args.window)
+                        output = model(encoder_input)
+                        assert output.shape == label.shape
                     if args.add_sin_cos:
                         if len(output.shape) == 4 and args.model_name == "nsde": # stochastic models
                             output = output[:, :, :-2, :]

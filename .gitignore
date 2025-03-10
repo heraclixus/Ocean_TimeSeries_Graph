@@ -13,3 +13,5 @@ src/logs_report/*
 src/oldlogs/*
 *.mp4
 notebooks/*.mp4
+src/*.mp4
+.DS_Store

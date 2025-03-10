@@ -62,10 +62,8 @@ def stochastic_batch_data_to_timeseries(batched_ts):
 def batch_data_to_timeseries(batched_ts):
     if isinstance(batched_ts, torch.Tensor): 
         batched_ts = batched_ts.detach().cpu().numpy()
-
     if len(batched_ts.shape) == 4:
         batched_ts = batched_ts.squeeze(1)
-
     if len(batched_ts) == 1:
         return batched_ts.squeeze().T 
     # (1, t, n)

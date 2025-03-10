@@ -132,7 +132,8 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 rmses_train_reconstructed=None, rmses_test_reconstructed=None, edge_index=None,
                 lat=None, lon=None):
     """Save model results and plots"""
-    
+    if args.use_convnet:
+        args.model_name = f"{args.model_name}-convnet"
     if args.ode_encoder_decoder:
         args.model_name = f"{args.model_name}-encoder-decoder"
     if args.use_periodic_activation:
@@ -191,8 +192,11 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output.append(sample)
                 output = np.stack(output)  # Shape: (n_samples, B, N, H)
             else: # node, gaussian process
+                print(f"test_x_tensor.shape = {test_x_tensor.shape}")
                 if args.model_name == "graphode":
                     output = model(test_x_tensor.squeeze(1), edge_index=edge_index)
+                elif args.use_convnet:
+                    output = model(test_x_tensor.view(-1, 1, lat, lon, args.window))
                 elif args.model_name == "nsde":
                     output = model(test_x_tensor.squeeze(1), n_samples=n_samples)
                     if args.add_sin_cos:
@@ -201,7 +205,8 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output = model(test_x_tensor.squeeze(1))
                     if args.add_sin_cos: 
                         output = output[:, :-2, :]
-                output = output.unsqueeze(1)        
+                if not args.use_convnet:
+                    output = output.unsqueeze(1)        
         # Process predictions
         if args.model_name == "nsde" or args.model_name == "gp":
             if isinstance(output, torch.Tensor):
@@ -253,7 +258,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         enso34_preds = np.stack(enso34_preds)
     else:
         # Handle deterministic models
-        if args.model_name == "graphode":
+        if args.input_file == "../data/ersst_anomaly.npy":
             enso34_pred = output_np_ts.mean(axis=1)
         else:
             _, enso34_pred = reconstruct_enso(pcs=output_np_ts,
@@ -316,7 +321,10 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output = output[:, :-2, :]
                     label = label[:, :, :-2, :].squeeze(1)
             else:
-                output = model(encoder_input.squeeze(1))
+                if args.use_convnet:
+                    output = model(encoder_input.view(-1, 1, lat, lon, args.window))
+                else:
+                    output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
                     if len(output.shape) == 4: # stochastic models
                         output = output[:, :, -2, :]

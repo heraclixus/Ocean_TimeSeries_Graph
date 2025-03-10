@@ -184,3 +184,130 @@ class NeuralODEForecaster(nn.Module):
             weights = weights.view(1, -1, 1)
             return torch.mean(weights * (pred - target) ** 2)
         return torch.mean((pred - target) ** 2)
+
+class ODEFunc_Conv(nn.Module):
+    """ODE function using CNN with U-Net structure for grid data"""
+    def __init__(self, hidden_dim=64, use_periodic_activation=False):
+        super().__init__()
+        self.use_periodic_activation = use_periodic_activation
+        self.activation = PeriodicActivation() if use_periodic_activation else nn.ReLU()
+        
+        # Encoder
+        self.enc_conv1 = nn.Conv2d(1, hidden_dim, kernel_size=3, padding=1)
+        self.enc_bn1 = nn.BatchNorm2d(hidden_dim)
+        self.enc_conv2 = nn.Conv2d(hidden_dim, hidden_dim*2, kernel_size=3, padding=1, stride=2)  # downsample
+        self.enc_bn2 = nn.BatchNorm2d(hidden_dim*2)
+        
+        # Bottom level
+        self.bottom_conv = nn.Conv2d(hidden_dim*2, hidden_dim*2, kernel_size=3, padding=1)
+        self.bottom_bn = nn.BatchNorm2d(hidden_dim*2)
+        
+        # Decoder
+        self.dec_conv1 = nn.ConvTranspose2d(hidden_dim*2, hidden_dim, kernel_size=2, stride=2, output_padding=0)  # upsample
+        self.dec_bn1 = nn.BatchNorm2d(hidden_dim)
+        self.dec_conv2 = nn.Conv2d(hidden_dim*2, hidden_dim, kernel_size=3, padding=1)  # concat with encoder
+        self.dec_bn2 = nn.BatchNorm2d(hidden_dim)
+        
+        # Output
+        self.final_conv = nn.Conv2d(hidden_dim, 1, kernel_size=3, padding=1)
+        
+    def forward(self, t, x):
+        """
+        Args:
+            t (torch.Tensor): Current time point
+            x (torch.Tensor): Current state (B, 1, H, W)
+        Returns:
+            torch.Tensor: Rate of change (B, 1, H, W)
+        """
+        # Encoder
+        e1 = self.activation(self.enc_bn1(self.enc_conv1(x)))
+        e2 = self.activation(self.enc_bn2(self.enc_conv2(e1)))
+        
+        # Bottom level
+        b = self.activation(self.bottom_bn(self.bottom_conv(e2)))
+        
+        # Decoder
+        d1 = self.activation(self.dec_bn1(self.dec_conv1(b)))
+        # Crop d1 to match e1's dimensions
+        d1 = d1[:, :, :e1.size(2), :e1.size(3)]
+        d1 = torch.cat([d1, e1], dim=1)
+        d2 = self.activation(self.dec_bn2(self.dec_conv2(d1)))
+        
+        # Output
+        out = self.final_conv(d2)
+        
+        return out
+
+class TimeSeriesODE_Conv(nn.Module):
+    def __init__(self, hidden_dim=64, forecast_horizon=12, use_periodic_activation=False):
+        """
+        Neural ODE for grid time series forecasting using CNNs
+        
+        Args:
+            hidden_dim (int): Size of hidden layers in the ODE function
+            forecast_horizon (int): Number of future time steps to forecast (H)
+            use_periodic_activation (bool): Whether to use periodic activation
+        """
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.forecast_horizon = forecast_horizon
+        self.use_periodic_activation = use_periodic_activation
+        
+        # ODE function network
+        self.ode_func = ODEFunc_Conv(hidden_dim, use_periodic_activation)
+        
+    def forward(self, x):
+        """
+        Forward pass
+        
+        Args:
+            x (torch.Tensor): Input time series of shape (B, 1, H, W, T)
+            
+        Returns:
+            torch.Tensor: Forecasted values of shape (B, 1, H*W, H)
+        """
+        batch_size, channels, height, width, _ = x.shape
+        
+        # Get the last state from the input sequence
+        initial_state = x[..., -1]  # Shape: (B, 1, H, W)
+        
+        # Create time points for forecasting
+        t = torch.linspace(0, self.forecast_horizon, self.forecast_horizon).to(x.device)
+        
+        # Define the ODE function
+        def ode_func(t, state):
+            return self.ode_func(t, state)
+        
+        # Solve ODE to get forecasts
+        # odeint returns a tensor of shape (H, B, 1, H, W)
+        predictions = odeint(
+            ode_func,
+            initial_state,
+            t,
+            method='rk4'
+        )        
+        # Reshape predictions to (B, 1, H*W, H)
+        T, B, _, H, W = predictions.shape
+        predictions = predictions.permute(1, 2, 3, 4, 0)  # (B, 1, H, W, T)
+        predictions = predictions.view(B, 1, H * W, T)
+        
+        return predictions
+    
+    def compute_loss(self, pred, target, std=None, add_sin_cos=False):
+        """
+        Compute MSE loss between predictions and targets
+        
+        Args:
+            pred (torch.Tensor): Predicted values of shape (B, 1, H*W, H)
+            target (torch.Tensor): Target values of shape (B, 1, H*W, H)
+            std (torch.Tensor, optional): Standard deviations for weighted MSE
+            add_sin_cos (bool): Whether sinusoidal features are present
+        """
+        if add_sin_cos:
+            std = std[:-2]
+        if std is not None:
+            std = torch.tensor(std, device=pred.device)
+            weights = 1.0 / (std ** 2)
+            weights = weights.view(1, -1, 1)
+            return torch.mean(weights * (pred - target) ** 2)
+        return torch.mean((pred - target) ** 2)
