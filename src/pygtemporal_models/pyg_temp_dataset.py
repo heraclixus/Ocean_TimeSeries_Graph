@@ -48,11 +48,11 @@ def stochastic_batch_data_to_timeseries(batched_ts):
         # (n_samples, n, t)
         return batched_ts.squeeze().transpose(0, 2, 1)
     n_timeseries = []
-    print(f"batched_ts = {batched_ts.shape}")
+    # print(f"batched_ts = {batched_ts.shape}")
     for i in range(batched_ts.shape[0]):
         batched_ts_i = batched_ts[i].copy()
         # (b, 1, n, t) -> (n, t)
-        print(f"batched_ts_i = {batched_ts_i.shape}")
+        # print(f"batched_ts_i = {batched_ts_i.shape}")
         final_series = batch_data_to_timeseries(batched_ts_i)
         n_timeseries.append(final_series)
     # (n_samples, n, t)
@@ -255,6 +255,136 @@ class SSTGridDataLoader():
         # Return useful information
         return min_row, max_row, min_col, max_col
     
+
+    def _coarse_grain_outside_region(self, grid_data, coarse_factor, min_row=None, max_row=None, min_col=None, max_col=None, region_mask=None):
+        """
+        Coarse grain grid data outside of a specified region of interest.
+        
+        Args:
+            grid_data (np.ndarray): Original grid data of shape (rows, cols) or (time, rows, cols)
+            coarse_factor (int): Factor by which to coarsen the grid (e.g., 2 means every 2x2 cells become 1 cell)
+            min_row (int, optional): Minimum row index of region to preserve
+            max_row (int, optional): Maximum row index of region to preserve
+            min_col (int, optional): Minimum column index of region to preserve
+            max_col (int, optional): Maximum column index of region to preserve
+            region_mask (np.ndarray, optional): Boolean mask of shape (rows, cols) where True indicates cells to preserve
+                                            (takes precedence over min/max indices if provided)
+        
+        Returns:
+            np.ndarray: Coarse-grained grid with preserved region
+        """
+        # Check if input has time dimension
+        has_time_dim = len(grid_data.shape) == 3
+        
+        if has_time_dim:
+            time_steps, rows, cols = grid_data.shape
+            
+            # Process each time step
+            results = []
+            for t in range(time_steps):
+                coarse_t = self._coarse_grain_outside_region(
+                    grid_data[t], coarse_factor, min_row, max_row, min_col, max_col, region_mask
+                )
+                results.append(coarse_t)
+            return np.stack(results, axis=0)
+        
+        # No time dimension
+        rows, cols = grid_data.shape
+        
+        # Create region mask if not provided
+        if region_mask is None:
+            region_mask = np.zeros((rows, cols), dtype=bool)
+            
+            # Use the provided boundaries to define the region to preserve
+            if min_row is not None and max_row is not None and min_col is not None and max_col is not None:
+                region_mask[min_row:max_row+1, min_col:max_col+1] = True
+            else:
+                raise ValueError("Either region_mask or all of min_row, max_row, min_col, max_col must be provided")
+        
+        # Calculate dimensions for coarse-grained grid
+        region_height = max_row - min_row + 1 if min_row is not None else 0
+        region_width = max_col - min_col + 1 if min_col is not None else 0
+        
+        # Calculate the number of rows/cols that will be in the coarse-grained areas
+        coarse_rows_before = min_row // coarse_factor if min_row is not None else 0
+        coarse_rows_after = (rows - (max_row + 1)) // coarse_factor if max_row is not None else 0
+        coarse_cols_before = min_col // coarse_factor if min_col is not None else 0
+        coarse_cols_after = (cols - (max_col + 1)) // coarse_factor if max_col is not None else 0
+        
+        # Calculate new dimensions
+        new_rows = coarse_rows_before + region_height + coarse_rows_after
+        new_cols = coarse_cols_before + region_width + coarse_cols_after
+        
+        # Create the new coarse-grained grid
+        result = np.zeros((new_rows, new_cols), dtype=grid_data.dtype)
+        
+        # Fill in the preserved region (direct copy)
+        if min_row is not None and max_row is not None and min_col is not None and max_col is not None:
+            result[coarse_rows_before:coarse_rows_before+region_height, 
+                coarse_cols_before:coarse_cols_before+region_width] = grid_data[min_row:max_row+1, min_col:max_col+1]
+        
+        # Handle the area before the preserved region (rows)
+        for i in range(coarse_rows_before):
+            row_start = i * coarse_factor
+            row_end = min((i + 1) * coarse_factor, min_row)
+            
+            # For each column in the result grid
+            for j in range(new_cols):
+                if j < coarse_cols_before:
+                    # Coarse-grain the area before preserved region (columns)
+                    col_start = j * coarse_factor
+                    col_end = min((j + 1) * coarse_factor, min_col)
+                    result[i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
+                elif j < coarse_cols_before + region_width:
+                    # Mix of coarse-grained rows and preserved columns
+                    col_idx = min_col + (j - coarse_cols_before)
+                    result[i, j] = np.mean(grid_data[row_start:row_end, col_idx])
+                else:
+                    # Coarse-grain the area after preserved region (columns)
+                    col_start = max_col + 1 + (j - coarse_cols_before - region_width) * coarse_factor
+                    col_end = min(col_start + coarse_factor, cols)
+                    result[i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
+        
+        # Handle the area after the preserved region (rows)
+        for i in range(coarse_rows_after):
+            row_start = max_row + 1 + i * coarse_factor
+            row_end = min(row_start + coarse_factor, rows)
+            
+            # For each column in the result grid
+            for j in range(new_cols):
+                if j < coarse_cols_before:
+                    # Mix of coarse-grained rows and coarse-grained columns (before)
+                    col_start = j * coarse_factor
+                    col_end = min((j + 1) * coarse_factor, min_col)
+                    result[coarse_rows_before + region_height + i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
+                elif j < coarse_cols_before + region_width:
+                    # Mix of coarse-grained rows and preserved columns
+                    col_idx = min_col + (j - coarse_cols_before)
+                    result[coarse_rows_before + region_height + i, j] = np.mean(grid_data[row_start:row_end, col_idx])
+                else:
+                    # Coarse-grain both rows and columns (after)
+                    col_start = max_col + 1 + (j - coarse_cols_before - region_width) * coarse_factor
+                    col_end = min(col_start + coarse_factor, cols)
+                    result[coarse_rows_before + region_height + i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
+        
+        # Handle the preserved region rows with coarse-grained columns before
+        for i in range(region_height):
+            row_idx = min_row + i
+            
+            # Coarse-grain columns before the preserved region
+            for j in range(coarse_cols_before):
+                col_start = j * coarse_factor
+                col_end = min((j + 1) * coarse_factor, min_col)
+                result[coarse_rows_before + i, j] = np.mean(grid_data[row_idx, col_start:col_end])
+            
+            # Coarse-grain columns after the preserved region
+            for j in range(coarse_cols_after):
+                col_start = max_col + 1 + j * coarse_factor
+                col_end = min(col_start + coarse_factor, cols)
+                result[coarse_rows_before + i, coarse_cols_before + region_width + j] = np.mean(grid_data[row_idx, col_start:col_end])
+        
+        return result
+    
     def _coarse_grain(self, data):
         """
         Coarse grain the spatial dimensions by averaging over sub-grids
@@ -301,7 +431,16 @@ class SSTGridDataLoader():
         time_steps, lat, lon = grid_data_orig.shape
         
         # Apply coarse graining
-        grid_data = self._coarse_grain(grid_data_orig)
+        if self.coarse_grain_factor > 1:
+            grid_data = self._coarse_grain_outside_region(grid_data_orig, 
+                                                        self.coarse_grain_factor, 
+                                                        min_row, max_row,
+                                                        min_col, max_col, 
+                                                        region_mask)
+        else:
+            grid_data = grid_data_orig
+        
+        print(f"grid_data.shape = {grid_data.shape}, coarse_grain_factor = {self.coarse_grain_factor}")
         if self.use_region_data:
             time_steps, self.lat_dim, self.lon_dim = region_data.shape
         else:

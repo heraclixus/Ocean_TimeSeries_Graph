@@ -15,6 +15,7 @@ from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster, TimeSeries
 from baseline_models.ncde import TimeSeriesCDE, NeuralCDEForecaster
 from baseline_models.nsde import TimeSeriesSDE, NeuralSDEForecaster
 from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
+from baseline_models.graphsde import GraphNeuralSDE
 from baseline_models.kalman_filter import KalmanForecaster
 from baseline_models.dmd import DMDForecast
 from baseline_models.gaussian_process import run_gp_regression
@@ -28,7 +29,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_file", type=str, default="../data/nino34_mat.mat")
     parser.add_argument("--model_name", type=str, default="node",
-                       choices=["node", "ncde", "nsde", "graphode", "kalman", 
+                       choices=["node", "ncde", "nsde", "gsde", "graphode", "kalman", 
                                "dmd", "gp", "koopman", "arima", "arimax", "garch"])
     parser.add_argument("--hidden_size", type=int, default=64)
     parser.add_argument("--window", type=int, default=6)
@@ -128,7 +129,7 @@ if __name__ == "__main__":
     
     # Model initialization
     if args.model_name == "node":
-        if args.use_convnet and args.input_file == "../data/ersst_anomaly.npy":
+        if args.use_convnet:
             model = TimeSeriesODE_Conv(
                 hidden_dim=args.hidden_size,
                 forecast_horizon=args.horizon,
@@ -196,6 +197,13 @@ if __name__ == "__main__":
                 forecast_horizon=args.horizon,
                 use_periodic_activation=args.use_periodic_activation
             ).to(device)
+    elif args.model_name == "gsde":
+        model = GraphNeuralSDE(
+            node_features=1,
+            hidden_dim=args.hidden_size,
+            forecast_horizon=args.horizon,
+            use_periodic_activation=args.use_periodic_activation
+        ).to(device)
     elif args.model_name == "kalman":
         model = KalmanForecaster(
             input_dim=input_dim,
