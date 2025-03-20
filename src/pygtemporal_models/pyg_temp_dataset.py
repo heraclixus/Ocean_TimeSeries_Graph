@@ -224,7 +224,9 @@ class SSTDatasetLoader():
 
 # class for grid data
 class SSTGridDataLoader():
-    def __init__(self, filepath, use_normalization, add_sin_cos=False, train_length=700, coarse_grain_factor=5):
+    def __init__(self, filepath, use_normalization, 
+                 use_region_data=False,
+                 add_sin_cos=False, train_length=700, coarse_grain_factor=5):
         """
         Initialize dataset loader for grid SST data
         
@@ -239,7 +241,19 @@ class SSTGridDataLoader():
         self.add_sin_cos = add_sin_cos
         self.train_length = train_length
         self.coarse_grain_factor = coarse_grain_factor
+        self.use_region_data = use_region_data
         self._read_data(filepath)
+
+    def find_region_indices(self, mask):
+        # Find all True positions (rows and columns where mask is True)
+        rows, cols = np.where(mask)
+        
+        # Find the bounding box
+        min_row, max_row = np.min(rows), np.max(rows)
+        min_col, max_col = np.min(cols), np.max(cols)
+        
+        # Return useful information
+        return min_row, max_row, min_col, max_col
     
     def _coarse_grain(self, data):
         """
@@ -277,12 +291,21 @@ class SSTGridDataLoader():
     def _read_data(self, filepath):
         """Read and preprocess grid data"""
         # Load grid data of shape (time, lat, lon)
-        grid_data_orig = np.load(filepath)
+        grid_data_orig = scipy.io.loadmat(filepath)["nino34_data"][0][0]["subdata3d"]
+        region_mask = scipy.io.loadmat(filepath)["nino34_data"][0][0]["region_mask"]
+        region_data = scipy.io.loadmat(filepath)["nino34_data"][0][0]["region_data"]
+        min_row, max_row, min_col, max_col = self.find_region_indices(region_mask)
+        region_data = region_data[:, min_row:max_row, min_col:max_col]
+        print(f"region_data.shape = {region_data.shape}")
+        indsst = scipy.io.loadmat(filepath)["nino34_data"][0][0]["indsst"].astype(np.int32).flatten()
         time_steps, lat, lon = grid_data_orig.shape
         
         # Apply coarse graining
         grid_data = self._coarse_grain(grid_data_orig)
-        time_steps, self.lat_dim, self.lon_dim = grid_data.shape
+        if self.use_region_data:
+            time_steps, self.lat_dim, self.lon_dim = region_data.shape
+        else:
+            time_steps, self.lat_dim, self.lon_dim = grid_data.shape
 
         # show animation from the result of coarse-graining
         # if not os.path.exists(f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4"):
@@ -291,7 +314,17 @@ class SSTGridDataLoader():
         #                                     output_path=f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4")
         
         # Reshape to (time, nodes) where nodes = lat * lon
-        self._dataset = grid_data.reshape(time_steps, self.lat_dim * self.lon_dim)        
+        self._region_mask = region_mask
+        self._region_data = region_data
+        self._grid_data = grid_data
+        self._indsst = indsst
+        if self.use_region_data:
+            self._dataset = region_data.reshape(time_steps, -1)
+        else:
+            self._dataset = grid_data.reshape(time_steps, -1)
+        print(f"use region dataset = {self.use_region_data}")
+        print(f"lat = {self.lat_dim}")
+        print(f"lon = {self.lon_dim}")
         print(f"self._dataset = {self._dataset.shape}")
         
         # Add sinusoidal features if requested

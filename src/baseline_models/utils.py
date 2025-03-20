@@ -138,7 +138,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         args.model_name = f"{args.model_name}-encoder-decoder"
     if args.use_periodic_activation:
         args.model_name = f"{args.model_name}-periodic-activation"
-    if args.input_file == "../data/ersst_anomaly.npy":
+    if args.input_file == "../data/nino34_mat.mat":
         save_name = f"grid_{args.model_name}_window={args.window}_coarse_grain={args.coarse_grain_factor}"
     else:
         save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}" 
@@ -258,14 +258,14 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         enso34_preds = np.stack(enso34_preds)
     else:
         # Handle deterministic models
-        if args.input_file == "../data/ersst_anomaly.npy":
+        if args.input_file == "../data/nino34_mat.mat":
             enso34_pred = output_np_ts.mean(axis=1)
         else:
             _, enso34_pred = reconstruct_enso(pcs=output_np_ts,
                                             real_pcs=test_target_np_ts,
                                             top_n_pcs=args.n_pcs,
                                             flag="test")
-    if args.input_file == "../data/ersst_anomaly.npy":
+    if args.input_file == "../data/nino34_mat.mat":
         enso34 = test_target_np_ts.mean(axis=1)
     else:
         enso34, _ = reconstruct_enso(pcs=test_target_np_ts, 
@@ -340,7 +340,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
-            if args.input_file == "../data/ersst_anomaly.npy":
+            if args.input_file == "../data/nino34_mat.mat":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             else:
                 nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
@@ -401,7 +401,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     np.save(os.path.join(save_path, f"test_enso_reconstructed_batched.npy"), pred_nino)
     np.save(os.path.join(save_path, f"test_enso_batched.npy"), true_nino)
 
-    if args.input_file == "../data/ersst_anomaly.npy":
+    if args.input_file == "../data/nino34_mat.mat":
         true_npy_ts = batch_data_to_timeseries(true_npy.transpose(1,2,0)).reshape(-1, lat, lon)
         pred_npy_ts = batch_data_to_timeseries(pred_npy.transpose(1,2,0)).reshape(-1, lat, lon)
         print(f"true_npy_ts.shape: {true_npy_ts.shape}")

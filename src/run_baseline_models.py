@@ -26,7 +26,7 @@ from baseline_models.garch import MultiGARCH
 from pygtemporal_models.pyg_temp_dataset import SSTGridDataLoader
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", type=str, default="../data/ersst_anomaly.npy")
+    parser.add_argument("--input_file", type=str, default="../data/nino34_mat.mat")
     parser.add_argument("--model_name", type=str, default="node",
                        choices=["node", "ncde", "nsde", "graphode", "kalman", 
                                "dmd", "gp", "koopman", "arima", "arimax", "garch"])
@@ -53,6 +53,8 @@ if __name__ == "__main__":
                        help="Use periodic activation")
     parser.add_argument("--use_convnet", action="store_true",
                        help="Use convnet")
+    parser.add_argument("--use_region_data", action="store_true",
+                       help="Use region data")
 
     args = parser.parse_args()
 
@@ -77,14 +79,16 @@ if __name__ == "__main__":
     # Data loading
     lat, lon = None, None
     grid_size = args.n_pcs
-    if args.input_file == "../data/ersst_anomaly.npy":
+    if args.input_file == "../data/nino34_mat.mat":
         sst_dataloader = SSTGridDataLoader(filepath=args.input_file, 
                                          use_normalization=args.use_normalization,
+                                         use_region_data=args.use_region_data,
                                          add_sin_cos=args.add_sin_cos,
                                          train_length=args.train_length,
                                          coarse_grain_factor=args.coarse_grain_factor)
-        lat, lon = sst_dataloader.lat, sst_dataloader.lon
-        grid_size = lat * lon 
+        lat, lon = sst_dataloader.lat_dim, sst_dataloader.lon_dim
+        grid_size = lat * lon
+        mask = sst_dataloader._region_mask
     else:
         sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
                                          use_normalization=args.use_normalization,
@@ -119,6 +123,8 @@ if __name__ == "__main__":
         input_dim = grid_size + 2 
     else:
         input_dim = grid_size
+
+    print(f"input_dim = {input_dim}")
     
     # Model initialization
     if args.model_name == "node":
@@ -233,6 +239,7 @@ if __name__ == "__main__":
         exit(0)
 
     # Training neural models
+    print(f"model = {model}")
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     best_test_loss = np.inf
     patience_counter = 0
@@ -295,6 +302,11 @@ if __name__ == "__main__":
             # Compute metrics
             train_losses.append(loss.item())
 
+            if not args.use_region_data:
+                indsst_tensor = torch.from_numpy(sst_dataloader._indsst).long()
+                output = output[:,indsst_tensor, :]
+                label = label[:,:, indsst_tensor,:]
+
             if args.model_name == "nsde":
                 pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy())
                 pred_np = np.mean(pred_np, axis=0)
@@ -309,7 +321,7 @@ if __name__ == "__main__":
             train_rmses.append(rmse)
 
             # Compute reconstructed RMSE
-            if args.input_file == "../data/ersst_anomaly.npy":
+            if args.input_file == "../data/nino34_mat.mat":
                 # spatial average
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             else:   
@@ -353,6 +365,8 @@ if __name__ == "__main__":
                         encoder_input = encoder_input.view(-1, 1, lat, lon, args.window)
                         output = model(encoder_input)
                         assert output.shape == label.shape
+                    else:
+                        output = model(encoder_input.squeeze(1))
                     if args.add_sin_cos:
                         if len(output.shape) == 4 and args.model_name == "nsde": # stochastic models
                             output = output[:, :, :-2, :]
@@ -366,6 +380,10 @@ if __name__ == "__main__":
 
                 test_losses.append(loss.item())
 
+                if not args.use_region_data:
+                    indsst_tensor = torch.from_numpy(sst_dataloader._indsst).long()
+                    output = output[:,indsst_tensor, :]
+                    label = label[:,:, indsst_tensor,:]
                 # Compute metrics
                 if args.model_name == "nsde":
                     pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy())
@@ -377,10 +395,11 @@ if __name__ == "__main__":
                     label_np = inverse_normalize(label_np, max, min)
                     pred_np = inverse_normalize(pred_np, max, min)
                 
+
                 rmse = np.sqrt(np.mean((label_np - pred_np)**2))
                 test_rmses.append(rmse)
 
-                if args.input_file == "../data/ersst_anomaly.npy":
+                if args.input_file == "../data/nino34_mat.mat":
                     # spatial average
                     nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
                 else:   
