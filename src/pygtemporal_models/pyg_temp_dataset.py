@@ -428,6 +428,7 @@ class SSTGridDataLoader():
         region_data = region_data[:, min_row:max_row, min_col:max_col]
         print(f"region_data.shape = {region_data.shape}")
         indsst = scipy.io.loadmat(filepath)["nino34_data"][0][0]["indsst"].astype(np.int32).flatten()
+        print(f"Original indsst shape: {indsst.shape}")
         time_steps, lat, lon = grid_data_orig.shape
         
         # Apply coarse graining
@@ -437,10 +438,94 @@ class SSTGridDataLoader():
                                                         min_row, max_row,
                                                         min_col, max_col, 
                                                         region_mask)
+            
+            # Create new region mask for coarse-grained grid
+            # Calculate new positions after coarse-graining
+            coarse_rows_before = min_row // self.coarse_grain_factor
+            coarse_cols_before = min_col // self.coarse_grain_factor
+            region_height = max_row - min_row + 1
+            region_width = max_col - min_col + 1
+            
+            # Get new dimensions
+            _, new_lat, new_lon = grid_data.shape
+            new_region_mask = np.zeros((new_lat, new_lon), dtype=bool)
+            new_min_row = coarse_rows_before
+            new_max_row = coarse_rows_before + region_height - 1
+            new_min_col = coarse_cols_before
+            new_max_col = coarse_cols_before + region_width - 1
+            new_region_mask[new_min_row:new_max_row+1, new_min_col:new_max_col+1] = True
+            
+            # Update indsst for the new grid structure
+            # Approach: Since we preserved the region exactly, indices in the region
+            # maintain their relative positions, just shifted to the new location
+            
+            # Each index in indsst corresponds to a position in the flattened original grid
+            # We need to convert it to (row, col) in the original grid, check if it's in
+            # the region, then convert it to the corresponding index in the new grid
+            
+            # First, map each indsst value to its new position
+            new_indsst = []
+            for idx in indsst:
+                # Convert flat index to 2D coordinates in original grid
+                orig_row = idx // lon
+                orig_col = idx % lon
+                
+                # Check if this point is in the region of interest
+                if region_mask[orig_row, orig_col]:
+                    # Get this point's position relative to region's top-left corner
+                    rel_row = orig_row - min_row
+                    rel_col = orig_col - min_col
+                    
+                    # Calculate new position in coarse-grained grid
+                    new_row = new_min_row + rel_row
+                    new_col = new_min_col + rel_col
+                    
+                    # Convert to flat index in new grid
+                    new_idx = new_row * new_lon + new_col
+                    new_indsst.append(new_idx)
+            
+            # Just to be safe, directly add any points that are in the region mask 
+            # but might have been missed in the mapping above
+            if len(new_indsst) == 0:  # Only do this if we haven't found any indices
+                for i in range(min_row, max_row + 1):
+                    for j in range(min_col, max_col + 1):
+                        if region_mask[i, j]:
+                            # Get position relative to region start
+                            rel_row = i - min_row
+                            rel_col = j - min_col
+                            
+                            # Calculate new position
+                            new_row = new_min_row + rel_row
+                            new_col = new_min_col + rel_col
+                            
+                            # Add to new indices
+                            new_idx = new_row * new_lon + new_col
+                            new_indsst.append(new_idx)
+            
+            new_indsst = np.array(new_indsst, dtype=np.int32)
+            
+            # If we still have zero-length indsst, it's safer to use all indices in the region
+            if len(new_indsst) == 0:
+                print("WARNING: Failed to map indsst indices. Using all points in region as fallback.")
+                new_indsst = np.where(new_region_mask.flatten())[0]
+            
+            # Debug output
+            print(f"Original region dimensions: {min_row}-{max_row}, {min_col}-{max_col}")
+            print(f"New region position: {new_min_row}-{new_max_row}, {new_min_col}-{new_max_col}")
+            print(f"Original grid: {lat}x{lon}, New grid: {new_lat}x{new_lon}")
+            print(f"Coarse rows/cols before: {coarse_rows_before}, {coarse_cols_before}")
+            print(f"Original indsst length: {len(indsst)}, New indsst length: {len(new_indsst)}")
+            
+            # Update instance variables
+            self._region_mask = new_region_mask
+            self._indsst = new_indsst
         else:
             grid_data = grid_data_orig
+            self._region_mask = region_mask
+            self._indsst = indsst
         
         print(f"grid_data.shape = {grid_data.shape}, coarse_grain_factor = {self.coarse_grain_factor}")
+        
         if self.use_region_data:
             time_steps, self.lat_dim, self.lon_dim = region_data.shape
         else:
@@ -453,10 +538,8 @@ class SSTGridDataLoader():
         #                                     output_path=f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4")
         
         # Reshape to (time, nodes) where nodes = lat * lon
-        self._region_mask = region_mask
         self._region_data = region_data
         self._grid_data = grid_data
-        self._indsst = indsst
         if self.use_region_data:
             self._dataset = region_data.reshape(time_steps, -1)
         else:
@@ -465,6 +548,8 @@ class SSTGridDataLoader():
         print(f"lat = {self.lat_dim}")
         print(f"lon = {self.lon_dim}")
         print(f"self._dataset = {self._dataset.shape}")
+        print(f"Region mask shape: {self._region_mask.shape}")
+        print(f"Number of indsst indices: {len(self._indsst)}")
         
         # Add sinusoidal features if requested
         # if self.add_sin_cos:

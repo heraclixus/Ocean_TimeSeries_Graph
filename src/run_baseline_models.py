@@ -31,7 +31,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, default="node",
                        choices=["node", "ncde", "nsde", "gsde", "graphode", "kalman", 
                                "dmd", "gp", "koopman", "arima", "arimax", "garch"])
-    parser.add_argument("--hidden_size", type=int, default=64)
+    parser.add_argument("--hidden_size", type=int, default=128)
     parser.add_argument("--window", type=int, default=6)
     parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument("--batch_size", type=int, default=64)
