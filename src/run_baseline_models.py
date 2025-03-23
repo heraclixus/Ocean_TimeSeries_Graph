@@ -36,7 +36,6 @@ if __name__ == "__main__":
     parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--coarse_grain_factor", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--n_pcs", type=int, default=20)
@@ -85,8 +84,7 @@ if __name__ == "__main__":
                                          use_normalization=args.use_normalization,
                                          use_region_data=args.use_region_data,
                                          add_sin_cos=args.add_sin_cos,
-                                         train_length=args.train_length,
-                                         coarse_grain_factor=args.coarse_grain_factor)
+                                         train_length=args.train_length)
         lat, lon = sst_dataloader.lat_dim, sst_dataloader.lon_dim
         grid_size = lat * lon
         mask = sst_dataloader._region_mask
@@ -310,11 +308,6 @@ if __name__ == "__main__":
             # Compute metrics
             train_losses.append(loss.item())
 
-            if not args.use_region_data:
-                indsst_tensor = torch.from_numpy(sst_dataloader._indsst).long()
-                output = output[:,indsst_tensor, :]
-                label = label[:,:, indsst_tensor,:]
-
             if args.model_name == "nsde":
                 pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy())
                 pred_np = np.mean(pred_np, axis=0)
@@ -325,6 +318,10 @@ if __name__ == "__main__":
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
             
+            if not args.use_region_data: # only compute index region metrics          
+                indsst_tensor = sst_dataloader._indsst
+                pred_np = pred_np[:,indsst_tensor]
+                label_np = label_np[:,indsst_tensor]
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             train_rmses.append(rmse)
 
@@ -388,10 +385,6 @@ if __name__ == "__main__":
 
                 test_losses.append(loss.item())
 
-                if not args.use_region_data:
-                    indsst_tensor = torch.from_numpy(sst_dataloader._indsst).long()
-                    output = output[:,indsst_tensor, :]
-                    label = label[:,:, indsst_tensor,:]
                 # Compute metrics
                 if args.model_name == "nsde":
                     pred_np = stochastic_batch_data_to_timeseries(output.detach().cpu().numpy())
@@ -403,6 +396,10 @@ if __name__ == "__main__":
                     label_np = inverse_normalize(label_np, max, min)
                     pred_np = inverse_normalize(pred_np, max, min)
                 
+                if not args.use_region_data: # only compute index region metrics          
+                    indsst_tensor = sst_dataloader._indsst
+                    pred_np = pred_np[:,indsst_tensor]
+                    label_np = label_np[:,indsst_tensor]
 
                 rmse = np.sqrt(np.mean((label_np - pred_np)**2))
                 test_rmses.append(rmse)
@@ -452,5 +449,5 @@ if __name__ == "__main__":
     save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train, losses_test, rmses_train, rmses_test,
                 rmses_train_reconstructed, rmses_test_reconstructed, edge_index=sst_dataloader._edges,
-                lat=lat, lon=lon)
+                lat=sst_dataloader.lat_dim_region, lon=sst_dataloader.lon_dim_region, indsst=sst_dataloader._indsst)
 

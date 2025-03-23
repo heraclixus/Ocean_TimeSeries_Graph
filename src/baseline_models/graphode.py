@@ -16,9 +16,11 @@ class GraphODEFunc_GNODE(nn.Module):
         self.periodic_activation = PeriodicActivation()
         self.tanh_activation = nn.Tanh()
         self.graph_layers = nn.ModuleList([
-            GCNConv(node_features, hidden_dim),
+            GCNConv(node_features, 64),
+            GCNConv(64, hidden_dim),   
             GCNConv(hidden_dim, hidden_dim),
-            GCNConv(hidden_dim, node_features)
+            GCNConv(hidden_dim, 64),
+            GCNConv(64, node_features)
         ])
         
     def forward(self, t, x, edge_index):
@@ -222,8 +224,11 @@ class NeuralGDEForecaster(nn.Module):
 
         # GCN layers for spatial relationships - input is 1 since we have scalar time series
         self.spatial_gcn = nn.ModuleList([
-            GCNConv(1, hidden_dim),  # Changed from input_dim to 1
-            GCNConv(hidden_dim, hidden_dim)
+            GCNConv(1, 64),  # Changed from input_dim to 1
+            GCNConv(64, hidden_dim),
+            GCNConv(hidden_dim, hidden_dim),
+            GCNConv(hidden_dim, hidden_dim),
+            GCNConv(hidden_dim, hidden_dim),
         ])
         
         # Temporal attention
@@ -231,10 +236,14 @@ class NeuralGDEForecaster(nn.Module):
             self.temporal_attention = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 PeriodicActivation(), 
+                nn.Linear(hidden_dim, hidden_dim),
+                PeriodicActivation(),
                 nn.Linear(hidden_dim, 1)
             )
         else:
             self.temporal_attention = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.Tanh(),
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.Tanh(),
                 nn.Linear(hidden_dim, 1)

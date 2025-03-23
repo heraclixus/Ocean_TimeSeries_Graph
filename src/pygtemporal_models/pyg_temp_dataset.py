@@ -226,7 +226,7 @@ class SSTDatasetLoader():
 class SSTGridDataLoader():
     def __init__(self, filepath, use_normalization, 
                  use_region_data=False,
-                 add_sin_cos=False, train_length=700, coarse_grain_factor=5):
+                 add_sin_cos=False, train_length=700):
         """
         Initialize dataset loader for grid SST data
         
@@ -235,12 +235,10 @@ class SSTGridDataLoader():
             use_normalization (bool): Whether to normalize data
             add_sin_cos (bool): Whether to add sinusoidal features
             train_length (int): Number of time steps to use for training
-            coarse_grain_factor (int): Factor by which to reduce spatial dimensions
         """
         self.use_normalization = use_normalization
         self.add_sin_cos = add_sin_cos
         self.train_length = train_length
-        self.coarse_grain_factor = coarse_grain_factor
         self.use_region_data = use_region_data
         self._read_data(filepath)
 
@@ -256,167 +254,7 @@ class SSTGridDataLoader():
         return min_row, max_row, min_col, max_col
     
 
-    def _coarse_grain_outside_region(self, grid_data, coarse_factor, min_row=None, max_row=None, min_col=None, max_col=None, region_mask=None):
-        """
-        Coarse grain grid data outside of a specified region of interest.
-        
-        Args:
-            grid_data (np.ndarray): Original grid data of shape (rows, cols) or (time, rows, cols)
-            coarse_factor (int): Factor by which to coarsen the grid (e.g., 2 means every 2x2 cells become 1 cell)
-            min_row (int, optional): Minimum row index of region to preserve
-            max_row (int, optional): Maximum row index of region to preserve
-            min_col (int, optional): Minimum column index of region to preserve
-            max_col (int, optional): Maximum column index of region to preserve
-            region_mask (np.ndarray, optional): Boolean mask of shape (rows, cols) where True indicates cells to preserve
-                                            (takes precedence over min/max indices if provided)
-        
-        Returns:
-            np.ndarray: Coarse-grained grid with preserved region
-        """
-        # Check if input has time dimension
-        has_time_dim = len(grid_data.shape) == 3
-        
-        if has_time_dim:
-            time_steps, rows, cols = grid_data.shape
-            
-            # Process each time step
-            results = []
-            for t in range(time_steps):
-                coarse_t = self._coarse_grain_outside_region(
-                    grid_data[t], coarse_factor, min_row, max_row, min_col, max_col, region_mask
-                )
-                results.append(coarse_t)
-            return np.stack(results, axis=0)
-        
-        # No time dimension
-        rows, cols = grid_data.shape
-        
-        # Create region mask if not provided
-        if region_mask is None:
-            region_mask = np.zeros((rows, cols), dtype=bool)
-            
-            # Use the provided boundaries to define the region to preserve
-            if min_row is not None and max_row is not None and min_col is not None and max_col is not None:
-                region_mask[min_row:max_row+1, min_col:max_col+1] = True
-            else:
-                raise ValueError("Either region_mask or all of min_row, max_row, min_col, max_col must be provided")
-        
-        # Calculate dimensions for coarse-grained grid
-        region_height = max_row - min_row + 1 if min_row is not None else 0
-        region_width = max_col - min_col + 1 if min_col is not None else 0
-        
-        # Calculate the number of rows/cols that will be in the coarse-grained areas
-        coarse_rows_before = min_row // coarse_factor if min_row is not None else 0
-        coarse_rows_after = (rows - (max_row + 1)) // coarse_factor if max_row is not None else 0
-        coarse_cols_before = min_col // coarse_factor if min_col is not None else 0
-        coarse_cols_after = (cols - (max_col + 1)) // coarse_factor if max_col is not None else 0
-        
-        # Calculate new dimensions
-        new_rows = coarse_rows_before + region_height + coarse_rows_after
-        new_cols = coarse_cols_before + region_width + coarse_cols_after
-        
-        # Create the new coarse-grained grid
-        result = np.zeros((new_rows, new_cols), dtype=grid_data.dtype)
-        
-        # Fill in the preserved region (direct copy)
-        if min_row is not None and max_row is not None and min_col is not None and max_col is not None:
-            result[coarse_rows_before:coarse_rows_before+region_height, 
-                coarse_cols_before:coarse_cols_before+region_width] = grid_data[min_row:max_row+1, min_col:max_col+1]
-        
-        # Handle the area before the preserved region (rows)
-        for i in range(coarse_rows_before):
-            row_start = i * coarse_factor
-            row_end = min((i + 1) * coarse_factor, min_row)
-            
-            # For each column in the result grid
-            for j in range(new_cols):
-                if j < coarse_cols_before:
-                    # Coarse-grain the area before preserved region (columns)
-                    col_start = j * coarse_factor
-                    col_end = min((j + 1) * coarse_factor, min_col)
-                    result[i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
-                elif j < coarse_cols_before + region_width:
-                    # Mix of coarse-grained rows and preserved columns
-                    col_idx = min_col + (j - coarse_cols_before)
-                    result[i, j] = np.mean(grid_data[row_start:row_end, col_idx])
-                else:
-                    # Coarse-grain the area after preserved region (columns)
-                    col_start = max_col + 1 + (j - coarse_cols_before - region_width) * coarse_factor
-                    col_end = min(col_start + coarse_factor, cols)
-                    result[i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
-        
-        # Handle the area after the preserved region (rows)
-        for i in range(coarse_rows_after):
-            row_start = max_row + 1 + i * coarse_factor
-            row_end = min(row_start + coarse_factor, rows)
-            
-            # For each column in the result grid
-            for j in range(new_cols):
-                if j < coarse_cols_before:
-                    # Mix of coarse-grained rows and coarse-grained columns (before)
-                    col_start = j * coarse_factor
-                    col_end = min((j + 1) * coarse_factor, min_col)
-                    result[coarse_rows_before + region_height + i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
-                elif j < coarse_cols_before + region_width:
-                    # Mix of coarse-grained rows and preserved columns
-                    col_idx = min_col + (j - coarse_cols_before)
-                    result[coarse_rows_before + region_height + i, j] = np.mean(grid_data[row_start:row_end, col_idx])
-                else:
-                    # Coarse-grain both rows and columns (after)
-                    col_start = max_col + 1 + (j - coarse_cols_before - region_width) * coarse_factor
-                    col_end = min(col_start + coarse_factor, cols)
-                    result[coarse_rows_before + region_height + i, j] = np.mean(grid_data[row_start:row_end, col_start:col_end])
-        
-        # Handle the preserved region rows with coarse-grained columns before
-        for i in range(region_height):
-            row_idx = min_row + i
-            
-            # Coarse-grain columns before the preserved region
-            for j in range(coarse_cols_before):
-                col_start = j * coarse_factor
-                col_end = min((j + 1) * coarse_factor, min_col)
-                result[coarse_rows_before + i, j] = np.mean(grid_data[row_idx, col_start:col_end])
-            
-            # Coarse-grain columns after the preserved region
-            for j in range(coarse_cols_after):
-                col_start = max_col + 1 + j * coarse_factor
-                col_end = min(col_start + coarse_factor, cols)
-                result[coarse_rows_before + i, coarse_cols_before + region_width + j] = np.mean(grid_data[row_idx, col_start:col_end])
-        
-        return result
     
-    def _coarse_grain(self, data):
-        """
-        Coarse grain the spatial dimensions by averaging over sub-grids
-        
-        Args:
-            data (np.ndarray): Input data of shape (time, lat, lon)
-        Returns:
-            np.ndarray: Coarse-grained data
-        """
-        time_steps, lat, lon = data.shape
-        
-        # Calculate new dimensions
-        new_lat = lat // self.coarse_grain_factor
-        new_lon = lon // self.coarse_grain_factor
-
-        self.lat = new_lat 
-        self.lon = new_lon
-        
-        # Reshape to create sub-grids
-        reshaped = data.reshape(
-            time_steps, 
-            new_lat, self.coarse_grain_factor,
-            new_lon, self.coarse_grain_factor
-        )
-        
-        # Average over sub-grids
-        coarse_grained = reshaped.mean(axis=(2, 4))
-        
-        print(f"Original shape: {data.shape}")
-        print(f"Coarse-grained shape: {coarse_grained.shape}")
-        
-        return coarse_grained
     
     def _read_data(self, filepath):
         """Read and preprocess grid data"""
@@ -424,129 +262,42 @@ class SSTGridDataLoader():
         grid_data_orig = scipy.io.loadmat(filepath)["nino34_data"][0][0]["subdata3d"]
         region_mask = scipy.io.loadmat(filepath)["nino34_data"][0][0]["region_mask"]
         region_data = scipy.io.loadmat(filepath)["nino34_data"][0][0]["region_data"]
+        indsst = scipy.io.loadmat(filepath)["nino34_data"][0][0]["indsst"].flatten()
         min_row, max_row, min_col, max_col = self.find_region_indices(region_mask)
-        region_data = region_data[:, min_row:max_row, min_col:max_col]
-        print(f"region_data.shape = {region_data.shape}")
-        indsst = scipy.io.loadmat(filepath)["nino34_data"][0][0]["indsst"].astype(np.int32).flatten()
-        print(f"Original indsst shape: {indsst.shape}")
-        time_steps, lat, lon = grid_data_orig.shape
+        region_data = region_data[:, min_row:max_row+1, min_col:max_col+1] # 26 x 6
         
-        # Apply coarse graining
-        if self.coarse_grain_factor > 1:
-            grid_data = self._coarse_grain_outside_region(grid_data_orig, 
-                                                        self.coarse_grain_factor, 
-                                                        min_row, max_row,
-                                                        min_col, max_col, 
-                                                        region_mask)
-            
-            # Create new region mask for coarse-grained grid
-            # Calculate new positions after coarse-graining
-            coarse_rows_before = min_row // self.coarse_grain_factor
-            coarse_cols_before = min_col // self.coarse_grain_factor
-            region_height = max_row - min_row + 1
-            region_width = max_col - min_col + 1
-            
-            # Get new dimensions
-            _, new_lat, new_lon = grid_data.shape
-            new_region_mask = np.zeros((new_lat, new_lon), dtype=bool)
-            new_min_row = coarse_rows_before
-            new_max_row = coarse_rows_before + region_height - 1
-            new_min_col = coarse_cols_before
-            new_max_col = coarse_cols_before + region_width - 1
-            new_region_mask[new_min_row:new_max_row+1, new_min_col:new_max_col+1] = True
-            
-            # Update indsst for the new grid structure
-            # Approach: Since we preserved the region exactly, indices in the region
-            # maintain their relative positions, just shifted to the new location
-            
-            # Each index in indsst corresponds to a position in the flattened original grid
-            # We need to convert it to (row, col) in the original grid, check if it's in
-            # the region, then convert it to the corresponding index in the new grid
-            
-            # First, map each indsst value to its new position
-            new_indsst = []
-            for idx in indsst:
-                # Convert flat index to 2D coordinates in original grid
-                orig_row = idx // lon
-                orig_col = idx % lon
-                
-                # Check if this point is in the region of interest
-                if region_mask[orig_row, orig_col]:
-                    # Get this point's position relative to region's top-left corner
-                    rel_row = orig_row - min_row
-                    rel_col = orig_col - min_col
-                    
-                    # Calculate new position in coarse-grained grid
-                    new_row = new_min_row + rel_row
-                    new_col = new_min_col + rel_col
-                    
-                    # Convert to flat index in new grid
-                    new_idx = new_row * new_lon + new_col
-                    new_indsst.append(new_idx)
-            
-            # Just to be safe, directly add any points that are in the region mask 
-            # but might have been missed in the mapping above
-            if len(new_indsst) == 0:  # Only do this if we haven't found any indices
-                for i in range(min_row, max_row + 1):
-                    for j in range(min_col, max_col + 1):
-                        if region_mask[i, j]:
-                            # Get position relative to region start
-                            rel_row = i - min_row
-                            rel_col = j - min_col
-                            
-                            # Calculate new position
-                            new_row = new_min_row + rel_row
-                            new_col = new_min_col + rel_col
-                            
-                            # Add to new indices
-                            new_idx = new_row * new_lon + new_col
-                            new_indsst.append(new_idx)
-            
-            new_indsst = np.array(new_indsst, dtype=np.int32)
-            
-            # If we still have zero-length indsst, it's safer to use all indices in the region
-            if len(new_indsst) == 0:
-                print("WARNING: Failed to map indsst indices. Using all points in region as fallback.")
-                new_indsst = np.where(new_region_mask.flatten())[0]
-            
-            # Debug output
-            print(f"Original region dimensions: {min_row}-{max_row}, {min_col}-{max_col}")
-            print(f"New region position: {new_min_row}-{new_max_row}, {new_min_col}-{new_max_col}")
-            print(f"Original grid: {lat}x{lon}, New grid: {new_lat}x{new_lon}")
-            print(f"Coarse rows/cols before: {coarse_rows_before}, {coarse_cols_before}")
-            print(f"Original indsst length: {len(indsst)}, New indsst length: {len(new_indsst)}")
-            
-            # Update instance variables
-            self._region_mask = new_region_mask
-            self._indsst = new_indsst
-        else:
-            grid_data = grid_data_orig
-            self._region_mask = region_mask
-            self._indsst = indsst
-        
-        print(f"grid_data.shape = {grid_data.shape}, coarse_grain_factor = {self.coarse_grain_factor}")
-        
-        if self.use_region_data:
-            time_steps, self.lat_dim, self.lon_dim = region_data.shape
-        else:
-            time_steps, self.lat_dim, self.lon_dim = grid_data.shape
+        print(f"original region_data.shape = {grid_data_orig.shape}")
 
-        # show animation from the result of coarse-graining
-        # if not os.path.exists(f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4"):
-        #     create_comparison_animation_data(original_data=grid_data_orig, 
-        #                                     coarse_data=grid_data, 
-        #                                     output_path=f"grid_comparison_coarse_grain={self.coarse_grain_factor}.mp4")
+        print(f"region_data.shape = {region_data.shape}")
+        indsst = indsst.astype(np.int32).flatten()
+        print(f"Original indsst shape: {indsst.shape}")
+        time_steps, _, _ = grid_data_orig.shape
+
+        region_data_ = grid_data_orig.reshape(time_steps, -1)[:, indsst].reshape(time_steps, region_data.shape[1], -1)
+        print(f"region_data_.shape = {region_data_.shape}") 
+        assert np.allclose(region_data, region_data_) # sanity check for data
         
+        time_steps, self.lat_dim, self.lon_dim = grid_data_orig.shape
+        _, self.lat_dim_region, self.lon_dim_region = region_data.shape
+
+        if self.use_region_data:
+            self.lat_dim = self.lat_dim_region
+            self.lon_dim = self.lon_dim_region
+
         # Reshape to (time, nodes) where nodes = lat * lon
         self._region_data = region_data
-        self._grid_data = grid_data
+        self._grid_data = grid_data_orig
+        self._region_mask = region_mask
+        self._indsst = indsst
         if self.use_region_data:
             self._dataset = region_data.reshape(time_steps, -1)
         else:
-            self._dataset = grid_data.reshape(time_steps, -1)
+            self._dataset = grid_data_orig.reshape(time_steps, -1)
         print(f"use region dataset = {self.use_region_data}")
         print(f"lat = {self.lat_dim}")
         print(f"lon = {self.lon_dim}")
+        print(f"lat_region = {self.lat_dim_region}")
+        print(f"lon_region = {self.lon_dim_region}")
         print(f"self._dataset = {self._dataset.shape}")
         print(f"Region mask shape: {self._region_mask.shape}")
         print(f"Number of indsst indices: {len(self._indsst)}")

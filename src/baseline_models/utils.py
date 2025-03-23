@@ -130,7 +130,7 @@ def plot_training_history(save_path, losses_train, losses_test,
 def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train=None, losses_test=None, rmses_train=None, rmses_test=None,
                 rmses_train_reconstructed=None, rmses_test_reconstructed=None, edge_index=None,
-                lat=None, lon=None):
+                lat=None, lon=None, indsst=None):
     """Save model results and plots"""
     if args.use_convnet:
         args.model_name = f"{args.model_name}-convnet"
@@ -139,13 +139,15 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     if args.use_periodic_activation:
         args.model_name = f"{args.model_name}-periodic-activation"
     if args.input_file == "../data/nino34_mat.mat":
-        save_name = f"grid_{args.model_name}_window={args.window}_coarse_grain={args.coarse_grain_factor}"
+        save_name = f"grid_{args.model_name}_window={args.window}"
     else:
         save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}" 
     if args.use_loss_weights:
         save_name += "_weighted_loss"
     if args.add_sin_cos:
         save_name += "_sin_cos"
+    if args.use_region_data:
+        save_name += "_region_only"
     save_path = f"results/baseline_models/{save_name}"
     os.makedirs(save_path, exist_ok=True)
 
@@ -241,9 +243,19 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         test_target_np_ts = inverse_normalize(test_target_np_ts, max, min)
 
 
+    print(f"output_np_ts.shape = {output_np_ts.shape}")
+    print(f"test_target_np_ts.shape = {test_target_np_ts.shape}")
+
     # Save predictions
     np.save(os.path.join(save_path, "test_pred.npy"), output_np_ts)
     np.save(os.path.join(save_path, "test_true.npy"), test_target_np_ts)
+
+
+    # for ENSO region 
+    if not args.use_region_data: # only compute index region metrics          
+        indsst_tensor = indsst
+        output_np_ts = output_np_ts[:,indsst_tensor]
+        test_target_np_ts = test_target_np_ts[:,indsst_tensor]
 
     # Save ENSO reconstructions
     if args.model_name in ["nsde", "gp"]:
@@ -304,6 +316,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
             model.eval()
         true_npy, pred_npy = [], []
         true_nino, pred_nino = [],[] 
+        true_npy_orig, pred_npy_orig = [], [] 
         for encoder_input, label in final_loader:
             if args.model_name == "kalman":
                 output, output_cov = model(encoder_input.squeeze(1), args.horizon)
@@ -340,6 +353,12 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
+            pred_npy_orig.append(np.expand_dims(pred_np, 0))
+            true_npy_orig.append(np.expand_dims(label_np, 0))
+            if not args.use_region_data: # only compute index region metrics          
+                indsst_tensor = indsst
+                pred_np = pred_np[:,indsst_tensor]
+                label_np = label_np[:,indsst_tensor]
             if args.input_file == "../data/nino34_mat.mat":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             else:
@@ -354,10 +373,13 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         pred_npy = np.concatenate(pred_npy, axis=0)
         true_nino = np.concatenate(true_nino, axis=0)
         pred_nino = np.concatenate(pred_nino, axis=0)
+        pred_npy_orig = np.concatenate(pred_npy_orig, axis=0)
+        true_npy_orig = np.concatenate(true_npy_orig, axis=0)
 
     else: # only for non-neural models
         test_recon_rmses = []
         true_npy, pred_npy = [], []
+        true_npy_orig, pred_npy_orig = [], [] 
         true_nino, pred_nino = [],[] 
         if args.model_name == "gp":
             output_np = output_np.transpose(1,0,2,3)
@@ -376,7 +398,17 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
             if args.use_normalization:
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
-            nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, top_n_pcs=args.n_pcs, flag="test")
+            pred_npy_orig.append(np.expand_dims(pred_np, 0))
+            true_npy_orig.append(np.expand_dims(label_np, 0))
+            if not args.use_region_data: # only compute index region metrics    
+                indsst_tensor = indsst
+                pred_np = pred_np[:,indsst_tensor]
+                label_np = label_np[:,indsst_tensor]
+            if args.input_file == "../data/nino34_mat.mat":
+                nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+            else:
+                nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
+                                                        top_n_pcs=args.n_pcs, flag="test")
             test_recon_rmses.append(np.sqrt(np.mean((nino34_pred-nino34)**2)))
             pred_npy.append(np.expand_dims(pred_np, 0))
             true_npy.append(np.expand_dims(label_np, 0))
@@ -386,6 +418,8 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         true_npy = np.concatenate(true_npy, axis=0)
         pred_nino = np.concatenate(pred_nino, axis=0)
         true_nino = np.concatenate(true_nino, axis=0)
+        pred_npy_orig = np.concatenate(pred_npy_orig, axis=0)
+        true_npy_orig = np.concatenate(true_npy_orig, axis=0)
         print(f"average test_recon_rmses: {np.mean(np.array(test_recon_rmses))}")
 
         if args.model_name == "gp":
@@ -395,11 +429,15 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     print(f"true_npy.shape: {true_npy.shape}")
     print(f"pred_nino.shape: {pred_nino.shape}")
     print(f"true_nino.shape: {true_nino.shape}")
+    print(f"pred_npy_orig.shape: {pred_npy_orig.shape}")
+    print(f"true_npy_orig.shape: {true_npy_orig.shape}")
 
     np.save(os.path.join(save_path, f"test_pred_batched.npy"), pred_npy)
     np.save(os.path.join(save_path, f"test_label_batched.npy"), true_npy)
     np.save(os.path.join(save_path, f"test_enso_reconstructed_batched.npy"), pred_nino)
     np.save(os.path.join(save_path, f"test_enso_batched.npy"), true_nino)
+    np.save(os.path.join(save_path, f"test_pred_batched_orig.npy"), pred_npy_orig)
+    np.save(os.path.join(save_path, f"test_label_batched_orig.npy"), true_npy_orig)
 
     if args.input_file == "../data/nino34_mat.mat":
         true_npy_ts = batch_data_to_timeseries(true_npy.transpose(1,2,0)).reshape(-1, lat, lon)
