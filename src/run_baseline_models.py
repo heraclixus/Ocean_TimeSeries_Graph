@@ -62,11 +62,11 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_type", type=str, default="sst",
                        choices=["sst", "ocean_graph"],
                        help="Type of dataset to use (sst or ocean_graph)")
-    parser.add_argument("--raw_file", type=str, default="../../data/raw_file.mat",
+    parser.add_argument("--raw_file", type=str, default="../data/raw_file.mat",
                        help="Path to raw data file for ocean graph dataset")
-    parser.add_argument("--indsst_file", type=str, default="../../data/indsst.mat",
+    parser.add_argument("--indsst_file", type=str, default="../data/indsst.mat",
                        help="Path to mask file for ocean graph dataset")
-    parser.add_argument("--tdata_file", type=str, default="../../data/tdata.mat",
+    parser.add_argument("--tdata_file", type=str, default="../data/tdata.mat",
                        help="Path to region data file for ocean graph dataset")
 
     args = parser.parse_args()
