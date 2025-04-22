@@ -165,15 +165,7 @@ if __name__ == "__main__":
         else:
             print("Warning: Using non-graph model with graph dataset. Consider using graphode or gsde models.")
             edge_index = None
-        # For comparison, store node mapping for visualization later
-        node_mapping = dataloader.get_node_mapping()
         
-        # Update save_results to include node_mapping if using ocean_graph dataset
-        def custom_save_results_with_mapping(*args, **kwargs):
-            kwargs['node_mapping'] = node_mapping
-            return save_results(*args, **kwargs)
-        
-        save_results = custom_save_results_with_mapping
     else:
         # For other datasets, use the existing edge_index
         edge_index = dataloader._edges
