@@ -164,7 +164,7 @@ if __name__ == "__main__":
             edge_index = dataloader._edges
         else:
             print("Warning: Using non-graph model with graph dataset. Consider using graphode or gsde models.")
-            
+            edge_index = None
         # For comparison, store node mapping for visualization later
         node_mapping = dataloader.get_node_mapping()
         
@@ -335,6 +335,8 @@ if __name__ == "__main__":
 
         for encoder_input, label in train_loader:
             optimizer.zero_grad()
+            print(f"encoder_input.shape = {encoder_input.shape}")
+            print(f"label.shape = {label.shape}")
             # Forward pass
             if args.model_name == "kalman":
                 output, output_cov = model(encoder_input.squeeze(1), args.horizon)
@@ -382,12 +384,15 @@ if __name__ == "__main__":
                 pred_np = inverse_normalize(pred_np, max, min)
             
             # Apply region mask filtering if needed
-            if not args.use_region_data and args.dataset_type != "ocean_graph": 
+            # print(f"pred_np.shape = {pred_np.shape}")
+            # print(f"label_np.shape = {label_np.shape}")
+            # print(f"dataloader._indsst.shape = {dataloader._indsst.shape}")
+            if not args.use_region_data: 
                 # For non-ocean graph datasets, filter by region mask
                 indsst_tensor = dataloader._indsst
                 pred_np = pred_np[:,indsst_tensor]
                 label_np = label_np[:,indsst_tensor]
-                
+            
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             train_rmses.append(rmse)
 
@@ -467,7 +472,7 @@ if __name__ == "__main__":
                     pred_np = inverse_normalize(pred_np, max, min)
                 
                 # Apply region mask filtering if needed
-                if not args.use_region_data and args.dataset_type != "ocean_graph": 
+                if not args.use_region_data: 
                     # For non-ocean graph datasets, filter by region mask
                     indsst_tensor = dataloader._indsst
                     pred_np = pred_np[:,indsst_tensor]

@@ -98,7 +98,8 @@ class OceanGraphDataset:
         print(f"Raw data reshaped from {raw_data.shape} to {self._raw_data.shape}")
         
         # Load mask for region of interest
-        self._indsst = scipy.io.loadmat(self.indsst_file)["indsst"].astype(bool)
+        self._indsst_original = scipy.io.loadmat(self.indsst_file)["indsst"].astype(bool)
+        print(f"Original indsst mask shape: {self._indsst_original.shape}")
         
         # Load data in region of interest
         self._tdata = scipy.io.loadmat(self.tdata_file)["tdata"]
@@ -111,6 +112,12 @@ class OceanGraphDataset:
         # Number of nodes in the graph (sea points)
         self._n_nodes = len(self.G.nodes())
         print(f"Created graph with {self._n_nodes} nodes (sea points) and {len(self.G.edges())} edges")
+        
+        # Create a mapping from original grid coordinates to node indices
+        self._create_node_mapping()
+        
+        # Create indsst mapping for nodes of interest
+        self._create_indsst_node_mapping()
         
         # Extract time series for sea points more efficiently
         sea_coords_np = self.sea_coords.numpy()
@@ -142,6 +149,51 @@ class OceanGraphDataset:
             self._train_dataset = normalize(self._train_dataset, self._max, self._min)
             self._test_dataset = normalize(self._test_dataset, self._max, self._min)
             
+    def _create_node_mapping(self):
+        """
+        Create a mapping from original grid coordinates to node indices
+        """
+        self.coord_to_node = {}
+        for i, coord in enumerate(self.sea_coords):
+            x, y = coord.tolist()
+            self.coord_to_node[(x, y)] = i
+        
+        # Also create reverse mapping (node index to coordinates)
+        self.node_to_coord = {}
+        for i, coord in enumerate(self.sea_coords):
+            x, y = coord.tolist()
+            self.node_to_coord[i] = (x, y)
+    
+    def _create_indsst_node_mapping(self):
+        """
+        Create a mapping from the original indsst mask to node indices in the graph
+        
+        This converts the binary mask in the original grid space to indices in the graph space
+        """
+        # Find coordinates in the original indsst mask that are True
+        indsst_coords = np.argwhere(self._indsst_original)
+        
+        # For each of these coordinates, find the corresponding node index in our graph
+        indsst_node_indices = []
+        
+        for coord in indsst_coords:
+            x, y = coord
+            if (x, y) in self.coord_to_node:  # Check if this point is in our graph (is ocean)
+                node_idx = self.coord_to_node[(x, y)]
+                indsst_node_indices.append(node_idx)
+        
+        # Convert to numpy array for easier indexing
+        self._indsst = np.array(indsst_node_indices, dtype=np.int64)
+        print(f"Created indsst node mapping with {len(self._indsst)} nodes of interest")
+        
+        # Keep track of indices in the original grid that are both in indsst and are sea points
+        self._indsst_sea_coords = [self.node_to_coord[idx] for idx in indsst_node_indices]
+        print(f"Number of sea coordinates in region of interest: {len(self._indsst_sea_coords)}")
+        
+        # Create a binary mask for nodes that are in indsst
+        self._indsst_mask = np.zeros(self._n_nodes, dtype=bool)
+        self._indsst_mask[self._indsst] = True
+    
     def _convert_graph_to_pyg(self):
         """Convert NetworkX graph to PyG format"""
         # Convert NetworkX graph to PyG format
@@ -206,12 +258,76 @@ class OceanGraphDataset:
         Returns:
             dict: Mapping of node indices to grid coordinates
         """
-        node_mapping = {}
-        for i, coord in enumerate(self.sea_coords):
-            x, y = coord.tolist()
-            node_mapping[i] = (x, y)
+        return self.node_to_coord
+    
+    def get_coord_to_node_mapping(self):
+        """
+        Return mapping of grid coordinates to node indices
         
-        return node_mapping
+        Returns:
+            dict: Mapping of grid coordinates to node indices
+        """
+        return self.coord_to_node
+    
+    def get_indsst_nodes(self):
+        """
+        Return array of node indices that correspond to the region of interest
+        
+        Returns:
+            numpy.ndarray: Array of node indices in the region of interest
+        """
+        return self._indsst
+    
+    def get_indsst_mask(self):
+        """
+        Return boolean mask indicating which nodes are in the region of interest
+        
+        Returns:
+            numpy.ndarray: Boolean mask of shape (n_nodes,)
+        """
+        return self._indsst_mask
+    
+    def visualize_graph_with_region(self, save_path=None):
+        """
+        Visualize the graph with region of interest highlighted
+        
+        Args:
+            save_path (str, optional): Path to save the visualization. If None, display only.
+        """
+        import matplotlib.pyplot as plt
+        
+        # Create a figure
+        plt.figure(figsize=(12, 10))
+        
+        # Get all node coordinates
+        node_coords = np.array([self.node_to_coord[i] for i in range(self._n_nodes)])
+        
+        # Get region of interest coordinates
+        roi_coords = np.array(self._indsst_sea_coords)
+        
+        # Plot all nodes
+        plt.scatter(node_coords[:, 1], node_coords[:, 0], s=5, c='blue', alpha=0.5, label='Sea Points')
+        
+        # Highlight nodes in region of interest
+        plt.scatter(roi_coords[:, 1], roi_coords[:, 0], s=10, c='red', label='Region of Interest')
+        
+        # Draw edges - this can be slow for large graphs
+        edge_list = list(self.G.edges())
+        if len(edge_list) < 10000:  # Only draw edges if there aren't too many
+            for edge in edge_list:
+                x1, y1 = edge[0]
+                x2, y2 = edge[1]
+                plt.plot([y1, y2], [x1, x2], 'k-', alpha=0.1)
+        
+        plt.title(f'Ocean Graph with Region of Interest\n{self._n_nodes} nodes, {len(self._indsst)} in ROI')
+        plt.legend()
+        plt.gca().invert_yaxis()  # Invert y-axis to match matrix coordinates
+        
+        if save_path:
+            plt.savefig(save_path)
+            print(f"Visualization saved to {save_path}")
+        else:
+            plt.show()
 
 # Test the dataset
 if __name__ == "__main__":
@@ -226,6 +342,14 @@ if __name__ == "__main__":
     print(f"Dataset shape before splitting: {dataset._dataset.shape}")
     print(f"Training dataset shape: {dataset._train_dataset.shape}")
     print(f"Testing dataset shape: {dataset._test_dataset.shape}")
+    
+    # Print information about the region of interest mapping
+    print("\nRegion of Interest Mapping:")
+    print(f"Original indsst shape: {dataset._indsst_original.shape}")
+    print(f"Number of points in original indsst: {np.sum(dataset._indsst_original)}")
+    print(f"Number of nodes in graph: {dataset._n_nodes}")
+    print(f"Number of nodes in indsst mapping: {len(dataset._indsst)}")
+    print(f"First 10 indsst node indices: {dataset._indsst[:10]}")
     
     # Get graph datasets
     train_dataset, test_dataset = dataset.get_dataset(window=12, horizon=24)
@@ -245,5 +369,24 @@ if __name__ == "__main__":
     print(f"Batch x shape: {batch.x.shape}")
     print(f"Batch y shape: {batch.y.shape}")
     print(f"Batch edge_index shape: {batch.edge_index.shape}")
+    
+    # Demonstrate how to extract data for region of interest
+    print("\nExtract data for region of interest:")
+    roi_indices = dataset.get_indsst_nodes()
+    x_batch = batch.x.numpy()
+    y_batch = batch.y.numpy()
+    
+    # Extract features and targets for the region of interest
+    x_roi = x_batch[roi_indices, :]
+    y_roi = y_batch[roi_indices, :]
+    print(f"ROI x shape: {x_roi.shape}")
+    print(f"ROI y shape: {y_roi.shape}")
+    
+    # Visualize the graph with region of interest
+    try:
+        dataset.visualize_graph_with_region(save_path="ocean_graph_with_roi.png")
+        print("Visualization saved to ocean_graph_with_roi.png")
+    except Exception as e:
+        print(f"Visualization skipped: {e}")
     
     print("\nSetup complete!")
