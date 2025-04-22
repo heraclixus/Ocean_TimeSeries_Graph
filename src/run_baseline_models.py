@@ -4,6 +4,10 @@ from pygtemporal_models.pyg_temp_dataset import (
     batch_data_to_timeseries,
     stochastic_batch_data_to_timeseries
 )
+from pygtemporal_models.graph_dataset import (
+    OceanGraphDataset,
+    inverse_normalize as graph_inverse_normalize
+)
 import torch
 import torch.optim as optim
 import numpy as np
@@ -55,6 +59,15 @@ if __name__ == "__main__":
                        help="Use convnet")
     parser.add_argument("--use_region_data", action="store_true",
                        help="Use region data")
+    parser.add_argument("--dataset_type", type=str, default="sst",
+                       choices=["sst", "ocean_graph"],
+                       help="Type of dataset to use (sst or ocean_graph)")
+    parser.add_argument("--raw_file", type=str, default="../../data/raw_file.mat",
+                       help="Path to raw data file for ocean graph dataset")
+    parser.add_argument("--indsst_file", type=str, default="../../data/indsst.mat",
+                       help="Path to mask file for ocean graph dataset")
+    parser.add_argument("--tdata_file", type=str, default="../../data/tdata.mat",
+                       help="Path to region data file for ocean graph dataset")
 
     args = parser.parse_args()
 
@@ -79,24 +92,37 @@ if __name__ == "__main__":
     # Data loading
     lat, lon = None, None
     grid_size = args.n_pcs
-    if args.input_file == "../data/nino34_mat.mat":
-        sst_dataloader = SSTGridDataLoader(filepath=args.input_file, 
-                                         use_normalization=args.use_normalization,
-                                         use_region_data=args.use_region_data,
-                                         add_sin_cos=args.add_sin_cos,
-                                         train_length=args.train_length)
-        lat, lon = sst_dataloader.lat_dim, sst_dataloader.lon_dim
+    if args.dataset_type == "ocean_graph":
+        print("Using OceanGraphDataset...")
+        dataloader = OceanGraphDataset(
+            raw_file=args.raw_file,
+            indsst_file=args.indsst_file,
+            tdata_file=args.tdata_file,
+            use_normalization=args.use_normalization,
+            train_length=args.train_length
+        )
+        # Set grid_size to number of nodes in the graph
+        grid_size = dataloader._n_nodes
+        print(f"Graph dataset with {grid_size} nodes")
+    elif args.input_file == "../data/nino34_mat.mat":
+        dataloader = SSTGridDataLoader(filepath=args.input_file, 
+                                     use_normalization=args.use_normalization,
+                                     use_region_data=args.use_region_data,
+                                     add_sin_cos=args.add_sin_cos,
+                                     train_length=args.train_length)
+        lat, lon = dataloader.lat_dim, dataloader.lon_dim
         grid_size = lat * lon
-        mask = sst_dataloader._region_mask
+        mask = dataloader._region_mask
     else:
-        sst_dataloader = SSTDatasetLoader(filepath=args.input_file, 
-                                         use_normalization=args.use_normalization,
-                                         n_pcs=args.n_pcs,
-                                         add_sin_cos=args.add_sin_cos,
-                                         train_length=args.train_length)
+        dataloader = SSTDatasetLoader(filepath=args.input_file, 
+                                     use_normalization=args.use_normalization,
+                                     n_pcs=args.n_pcs,
+                                     add_sin_cos=args.add_sin_cos,
+                                     train_length=args.train_length)
+        lat, lon = dataloader.lat_dim, dataloader.lon_dim
 
-    train_dataset, test_dataset = sst_dataloader.get_dataset(window=args.window, 
-                                                           horizon=args.horizon)
+    train_dataset, test_dataset = dataloader.get_dataset(window=args.window, 
+                                                       horizon=args.horizon)
     
     # Prepare data
     train_input = np.array(train_dataset.features)
@@ -125,6 +151,33 @@ if __name__ == "__main__":
 
     print(f"input_dim = {input_dim}")
     
+    # Handle special case for Ocean Graph Dataset
+    if args.dataset_type == "ocean_graph":
+        # For graph-based models, ensure we're properly using the graph structure
+        if args.model_name in ["graphode", "gsde"]:
+            print("Using graph-based model with OceanGraphDataset...")
+            # Make sure we're using the correct number of nodes
+            grid_size = dataloader._n_nodes
+            print(f"Graph has {grid_size} nodes and {dataloader._edges.shape[1]} edges")
+            
+            # Store edge_index for use in model calls
+            edge_index = dataloader._edges
+        else:
+            print("Warning: Using non-graph model with graph dataset. Consider using graphode or gsde models.")
+            
+        # For comparison, store node mapping for visualization later
+        node_mapping = dataloader.get_node_mapping()
+        
+        # Update save_results to include node_mapping if using ocean_graph dataset
+        def custom_save_results_with_mapping(*args, **kwargs):
+            kwargs['node_mapping'] = node_mapping
+            return save_results(*args, **kwargs)
+        
+        save_results = custom_save_results_with_mapping
+    else:
+        # For other datasets, use the existing edge_index
+        edge_index = dataloader._edges
+
     # Model initialization
     if args.model_name == "node":
         if args.use_convnet:
@@ -195,6 +248,7 @@ if __name__ == "__main__":
                 forecast_horizon=args.horizon,
                 use_periodic_activation=args.use_periodic_activation
             ).to(device)
+        print(f"Initialized {args.model_name} model with {grid_size} nodes")
     elif args.model_name == "gsde":
         model = GraphNeuralSDE(
             node_features=1,
@@ -202,6 +256,7 @@ if __name__ == "__main__":
             forecast_horizon=args.horizon,
             use_periodic_activation=args.use_periodic_activation
         ).to(device)
+        print(f"Initialized {args.model_name} model with {grid_size} nodes")
     elif args.model_name == "kalman":
         model = KalmanForecaster(
             input_dim=input_dim,
@@ -241,7 +296,15 @@ if __name__ == "__main__":
         else:
             predictions = model.predict(test_x_tensor.squeeze(1), args.horizon)
 
-        save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, sst_dataloader._max, sst_dataloader._min)
+        if args.dataset_type == "ocean_graph":
+            # For ocean graph dataset, we don't have lat/lon attributes
+            save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, 
+                        dataloader._max, dataloader._min, indsst=dataloader._indsst)
+        else:
+            # For SST datasets
+            save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_new, 
+                        dataloader._max, dataloader._min, lat=dataloader.lat_dim_region, 
+                        lon=dataloader.lon_dim_region, indsst=dataloader._indsst)
         exit(0)
 
     # Training neural models
@@ -256,11 +319,11 @@ if __name__ == "__main__":
 
 
     if args.add_sin_cos:
-        max = sst_dataloader._max[:-2]
-        min = sst_dataloader._min[:-2]
+        max = dataloader._max[:-2]
+        min = dataloader._min[:-2]
     else:
-        max = sst_dataloader._max
-        min = sst_dataloader._min
+        max = dataloader._max
+        min = dataloader._min
 
     print(f"Training {args.model_name} model...")
     for epoch in tqdm(range(args.epochs)):
@@ -279,14 +342,14 @@ if __name__ == "__main__":
                     output = output[:, :-2, :]
                     label = label[:, :, :-2, :]
                 if args.use_loss_weights:
-                    loss = model.compute_loss(output, label, output_cov, sst_dataloader._std, args.add_sin_cos)
+                    loss = model.compute_loss(output, label, output_cov, dataloader._std, args.add_sin_cos)
                 else:
                     loss = model.compute_loss(output, label, output_cov, add_sin_cos=args.add_sin_cos)
             else:
                 if args.model_name == "nsde":
                     output = model(encoder_input.squeeze(1), n_samples=args.n_samples)
                 elif args.model_name == "graphode":
-                    output = model(encoder_input.squeeze(1), edge_index=sst_dataloader._edges)
+                    output = model(encoder_input.squeeze(1), edge_index=edge_index)
                 else: # node 
                     if args.use_convnet:
                         output = model(encoder_input.view(-1, 1, lat, lon, args.window))
@@ -299,7 +362,7 @@ if __name__ == "__main__":
                         output = output[:, :-2, :]
                     label = label[:, :, :-2, :].squeeze(1)
                 if args.use_loss_weights:
-                    loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
+                    loss = model.compute_loss(output, label, dataloader._std, args.add_sin_cos)
                 else:
                     loss = model.compute_loss(output, label, add_sin_cos=args.add_sin_cos)
             loss.backward()
@@ -318,20 +381,27 @@ if __name__ == "__main__":
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
             
-            if not args.use_region_data: # only compute index region metrics          
-                indsst_tensor = sst_dataloader._indsst
+            # Apply region mask filtering if needed
+            if not args.use_region_data and args.dataset_type != "ocean_graph": 
+                # For non-ocean graph datasets, filter by region mask
+                indsst_tensor = dataloader._indsst
                 pred_np = pred_np[:,indsst_tensor]
                 label_np = label_np[:,indsst_tensor]
+                
             rmse = np.sqrt(np.mean((label_np - pred_np)**2))
             train_rmses.append(rmse)
 
             # Compute reconstructed RMSE
-            if args.input_file == "../data/nino34_mat.mat":
-                # spatial average
+            if args.dataset_type == "ocean_graph":
+                # For ocean graph, just use spatial average as the metric
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
-            else:   
+            elif args.input_file == "../data/nino34_mat.mat":
+                # For Nino3.4 data, use spatial average
+                nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+            else:
+                # For PCA-based data, reconstruct ENSO
                 nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
-                                                    top_n_pcs=args.n_pcs, flag="train")
+                                                   top_n_pcs=args.n_pcs, flag="train")
             rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
             train_rmses_recon.append(rmse_recon)
 
@@ -351,7 +421,7 @@ if __name__ == "__main__":
                         output = output[:, :-2, :]
                         label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
-                        loss = model.compute_loss(output, label, output_cov, sst_dataloader._std, args.add_sin_cos)
+                        loss = model.compute_loss(output, label, output_cov, dataloader._std, args.add_sin_cos)
                     else:
                         loss = model.compute_loss(output, label, output_cov, add_sin_cos=args.add_sin_cos)
                 elif args.model_name == "nsde":
@@ -360,12 +430,12 @@ if __name__ == "__main__":
                         output = output[:, :, :-2, :]
                         label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
-                        loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
+                        loss = model.compute_loss(output, label, dataloader._std, args.add_sin_cos)
                     else:
                         loss = model.compute_loss(output, label, add_sin_cos=args.add_sin_cos)
                 else:
                     if args.model_name == "graphode":
-                        output = model(encoder_input.squeeze(1), edge_index=sst_dataloader._edges)
+                        output = model(encoder_input.squeeze(1), edge_index=edge_index)
                     if args.use_convnet:
                         encoder_input = encoder_input.view(-1, 1, lat, lon, args.window)
                         output = model(encoder_input)
@@ -379,7 +449,7 @@ if __name__ == "__main__":
                             output = output[:, :-2, :]
                         label = label[:, :, :-2, :].squeeze(1)
                     if args.use_loss_weights:
-                        loss = model.compute_loss(output, label, sst_dataloader._std, args.add_sin_cos)
+                        loss = model.compute_loss(output, label, dataloader._std, args.add_sin_cos)
                     else:
                         loss = model.compute_loss(output, label, add_sin_cos=args.add_sin_cos)
 
@@ -396,20 +466,26 @@ if __name__ == "__main__":
                     label_np = inverse_normalize(label_np, max, min)
                     pred_np = inverse_normalize(pred_np, max, min)
                 
-                if not args.use_region_data: # only compute index region metrics          
-                    indsst_tensor = sst_dataloader._indsst
+                # Apply region mask filtering if needed
+                if not args.use_region_data and args.dataset_type != "ocean_graph": 
+                    # For non-ocean graph datasets, filter by region mask
+                    indsst_tensor = dataloader._indsst
                     pred_np = pred_np[:,indsst_tensor]
                     label_np = label_np[:,indsst_tensor]
-
+                
                 rmse = np.sqrt(np.mean((label_np - pred_np)**2))
                 test_rmses.append(rmse)
 
-                if args.input_file == "../data/nino34_mat.mat":
-                    # spatial average
+                if args.dataset_type == "ocean_graph":
+                    # For ocean graph, just use spatial average as the metric
                     nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
-                else:   
+                elif args.input_file == "../data/nino34_mat.mat":
+                    # For Nino3.4 data, use spatial average
+                    nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+                else:
+                    # For PCA-based data, reconstruct ENSO
                     nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
-                                                        top_n_pcs=args.n_pcs, flag="test")
+                                                       top_n_pcs=args.n_pcs, flag="test")
                 rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
                 test_rmses_recon.append(rmse_recon)
 
@@ -446,8 +522,15 @@ if __name__ == "__main__":
                 break
 
     # Save results
-    save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
-                losses_train, losses_test, rmses_train, rmses_test,
-                rmses_train_reconstructed, rmses_test_reconstructed, edge_index=sst_dataloader._edges,
-                lat=sst_dataloader.lat_dim_region, lon=sst_dataloader.lon_dim_region, indsst=sst_dataloader._indsst)
+    if args.dataset_type == "ocean_graph":
+        save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
+                    losses_train, losses_test, rmses_train, rmses_test,
+                    rmses_train_reconstructed, rmses_test_reconstructed, edge_index=edge_index,
+                    indsst=dataloader._indsst, lat=dataloader._lat_dim, lon=dataloader._lon_dim)
+    else:
+        # For SST datasets
+        save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
+                    losses_train, losses_test, rmses_train, rmses_test,
+                    rmses_train_reconstructed, rmses_test_reconstructed, edge_index=edge_index,
+                    lat=dataloader.lat_dim_region, lon=dataloader.lon_dim_region, indsst=dataloader._indsst)
 
