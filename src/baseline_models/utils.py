@@ -363,12 +363,10 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
             true_npy_orig.append(np.expand_dims(label_np, 0))
             if not args.use_region_data: # only compute index region metrics  
                 indsst_tensor = indsst
-                print(f"indsst_tensor.shape: {indsst_tensor.shape}")        
                 pred_np = pred_np[...,indsst_tensor]
                 label_np = label_np[...,indsst_tensor]
             elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
                 indsst_tensor = indsst
-                print(f"indsst_tensor.shape: {indsst_tensor.shape}")        
                 pred_np = pred_np[...,indsst_tensor]
                 label_np = label_np[...,indsst_tensor]
             if args.input_file == "../data/nino34_mat.mat":
