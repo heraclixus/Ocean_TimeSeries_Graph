@@ -139,7 +139,11 @@ class OceanGraphDataset:
         """
         # Load graph data
         print(f"Loading graph data from {self.graph_file}...")
-        self.graph_data = torch.load(self.graph_file, weights_only=False)
+
+        if torch.__version__ >= "2.6.0":
+            self.graph_data = torch.load(self.graph_file, weights_only=False)
+        else:
+            self.graph_data = torch.load(self.graph_file)
         
         # Extract node features, edge indices, and edge attributes
         self.node_features = self.graph_data.x

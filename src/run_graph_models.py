@@ -72,8 +72,8 @@ def main():
     train_dataset, test_dataset = dataloader.get_dataset(window=args.window, 
                                                         horizon=args.horizon)
     
-    # Extract edge_index for graph models
-    edge_index = dataloader.edge_index
+    # Extract edge_index for graph models and ensure it's on the correct device
+    edge_index = dataloader.edge_index.to(device)
     
     # Number of nodes in the graph
     grid_size = dataloader.time_series.shape[0]
@@ -160,6 +160,15 @@ def main():
     rmses_train, rmses_test = [], []
     rmses_train_reconstructed, rmses_test_reconstructed = [], []
 
+    # Convert normalization parameters to device tensors if needed later
+    max_tensor = torch.tensor(dataloader._max, device=device)
+    min_tensor = torch.tensor(dataloader._min, device=device)
+    if hasattr(dataloader, '_std'):
+        std_tensor = torch.tensor(dataloader._std, device=device)
+    else:
+        std_tensor = None
+
+    # CPU versions for numpy operations
     max = dataloader._max
     min = dataloader._min
 
@@ -175,6 +184,10 @@ def main():
         # print train loader length
         print(f"Train loader length: {len(train_loader)}")
         for encoder_input, label in train_loader:
+            # Ensure inputs are on the correct device
+            encoder_input = encoder_input.to(device)
+            label = label.to(device)
+            
             optimizer.zero_grad()
             
             # Forward pass
@@ -185,7 +198,10 @@ def main():
                 
             # Compute loss
             if args.use_loss_weights:
-                loss = model.compute_loss(output, label, dataloader._std)
+                if std_tensor is not None:
+                    loss = model.compute_loss(output, label, std_tensor, add_sin_cos=args.add_sin_cos)
+                else:
+                    loss = model.compute_loss(output, label)
             else:
                 loss = model.compute_loss(output, label)
                 
@@ -227,6 +243,10 @@ def main():
 
         with torch.no_grad():
             for encoder_input, label in test_loader:
+                # Ensure inputs are on the correct device
+                encoder_input = encoder_input.to(device)
+                label = label.to(device)
+                
                 # Forward pass
                 if args.model_name == "graphode":
                     output = model(encoder_input, edge_index=edge_index)
@@ -235,7 +255,10 @@ def main():
                 
                 # Compute loss
                 if args.use_loss_weights:
-                    loss = model.compute_loss(output, label, dataloader._std)
+                    if std_tensor is not None:
+                        loss = model.compute_loss(output, label, std_tensor, add_sin_cos=args.add_sin_cos)
+                    else:
+                        loss = model.compute_loss(output, label)
                 else:
                     loss = model.compute_loss(output, label)
 
