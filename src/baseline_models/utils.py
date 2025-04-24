@@ -237,8 +237,10 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     # Process target
     if args.add_sin_cos:
         test_target_tensor = test_target_tensor[:,:, :-2, :]
-    test_target_np = test_target_tensor.cpu().numpy().squeeze(1)
+    print(f"test_target_tensor.shape = {test_target_tensor.shape}") # (182, 5447, 12)
+    test_target_np = test_target_tensor.cpu().numpy()
     test_target_np_ts = batch_data_to_timeseries(test_target_np)
+    print(f"test_target_np_ts.shape = {test_target_np_ts.shape}") # (193, 5447)
     if args.use_normalization:
         test_target_np_ts = inverse_normalize(test_target_np_ts, max, min)
 
@@ -256,6 +258,10 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         indsst_tensor = indsst
         output_np_ts = output_np_ts[:,indsst_tensor]
         test_target_np_ts = test_target_np_ts[:,indsst_tensor]
+    elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
+        indsst_tensor = indsst
+        output_np_ts = output_np_ts[...,indsst_tensor]
+        test_target_np_ts = test_target_np_ts[...,indsst_tensor]
 
     # Save ENSO reconstructions
     if args.model_name in ["nsde", "gp"]:
@@ -355,11 +361,19 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 pred_np = inverse_normalize(pred_np, max, min)
             pred_npy_orig.append(np.expand_dims(pred_np, 0))
             true_npy_orig.append(np.expand_dims(label_np, 0))
-            if not args.use_region_data: # only compute index region metrics          
+            if not args.use_region_data: # only compute index region metrics  
                 indsst_tensor = indsst
-                pred_np = pred_np[:,indsst_tensor]
-                label_np = label_np[:,indsst_tensor]
-            if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
+                print(f"indsst_tensor.shape: {indsst_tensor.shape}")        
+                pred_np = pred_np[...,indsst_tensor]
+                label_np = label_np[...,indsst_tensor]
+            elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
+                indsst_tensor = indsst
+                print(f"indsst_tensor.shape: {indsst_tensor.shape}")        
+                pred_np = pred_np[...,indsst_tensor]
+                label_np = label_np[...,indsst_tensor]
+            if args.input_file == "../data/nino34_mat.mat":
+                nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+            elif args.input_file == "../data/wrapped_grid_graph.pt":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             else:
                 nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
@@ -404,7 +418,13 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 indsst_tensor = indsst
                 pred_np = pred_np[:,indsst_tensor]
                 label_np = label_np[:,indsst_tensor]
-            if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
+            elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
+                indsst_tensor = indsst
+                pred_np = pred_np[...,indsst_tensor]
+                label_np = label_np[...,indsst_tensor]
+            if args.input_file == "../data/nino34_mat.mat":
+                nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
+            elif args.input_file == "../data/wrapped_grid_graph.pt":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             else:
                 nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
@@ -439,7 +459,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     np.save(os.path.join(save_path, f"test_pred_batched_orig.npy"), pred_npy_orig)
     np.save(os.path.join(save_path, f"test_label_batched_orig.npy"), true_npy_orig)
 
-    if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
+    if args.input_file == "../data/nino34_mat.mat":
         true_npy_ts = batch_data_to_timeseries(true_npy.transpose(1,2,0)).reshape(-1, lat, lon)
         pred_npy_ts = batch_data_to_timeseries(pred_npy.transpose(1,2,0)).reshape(-1, lat, lon)
         print(f"true_npy_ts.shape: {true_npy_ts.shape}")
@@ -448,6 +468,13 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         np.save(os.path.join(save_path, f"pred_npy_ts.npy"), pred_npy_ts)
         # create_comparison_animation(true_npy_ts.reshape(-1, lat, lon), 
         #                             pred_npy_ts.reshape(-1, lat, lon), save_path)
+    elif args.input_file == "../data/wrapped_grid_graph.pt":
+        true_npy_ts = batch_data_to_timeseries(true_npy.squeeze().transpose(0,2,1))
+        pred_npy_ts = batch_data_to_timeseries(pred_npy.squeeze().transpose(0,2,1))
+        print(f"true_npy_ts.shape: {true_npy_ts.shape}")
+        print(f"pred_npy_ts.shape: {pred_npy_ts.shape}")
+        np.save(os.path.join(save_path, f"true_npy_ts.npy"), true_npy_ts)
+        np.save(os.path.join(save_path, f"pred_npy_ts.npy"), pred_npy_ts)
     else:
         plot_channel_rmse(pred_npy, true_npy, args.model_name, n_pcs=args.n_pcs, save_path=save_path)
         plot_ts_channel_rmse(output_np_ts, test_target_np_ts, args.model_name, n_pcs=args.n_pcs, save_path=save_path)

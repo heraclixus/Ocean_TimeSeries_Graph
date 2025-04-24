@@ -62,6 +62,7 @@ def main():
     if not hasattr(args, 'use_region_data') or args.use_region_data is None:
         args.use_region_data = True
 
+    print(f"args.use_region_data: {args.use_region_data}")
     # Device setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -89,6 +90,8 @@ def main():
     
     # Get the indices of nodes in the ENSO region for evaluation
     enso_indices = dataloader.get_enso_indices()
+    print(f"enso_indices.shape: {enso_indices.shape}")
+
     enso_mask = dataloader.get_enso_mask()
     
     # Prepare data
@@ -182,6 +185,7 @@ def main():
     # CPU versions for numpy operations
     max = dataloader._max
     min = dataloader._min
+    best_model = model
 
     # Training loop
     print(f"Training {args.model_name} model...")
@@ -267,7 +271,6 @@ def main():
         test_rmses = []
         test_rmses_recon = []
         best_enso_reconstructed_loss = np.inf
-        best_model = None
 
         with torch.no_grad():
             for encoder_input, label in test_loader:
@@ -363,8 +366,9 @@ def main():
 
     # Save results
     # Convert enso_indices to numpy for save_results
+    print(f"enso_indices.shape: {enso_indices.shape}")
     indsst = enso_indices.cpu().numpy() if args.use_region_data else None
-    
+    print(f"indsst.shape: {indsst.shape}")
     save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train, losses_test, rmses_train, rmses_test,
                 rmses_train_reconstructed, rmses_test_reconstructed, 
