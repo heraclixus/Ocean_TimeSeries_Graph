@@ -132,13 +132,13 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 rmses_train_reconstructed=None, rmses_test_reconstructed=None, edge_index=None,
                 lat=None, lon=None, indsst=None):
     """Save model results and plots"""
-    if args.use_convnet:
-        args.model_name = f"{args.model_name}-convnet"
+    # if args.use_convnet:
+    #     args.model_name = f"{args.model_name}-convnet"
     if args.ode_encoder_decoder:
         args.model_name = f"{args.model_name}-encoder-decoder"
     if args.use_periodic_activation:
         args.model_name = f"{args.model_name}-periodic-activation"
-    if args.input_file == "../data/nino34_mat.mat":
+    if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
         save_name = f"grid_{args.model_name}_window={args.window}"
     else:
         save_name = f"{args.model_name}_pcs={args.n_pcs}_window={args.window}" 
@@ -197,8 +197,8 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 print(f"test_x_tensor.shape = {test_x_tensor.shape}")
                 if args.model_name == "graphode":
                     output = model(test_x_tensor.squeeze(1), edge_index=edge_index)
-                elif args.use_convnet:
-                    output = model(test_x_tensor.view(-1, 1, lat, lon, args.window))
+                # elif args.use_convnet:
+                #     output = model(test_x_tensor.view(-1, 1, lat, lon, args.window))
                 elif args.model_name == "nsde":
                     output = model(test_x_tensor.squeeze(1), n_samples=n_samples)
                     if args.add_sin_cos:
@@ -207,8 +207,8 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output = model(test_x_tensor.squeeze(1))
                     if args.add_sin_cos: 
                         output = output[:, :-2, :]
-                if not args.use_convnet:
-                    output = output.unsqueeze(1)        
+                # if not args.use_convnet:
+                #     output = output.unsqueeze(1)        
         # Process predictions
         if args.model_name == "nsde" or args.model_name == "gp":
             if isinstance(output, torch.Tensor):
@@ -270,14 +270,14 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         enso34_preds = np.stack(enso34_preds)
     else:
         # Handle deterministic models
-        if args.input_file == "../data/nino34_mat.mat":
+        if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
             enso34_pred = output_np_ts.mean(axis=1)
         else:
             _, enso34_pred = reconstruct_enso(pcs=output_np_ts,
                                             real_pcs=test_target_np_ts,
                                             top_n_pcs=args.n_pcs,
                                             flag="test")
-    if args.input_file == "../data/nino34_mat.mat":
+    if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
         enso34 = test_target_np_ts.mean(axis=1)
     else:
         enso34, _ = reconstruct_enso(pcs=test_target_np_ts, 
@@ -334,10 +334,10 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output = output[:, :-2, :]
                     label = label[:, :, :-2, :].squeeze(1)
             else:
-                if args.use_convnet:
-                    output = model(encoder_input.view(-1, 1, lat, lon, args.window))
-                else:
-                    output = model(encoder_input.squeeze(1))
+                # if args.use_convnet:
+                #     output = model(encoder_input.view(-1, 1, lat, lon, args.window))
+                # else:
+                output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
                     if len(output.shape) == 4: # stochastic models
                         output = output[:, :, -2, :]
@@ -359,7 +359,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 indsst_tensor = indsst
                 pred_np = pred_np[:,indsst_tensor]
                 label_np = label_np[:,indsst_tensor]
-            if args.input_file == "../data/nino34_mat.mat":
+            if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             else:
                 nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
@@ -404,7 +404,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 indsst_tensor = indsst
                 pred_np = pred_np[:,indsst_tensor]
                 label_np = label_np[:,indsst_tensor]
-            if args.input_file == "../data/nino34_mat.mat":
+            if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             else:
                 nino34, nino34_pred = reconstruct_enso(pcs=pred_np, real_pcs=label_np, 
@@ -439,7 +439,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     np.save(os.path.join(save_path, f"test_pred_batched_orig.npy"), pred_npy_orig)
     np.save(os.path.join(save_path, f"test_label_batched_orig.npy"), true_npy_orig)
 
-    if args.input_file == "../data/nino34_mat.mat":
+    if args.input_file == "../data/nino34_mat.mat" or args.input_file == "../data/wrapped_grid_graph.pt":
         true_npy_ts = batch_data_to_timeseries(true_npy.transpose(1,2,0)).reshape(-1, lat, lon)
         pred_npy_ts = batch_data_to_timeseries(pred_npy.transpose(1,2,0)).reshape(-1, lat, lon)
         print(f"true_npy_ts.shape: {true_npy_ts.shape}")

@@ -6,6 +6,7 @@ import numpy as np
 from torch_geometric.nn import GCNConv, GATConv
 from baseline_models.utils import PeriodicActivation
 from torch_geometric.data import Data, Batch
+from torch_geometric.loader import DataLoader as PyGDataLoader
 
 class GraphODEFunc_GNODE(nn.Module):
     """ODE function using GNN"""
@@ -23,12 +24,13 @@ class GraphODEFunc_GNODE(nn.Module):
             GCNConv(64, node_features)
         ])
         
-    def forward(self, t, x, edge_index):
+    def forward(self, t, x, edge_index, batch=None):
         """
         Args:
             t (torch.Tensor): Current time point
             x (torch.Tensor): Current state (B*N, F)
-            edge_index (torch.Tensor): Graph connectivity (2, E*B)
+            edge_index (torch.Tensor): Graph connectivity (2, E)
+            batch (torch.Tensor, optional): Batch assignments for each node
         """
         for i, layer in enumerate(self.graph_layers):
             x = layer(x, edge_index)
@@ -57,56 +59,14 @@ class GraphNeuralODE(nn.Module):
         
         # ODE function with GNN
         self.ode_func = GraphODEFunc_GNODE(node_features, hidden_dim, self.use_periodic_activation)
-        
-        # Optional: learnable adjacency matrix
-        self.learn_adj = True
-        if self.learn_adj:
-            self.adj_weights = nn.Parameter(torch.randn(1, node_features, node_features))
-    
-    def create_graph_batch(self, x, device, edge_index=None):
-        """
-        Create PyG Data objects for batch processing
-        
-        Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, num_nodes, timesteps)
-            device (torch.device): Device to create tensors on
-            
-        Returns:
-            Batch: PyG Batch object containing all graphs
-        """
-        batch_size, num_nodes, _ = x.shape
-        data_list = []
-        
-        for b in range(batch_size):
-            edges = []
-            # Create fully connected graph (excluding self-loops)
-            for i in range(num_nodes):
-                for j in range(num_nodes):
-                    if i != j:  # Exclude self-loops as GCNConv adds them automatically
-                        edges.append([i, j])
-            if edge_index == None:
-               edge_index = torch.tensor(edges, device=device).t()
-            else:
-                edge_index = edge_index.to(device)
-            
-            # Take the last timestep as initial condition
-            x_last = x[b, :, -1].unsqueeze(-1)  # (num_nodes, 1)            
-            # Create Data object for this batch item
-            data = Data(
-                x=x_last,  # (num_nodes, 1)
-                edge_index=edge_index,
-                num_nodes=num_nodes
-            )
-            data_list.append(data)
-        
-        return Batch.from_data_list(data_list)
     
     def forward(self, x, edge_index=None):
         """
-        Forward pass
+        Optimized forward pass that processes batches efficiently
         
         Args:
             x (torch.Tensor): Input time series of shape (batch_size, num_nodes, timesteps)
+            edge_index (torch.Tensor): Graph connectivity of shape (2, num_edges)
             
         Returns:
             torch.Tensor: Forecasted values of shape (batch_size, num_nodes, forecast_horizon)
@@ -114,23 +74,43 @@ class GraphNeuralODE(nn.Module):
         batch_size, num_nodes, timesteps = x.shape
         device = x.device
         
-        # Create batch of graphs
-        batch = self.create_graph_batch(x, device, edge_index)
+        # Take the last timestep as initial condition
+        x_init = x[:, :, -1].reshape(batch_size * num_nodes, 1)  # (B*N, 1)
+        
+        # Handle batch indexing for batch graphs
+        batch_idx = torch.arange(batch_size, device=device).repeat_interleave(num_nodes)
+        
+        # If edge_index is not provided, create one (but don't create entire graph for each batch item)
+        if edge_index is None:
+            # Create a base edge_index for a single graph
+            base_edges = []
+            for i in range(num_nodes):
+                for j in range(num_nodes):
+                    if i != j:  # Exclude self-loops
+                        base_edges.append([i, j])
+            base_edge_index = torch.tensor(base_edges, device=device).t()
+            
+            # Repeat edge_index for each batch with proper offsets
+            edge_index = []
+            for b in range(batch_size):
+                offset = b * num_nodes
+                batch_edge_index = base_edge_index.clone()
+                batch_edge_index[0] += offset
+                batch_edge_index[1] += offset
+                edge_index.append(batch_edge_index)
+            edge_index = torch.cat(edge_index, dim=1)
         
         # Create time points for forecasting
-        t = torch.linspace(0, self.forecast_horizon, self.forecast_horizon).to(device)
+        t = torch.linspace(0, self.forecast_horizon, self.forecast_horizon, device=device)
         
-        # Flatten batch dimension for ODE solver
-        x_flat = batch.x.view(-1, self.node_features)  # (B*N, 1)
-        
-        # Define the ODE function wrapper to include edge_index
+        # Define the ODE function wrapper to include edge_index and batch
         def ode_func(t, state):
-            return self.ode_func(t, state, batch.edge_index)
+            return self.ode_func(t, state, edge_index, batch_idx)
         
         # Solve ODE to get forecasts
         predictions = odeint(
             ode_func,
-            x_flat,  # (B*N, 1)
+            x_init,
             t,
             method='rk4',
             rtol=1e-3,
@@ -138,10 +118,10 @@ class GraphNeuralODE(nn.Module):
         )  # Shape: (T, B*N, 1)
         
         # Reshape predictions to (B, N, H)
-        predictions = predictions.view(self.forecast_horizon, batch_size, num_nodes)
-        predictions = predictions.permute(1, 2, 0)  # (B, N, H)
+        predictions = predictions.view(self.forecast_horizon, batch_size, num_nodes, self.node_features)
+        predictions = predictions.permute(1, 2, 0, 3).squeeze(-1)  # (B, N, H)
         
-        return predictions.squeeze(-1)  # Remove feature dimension since it's 1
+        return predictions
     
     def compute_loss(self, pred, target, std=None, add_sin_cos=False):
         """
@@ -226,9 +206,7 @@ class NeuralGDEForecaster(nn.Module):
         self.spatial_gcn = nn.ModuleList([
             GCNConv(1, 64),  # Changed from input_dim to 1
             GCNConv(64, hidden_dim),
-            GCNConv(hidden_dim, hidden_dim),
-            GCNConv(hidden_dim, hidden_dim),
-            GCNConv(hidden_dim, hidden_dim),
+            GCNConv(hidden_dim, hidden_dim)
         ])
         
         # Temporal attention
@@ -236,14 +214,10 @@ class NeuralGDEForecaster(nn.Module):
             self.temporal_attention = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 PeriodicActivation(), 
-                nn.Linear(hidden_dim, hidden_dim),
-                PeriodicActivation(),
                 nn.Linear(hidden_dim, 1)
             )
         else:
             self.temporal_attention = nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.Tanh(),
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.Tanh(),
                 nn.Linear(hidden_dim, 1)
@@ -259,154 +233,111 @@ class NeuralGDEForecaster(nn.Module):
         # Output projection
         self.output_layer = nn.Linear(hidden_dim, 1)  # Changed from input_dim to 1
 
-    def create_spatiotemporal_graph(self, batch_size, time_steps, device, edge_index=None):
-        """
-        Create spatial-temporal graph structure and return PyG Data objects
-        
-        Args:
-            batch_size (int): Number of graphs in the batch
-            time_steps (int): Number of time steps
-            device (torch.device): Device to create tensors on
-            edge_index (torch.Tensor, optional): Static spatial graph edges of shape (2, num_edges)
-            
-        Returns:
-            list[Data]: List of PyG Data objects for each batch
-        """
-        data_list = []
-        
-        # Create edges for each batch
-        for b in range(batch_size):
-            all_edges = []
-            temporal_edges = []
-            
-            # For each timestep
-            for t in range(time_steps):
-                # Calculate the base offset for current timestep
-                current_offset = t * self.num_nodes
-                
-                # Add spatial edges if provided, otherwise create fully connected graph
-                if edge_index is not None:
-                    # Add the provided spatial edges with appropriate time offset
-                    src = edge_index[0] + current_offset
-                    dst = edge_index[1] + current_offset
-                    all_edges.extend(torch.stack([src, dst], dim=0).t().tolist())
-                else:
-                    # Create fully connected spatial edges within timestep
-                    for i in range(self.num_nodes):
-                        for j in range(self.num_nodes):
-                            if i != j:  # Exclude self-loops
-                                all_edges.append([current_offset + i, current_offset + j])
-                
-                # Add temporal edges (connecting to next timestep)
-                if t < time_steps - 1:
-                    next_offset = (t + 1) * self.num_nodes
-                    for i in range(self.num_nodes):
-                        # Forward temporal edge
-                        temporal_edges.append([current_offset + i, next_offset + i])
-                        # Backward temporal edge
-                        temporal_edges.append([next_offset + i, current_offset + i])
-            
-            # Combine all edges and convert to tensor
-            all_edges.extend(temporal_edges)
-            edge_index = torch.tensor(all_edges, device=device).t()
-            
-            # Create Data object for this batch
-            data = Data(
-                edge_index=edge_index,
-                num_nodes=time_steps * self.num_nodes
-            )
-            data_list.append(data)
-        
-        return data_list
-
     def forward(self, x, edge_index=None):
         """
-        Forward pass
+        Optimized forward pass
         
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, num_nodes, time)
+            edge_index (torch.Tensor): Graph connectivity of shape (2, num_edges)
             
         Returns:
             torch.Tensor: Predictions of shape (batch_size, num_nodes, horizon)
         """
-        batch_size = x.shape[0]
+        batch_size, num_nodes, _ = x.shape
         device = x.device
-
-        # Create spatiotemporal graphs as PyG Data objects
-        data_list = self.create_spatiotemporal_graph(
-            batch_size=batch_size,
-            time_steps=self.time_series_length,
-            device=device,
-            edge_index=edge_index
-        )
         
-        # Create batch of graphs
-        batch = Batch.from_data_list(data_list)
+        # Process each time step with GCN independently
+        h_seq = []
+        for t in range(self.time_series_length):
+            # Extract features for current timestep (B, N, 1)
+            x_t = x[:, :, t].reshape(batch_size * num_nodes, 1)
+            
+            # Process through GCN layers
+            h = x_t
+            
+            # Create batch indexing for each node
+            batch_idx = torch.arange(batch_size, device=device).repeat_interleave(num_nodes)
+            
+            # If no edge_index provided, create a simple one for this batch
+            if edge_index is None:
+                # Create edges for a single graph first
+                base_edges = []
+                for i in range(num_nodes):
+                    for j in range(num_nodes):
+                        if i != j:  # Exclude self-loops
+                            base_edges.append([i, j])
+                base_edge_index = torch.tensor(base_edges, device=device).t()
+                
+                # Create batched edge_index with proper offsets
+                edge_index_batched = []
+                for b in range(batch_size):
+                    offset = b * num_nodes
+                    batch_edge = base_edge_index.clone()
+                    batch_edge[0] += offset
+                    batch_edge[1] += offset
+                    edge_index_batched.append(batch_edge)
+                edge_index_batched = torch.cat(edge_index_batched, dim=1)
+            else:
+                edge_index_batched = edge_index
+            
+            # Process through GCN with batched graph
+            for gcn in self.spatial_gcn:
+                h = gcn(h, edge_index_batched)
+                h = F.relu(h)
+            
+            # Reshape to (batch_size, num_nodes, hidden_dim)
+            h = h.view(batch_size, num_nodes, -1)
+            h_seq.append(h)
         
-        # Reshape input for spatiotemporal processing
-        x_reshaped = x.permute(0, 2, 1).reshape(-1, 1)  # (batch_size * time_steps * num_nodes, 1)
-        batch.x = x_reshaped
-        
-        # Process through GCN layers
-        h = batch.x
-        for gcn in self.spatial_gcn:
-            h = gcn(h, batch.edge_index)
-            h = F.relu(h)
-        
-        # Reshape back: (batch_size, time_steps, num_nodes, hidden_dim)
-        h = h.view(batch_size, self.time_series_length, self.num_nodes, -1)
+        # Stack sequence along time dimension (B, T, N, H)
+        h_seq = torch.stack(h_seq, dim=1)
         
         # Apply temporal attention
-        attention = self.temporal_attention(h)
+        attention = self.temporal_attention(h_seq)
         attention_weights = F.softmax(attention, dim=1)
         
-        # Weighted combination of features
-        node_features = torch.sum(h * attention_weights, dim=1)  # (batch_size, num_nodes, hidden_dim)
+        # Weighted combination of features (B, N, H)
+        node_features = torch.sum(h_seq * attention_weights, dim=1)
         
-        # Process temporal sequence with GRU
-        node_features = node_features.reshape(batch_size * self.num_nodes, -1)
-        _, hidden = self.encoder_gru(node_features.unsqueeze(1))
-        
-        # Reshape hidden to match spatiotemporal graph structure
-        hidden = hidden.squeeze(0)
-        hidden = hidden.unsqueeze(1).expand(-1, self.time_series_length, -1)
-        hidden = hidden.reshape(batch_size * self.time_series_length * self.num_nodes, -1)
-        batch.x = hidden
-        
-        # Create time points for GDE evolution
-        t = torch.linspace(0, self.forecast_length, self.forecast_length).to(device)
+        # Process through GRU for each node independently
+        node_features_flat = node_features.view(batch_size * num_nodes, -1)
+        _, hidden = self.encoder_gru(node_features_flat.unsqueeze(1))
+        hidden = hidden.squeeze(0)  # (B*N, H)
         
         # Define GDE function
         ode_func = GraphODEFunc(
             hidden_dim=self.hidden_dim,
-            edge_index=batch.edge_index,
+            edge_index=edge_index_batched,
             use_periodic_activation=self.use_periodic_activation
         ).to(device)
+        
+        # Create time points for forecasting
+        t = torch.linspace(0, self.forecast_length, self.forecast_length, device=device)
         
         # Solve GDE
         evolved_hidden = odeint(
             ode_func,
-            batch.x,
+            hidden,
             t,
-            method='rk4'
-        )
+            method='rk4',
+            rtol=1e-3,
+            atol=1e-3
+        )  # (T, B*N, H)
         
-        # Reshape evolved hidden states
+        # Reshape evolved states to (T, B, N, H)
         evolved_hidden = evolved_hidden.view(
             self.forecast_length, 
             batch_size, 
-            self.time_series_length,
-            self.num_nodes, 
+            num_nodes, 
             -1
         )
         
-        # Take the last timestep's predictions
-        evolved_hidden = evolved_hidden[:, :, -1, :, :]
+        # Project to output
+        evolved_hidden = evolved_hidden.permute(1, 2, 0, 3)  # (B, N, T, H)
+        predictions = self.output_layer(evolved_hidden)  # (B, N, T, 1)
         
-        # Project to output space
-        predictions = self.output_layer(evolved_hidden.permute(1, 2, 0, 3))
-        
-        return predictions.squeeze(-1)  # (batch, nodes, forecast_length)
+        return predictions.squeeze(-1)  # (B, N, T)
 
     def compute_loss(self, pred, target, std=None, add_sin_cos=False):
         """
