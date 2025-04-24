@@ -52,8 +52,13 @@ def main():
                        help="Use only nodes in the ENSO region")
     parser.add_argument("--add_sin_cos", action="store_true",
                        help="Add sin and cos to the input")
+    parser.add_argument("--use_region_data", action="store_true",
+                        help="Use only region data for evaluation (default=True)")
 
     args = parser.parse_args()
+    # Default to True for use_region_data if not specified
+    if not hasattr(args, 'use_region_data') or args.use_region_data is None:
+        args.use_region_data = True
 
     # Device setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -79,6 +84,10 @@ def main():
     grid_size = dataloader.time_series.shape[0]
     print(f"Graph dataset with {grid_size} nodes")
     print(f"ENSO region contains {dataloader.enso_mask.sum().item()} nodes")
+    
+    # Get the indices of nodes in the ENSO region for evaluation
+    enso_indices = dataloader.get_enso_indices()
+    enso_mask = dataloader.get_enso_mask()
     
     # Prepare data
     train_input = np.array(train_dataset.features)
@@ -224,13 +233,30 @@ def main():
                 label_np = inverse_normalize(label_np, max, min)
                 pred_np = inverse_normalize(pred_np, max, min)
             
-            rmse = np.sqrt(np.mean((label_np - pred_np)**2))
-            train_rmses.append(rmse)
-
-            # For ENSO dataset, use spatial average as the reconstruction metric
-            nino34 = pred_np.mean(axis=1)
-            nino34_pred = label_np.mean(axis=1)
+            # Only calculate RMSE on the ENSO region for reporting
+            if args.use_region_data and not args.use_region_only:
+                # Convert enso_indices to numpy
+                enso_indices_np = enso_indices.cpu().numpy()
+                # Filter predictions and labels to only include ENSO region
+                pred_np_enso = pred_np[:, enso_indices_np, :]
+                label_np_enso = label_np[:, enso_indices_np, :]
+                
+                # Calculate RMSE on ENSO region
+                rmse = np.sqrt(np.mean((label_np_enso - pred_np_enso)**2))
+                
+                # For ENSO dataset, use spatial average of ENSO region as the reconstruction metric
+                nino34 = pred_np_enso.mean(axis=1)
+                nino34_pred = label_np_enso.mean(axis=1)
+            else:
+                # Calculate RMSE on entire grid or already filtered dataset
+                rmse = np.sqrt(np.mean((label_np - pred_np)**2))
+                
+                # For ENSO dataset, use spatial average as the reconstruction metric
+                nino34 = pred_np.mean(axis=1)
+                nino34_pred = label_np.mean(axis=1)
+                
             rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
+            train_rmses.append(rmse)
             train_rmses_recon.append(rmse_recon)
 
         # Validation
@@ -276,13 +302,30 @@ def main():
                     label_np = inverse_normalize(label_np, max, min)
                     pred_np = inverse_normalize(pred_np, max, min)
                 
-                rmse = np.sqrt(np.mean((label_np - pred_np)**2))
-                test_rmses.append(rmse)
-
-                # For ENSO dataset, use spatial average as the reconstruction metric
-                nino34 = pred_np.mean(axis=1)
-                nino34_pred = label_np.mean(axis=1)
+                # Only calculate RMSE on the ENSO region for reporting
+                if args.use_region_data and not args.use_region_only:
+                    # Convert enso_indices to numpy
+                    enso_indices_np = enso_indices.cpu().numpy()
+                    # Filter predictions and labels to only include ENSO region
+                    pred_np_enso = pred_np[:, enso_indices_np, :]
+                    label_np_enso = label_np[:, enso_indices_np, :]
+                    
+                    # Calculate RMSE on ENSO region
+                    rmse = np.sqrt(np.mean((label_np_enso - pred_np_enso)**2))
+                    
+                    # For ENSO dataset, use spatial average of ENSO region as the reconstruction metric
+                    nino34 = pred_np_enso.mean(axis=1)
+                    nino34_pred = label_np_enso.mean(axis=1)
+                else:
+                    # Calculate RMSE on entire grid or already filtered dataset
+                    rmse = np.sqrt(np.mean((label_np - pred_np)**2))
+                    
+                    # For ENSO dataset, use spatial average as the reconstruction metric
+                    nino34 = pred_np.mean(axis=1)
+                    nino34_pred = label_np.mean(axis=1)
+                    
                 rmse_recon = np.sqrt(np.mean((nino34-nino34_pred)**2))
+                test_rmses.append(rmse)
                 test_rmses_recon.append(rmse_recon)
 
         # Log metrics
@@ -317,9 +360,13 @@ def main():
                 break
 
     # Save results
+    # Convert enso_indices to numpy for save_results
+    indsst = enso_indices.cpu().numpy() if args.use_region_data else None
+    
     save_results(args, best_model, test_x_tensor, test_target_tensor, test_dataset_new, max, min,
                 losses_train, losses_test, rmses_train, rmses_test,
-                rmses_train_reconstructed, rmses_test_reconstructed, edge_index=edge_index)
+                rmses_train_reconstructed, rmses_test_reconstructed, 
+                edge_index=edge_index, indsst=indsst)
 
 if __name__ == "__main__":
     main()
