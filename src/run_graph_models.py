@@ -54,6 +54,8 @@ def main():
                        help="Add sin and cos to the input")
     parser.add_argument("--use_region_data", action="store_true",
                         help="Use only region data for evaluation (default=True)")
+    parser.add_argument("--n_samples", type=int, default=1,
+                        help="Number of samples for NSDE")
 
     args = parser.parse_args()
     # Default to True for use_region_data if not specified
@@ -216,7 +218,7 @@ def main():
                 
             loss.backward()
             optimizer.step()
-            print(f"loss: {loss.item()}")
+            # print(f"loss: {loss.item()}")
 
             # Compute metrics
             train_losses.append(loss.item())
