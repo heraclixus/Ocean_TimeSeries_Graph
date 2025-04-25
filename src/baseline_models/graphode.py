@@ -31,8 +31,8 @@ class GraphODEFunc_GNODE(nn.Module):
         elif graph_encoder == "gat":
             # GAT with fewer attention heads and smaller dimensions to save memory
             self.graph_layers.extend([
-                GATConv(node_features, 32, heads=1, dropout=0.2),  # Reduced heads and dimension
-                GATConv(32 * 2, hidden_dim // 2, heads=1, dropout=0.2),   
+                GATConv(node_features, 32, heads=1, dropout=0.2),  # Single head, 32 features
+                GATConv(32, hidden_dim // 2, heads=1, dropout=0.2),   # Takes 32 as input (not 32*2)
                 GATConv(hidden_dim // 2, hidden_dim // 2, heads=1, dropout=0.2),
                 GATConv(hidden_dim // 2, 32, heads=1, dropout=0.2),
                 GATConv(32, node_features, heads=1, dropout=0.2)
