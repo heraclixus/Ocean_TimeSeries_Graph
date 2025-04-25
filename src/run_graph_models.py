@@ -46,6 +46,8 @@ def main():
                        help="Number of time steps to use for training")
     parser.add_argument("--ode_encoder_decoder", action="store_true",
                        help="Use Neural ODE encoder-decoder structure")
+    parser.add_argument("--graph_encoder", type=str, default="gcn", choices=["gcn", "gat"],
+                       help="Graph encoder to use (GCN or GAT)")
     parser.add_argument("--use_periodic_activation", action="store_true",
                        help="Use periodic activation")
     parser.add_argument("--use_region_only", action="store_true",
@@ -154,16 +156,18 @@ def main():
                 time_series_length=args.window,
                 forecast_length=args.horizon,
                 num_nodes=grid_size,
-                use_periodic_activation=args.use_periodic_activation
+                use_periodic_activation=args.use_periodic_activation,
+                graph_encoder=args.graph_encoder
             ).to(device)
         else:
             model = GraphNeuralODE(
                 node_features=1,  # For graph models, node feature dim is 1
                 hidden_dim=args.hidden_size,
                 forecast_horizon=args.horizon,
-                use_periodic_activation=args.use_periodic_activation
+                use_periodic_activation=args.use_periodic_activation,
+                graph_encoder=args.graph_encoder
             ).to(device)
-        print(f"Initialized GraphODE model with {grid_size} nodes")
+        print(f"Initialized GraphODE model with {grid_size} nodes using {args.graph_encoder} encoder")
 
     # Training setup
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)

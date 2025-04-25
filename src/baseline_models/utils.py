@@ -94,14 +94,15 @@ def plot_training_history(save_path, losses_train, losses_test,
         rmses_train_reconstructed (list): Training reconstructed RMSEs
         rmses_test_reconstructed (list): Testing reconstructed RMSEs
     """
-    # Loss curves
+    # Loss curves with log-log scale
     plt.figure(figsize=(10, 5))
-    plt.plot(losses_train, label="Train Loss")
-    plt.plot(losses_test, label="Test Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Training and Testing Loss")
+    plt.loglog(range(1, len(losses_train) + 1), losses_train, label="Train Loss")
+    plt.loglog(range(1, len(losses_test) + 1), losses_test, label="Test Loss")
+    plt.xlabel("Epoch (log scale)")
+    plt.ylabel("Loss (log scale)")
+    plt.title("Training and Testing Loss (Log-Log)")
     plt.legend()
+    plt.grid(True, which="both", ls="-", alpha=0.2)
     plt.savefig(os.path.join(save_path, "losses.png"))
     plt.close()
 
@@ -254,14 +255,15 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
 
 
     # for ENSO region 
-    if not args.use_region_data: # only compute index region metrics          
-        indsst_tensor = indsst
-        output_np_ts = output_np_ts[:,indsst_tensor]
-        test_target_np_ts = test_target_np_ts[:,indsst_tensor]
-    elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
-        indsst_tensor = indsst
-        output_np_ts = output_np_ts[...,indsst_tensor]
-        test_target_np_ts = test_target_np_ts[...,indsst_tensor]
+    if not args.use_region_only:
+        if not args.use_region_data: # only compute index region metrics          
+            indsst_tensor = indsst
+            output_np_ts = output_np_ts[:,indsst_tensor]
+            test_target_np_ts = test_target_np_ts[:,indsst_tensor]
+        elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
+            indsst_tensor = indsst
+            output_np_ts = output_np_ts[...,indsst_tensor]
+            test_target_np_ts = test_target_np_ts[...,indsst_tensor]
 
     # Save ENSO reconstructions
     if args.model_name in ["nsde", "gp"]:
@@ -361,14 +363,17 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 pred_np = inverse_normalize(pred_np, max, min)
             pred_npy_orig.append(np.expand_dims(pred_np, 0))
             true_npy_orig.append(np.expand_dims(label_np, 0))
-            if not args.use_region_data: # only compute index region metrics  
-                indsst_tensor = indsst
-                pred_np = pred_np[...,indsst_tensor]
-                label_np = label_np[...,indsst_tensor]
-            elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
-                indsst_tensor = indsst
-                pred_np = pred_np[...,indsst_tensor]
-                label_np = label_np[...,indsst_tensor]
+
+            if not args.use_region_only:
+                if not args.use_region_data: # only compute index region metrics  
+                    indsst_tensor = indsst
+                    pred_np = pred_np[...,indsst_tensor]
+                    label_np = label_np[...,indsst_tensor]
+                elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
+                    indsst_tensor = indsst
+                    pred_np = pred_np[...,indsst_tensor]
+                    label_np = label_np[...,indsst_tensor]
+
             if args.input_file == "../data/nino34_mat.mat":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             elif args.input_file == "../data/wrapped_grid_graph.pt":
@@ -412,14 +417,17 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 pred_np = inverse_normalize(pred_np, max, min)
             pred_npy_orig.append(np.expand_dims(pred_np, 0))
             true_npy_orig.append(np.expand_dims(label_np, 0))
-            if not args.use_region_data: # only compute index region metrics    
-                indsst_tensor = indsst
-                pred_np = pred_np[:,indsst_tensor]
-                label_np = label_np[:,indsst_tensor]
-            elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
-                indsst_tensor = indsst
-                pred_np = pred_np[...,indsst_tensor]
-                label_np = label_np[...,indsst_tensor]
+
+            if not args.use_region_only:
+                if not args.use_region_data: # only compute index region metrics    
+                    indsst_tensor = indsst
+                    pred_np = pred_np[:,indsst_tensor]
+                    label_np = label_np[:,indsst_tensor]
+                elif args.use_region_data and args.input_file == "../data/wrapped_grid_graph.pt":
+                    indsst_tensor = indsst
+                    pred_np = pred_np[...,indsst_tensor]
+                    label_np = label_np[...,indsst_tensor]
+            
             if args.input_file == "../data/nino34_mat.mat":
                 nino34, nino34_pred = pred_np.mean(axis=1), label_np.mean(axis=1)
             elif args.input_file == "../data/wrapped_grid_graph.pt":
