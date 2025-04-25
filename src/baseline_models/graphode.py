@@ -31,11 +31,11 @@ class GraphODEFunc_GNODE(nn.Module):
         elif graph_encoder == "gat":
             # GAT with fewer attention heads and smaller dimensions to save memory
             self.graph_layers.extend([
-                GATConv(node_features, 32, heads=2, dropout=0.2),  # Reduced heads and dimension
-                GATConv(32 * 2, hidden_dim // 2, heads=2, dropout=0.2),   
-                GATConv(hidden_dim // 2, hidden_dim // 2, heads=2, dropout=0.2),
-                GATConv(hidden_dim // 2, 32, heads=2, dropout=0.2),
-                GATConv(32, node_features, heads=2, dropout=0.2)
+                GATConv(node_features, 32, heads=1, dropout=0.2),  # Reduced heads and dimension
+                GATConv(32 * 2, hidden_dim // 2, heads=1, dropout=0.2),   
+                GATConv(hidden_dim // 2, hidden_dim // 2, heads=1, dropout=0.2),
+                GATConv(hidden_dim // 2, 32, heads=1, dropout=0.2),
+                GATConv(32, node_features, heads=1, dropout=0.2)
             ])
         
     def forward(self, t, x, edge_index, batch=None):
@@ -184,8 +184,8 @@ class GraphODEFunc(nn.Module):
             ])
         elif graph_encoder == "gat":
             self.graph_layers.extend([
-                GATConv(hidden_dim, hidden_dim, heads=2, dropout=0.3),  # Single head attention
-                GATConv(hidden_dim, hidden_dim, heads=2, dropout=0.3)   # Single head attention
+                GATConv(hidden_dim, hidden_dim, heads=1, dropout=0.3),  # Single head attention
+                GATConv(hidden_dim, hidden_dim, heads=1, dropout=0.3)   # Single head attention
             ])
         
         self.use_periodic_activation = use_periodic_activation
@@ -250,9 +250,9 @@ class NeuralGDEForecaster(nn.Module):
             ])
         elif graph_encoder == "gat":
             self.spatial_gcn.extend([
-                GATConv(1, 32, heads=2, dropout=0.3),  # Single head, reduced dimension
-                GATConv(32, 64, heads=2, dropout=0.3),
-                GATConv(64, hidden_dim, heads=2, dropout=0.3)
+                GATConv(1, 32, heads=1, dropout=0.3),  # Single head, reduced dimension
+                GATConv(32, 64, heads=1, dropout=0.3),
+                GATConv(64, hidden_dim, heads=1, dropout=0.3)
             ])
         
         # Temporal attention
