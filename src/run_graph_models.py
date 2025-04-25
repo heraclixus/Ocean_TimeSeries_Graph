@@ -130,6 +130,17 @@ def main():
     input_dim = grid_size
     print(f"Input dimension: {input_dim}")
 
+    # Set reduced hidden size if using GAT to save memory
+    if args.model_name == "graphode" and args.graph_encoder == "gat" and args.hidden_size > 64:
+        print(f"Reducing hidden size from {args.hidden_size} to 64 for GAT to save memory")
+        args.hidden_size = 64
+
+    # Reduce batch size for GAT models to save memory
+    if args.model_name == "graphode" and args.graph_encoder == "gat" and args.batch_size > 32:
+        original_batch_size = args.batch_size
+        args.batch_size = 16
+        print(f"Reducing batch size from {original_batch_size} to {args.batch_size} for GAT to save memory")
+
     # Model initialization
     if args.model_name == "node":
         if args.ode_encoder_decoder:

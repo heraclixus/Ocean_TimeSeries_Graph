@@ -29,13 +29,13 @@ class GraphODEFunc_GNODE(nn.Module):
                 GCNConv(64, node_features)
             ])
         elif graph_encoder == "gat":
-            # GAT with multiple attention heads
+            # GAT with fewer attention heads and smaller dimensions to save memory
             self.graph_layers.extend([
-                GATConv(node_features, 64, heads=4, dropout=0.2),
-                GATConv(64 * 4, hidden_dim, heads=2, dropout=0.2),   
-                GATConv(hidden_dim * 2, hidden_dim, heads=2, dropout=0.2),
-                GATConv(hidden_dim * 2, 64, heads=2, dropout=0.2),
-                GATConv(64 * 2, node_features, heads=1, dropout=0.2)
+                GATConv(node_features, 32, heads=2, dropout=0.2),  # Reduced heads and dimension
+                GATConv(32 * 2, hidden_dim // 2, heads=2, dropout=0.2),   
+                GATConv(hidden_dim // 2, hidden_dim // 2, heads=2, dropout=0.2),
+                GATConv(hidden_dim // 2, 32, heads=2, dropout=0.2),
+                GATConv(32, node_features, heads=2, dropout=0.2)
             ])
         
     def forward(self, t, x, edge_index, batch=None):
@@ -127,14 +127,20 @@ class GraphNeuralODE(nn.Module):
         def ode_func(t, state):
             return self.ode_func(t, state, edge_index, batch_idx)
         
+        # Choose a more memory-efficient solver for GAT
+        method = 'euler' if self.graph_encoder == 'gat' else 'rk4'
+        rtol = 1e-2 if self.graph_encoder == 'gat' else 1e-3
+        atol = 1e-2 if self.graph_encoder == 'gat' else 1e-3
+        
         # Solve ODE to get forecasts
         predictions = odeint(
             ode_func,
             x_init,
             t,
-            method='rk4',
-            rtol=1e-3,
-            atol=1e-3
+            method=method,
+            rtol=rtol,
+            atol=atol,
+            options={'step_size': 1.0 if self.graph_encoder == 'gat' else None}
         )  # Shape: (T, B*N, 1)
         
         # Reshape predictions to (B, N, H)
@@ -178,8 +184,8 @@ class GraphODEFunc(nn.Module):
             ])
         elif graph_encoder == "gat":
             self.graph_layers.extend([
-                GATConv(hidden_dim, hidden_dim // 2, heads=2),  # Using 2 heads to keep dimension consistent
-                GATConv(hidden_dim, hidden_dim // 2, heads=2)
+                GATConv(hidden_dim, hidden_dim, heads=2, dropout=0.3),  # Single head attention
+                GATConv(hidden_dim, hidden_dim, heads=2, dropout=0.3)   # Single head attention
             ])
         
         self.use_periodic_activation = use_periodic_activation
@@ -244,9 +250,9 @@ class NeuralGDEForecaster(nn.Module):
             ])
         elif graph_encoder == "gat":
             self.spatial_gcn.extend([
-                GATConv(1, 16, heads=4),  # 16 * 4 = 64
-                GATConv(64, hidden_dim // 2, heads=2),  # hidden_dim/2 * 2 = hidden_dim
-                GATConv(hidden_dim, hidden_dim, heads=1)
+                GATConv(1, 32, heads=2, dropout=0.3),  # Single head, reduced dimension
+                GATConv(32, 64, heads=2, dropout=0.3),
+                GATConv(64, hidden_dim, heads=2, dropout=0.3)
             ])
         
         # Temporal attention
@@ -356,14 +362,20 @@ class NeuralGDEForecaster(nn.Module):
         # Create time points for forecasting
         t = torch.linspace(0, self.forecast_length, self.forecast_length, device=device)
         
+        # Use more memory-efficient solver for GAT
+        method = 'euler' if self.graph_encoder == 'gat' else 'rk4'
+        rtol = 1e-2 if self.graph_encoder == 'gat' else 1e-3
+        atol = 1e-2 if self.graph_encoder == 'gat' else 1e-3
+        
         # Solve GDE
         evolved_hidden = odeint(
             ode_func,
             hidden,
             t,
-            method='rk4',
-            rtol=1e-3,
-            atol=1e-3
+            method=method,
+            rtol=rtol,
+            atol=atol,
+            options={'step_size': 1.0 if self.graph_encoder == 'gat' else None}
         )  # (T, B*N, H)
         
         # Reshape evolved states to (T, B, N, H)
