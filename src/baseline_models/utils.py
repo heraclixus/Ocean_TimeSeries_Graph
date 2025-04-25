@@ -149,6 +149,11 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
         save_name += "_sin_cos"
     if args.use_region_data:
         save_name += "_region_only"
+    if args.use_region_only:
+        save_name += "_region_ONLY"
+    if args.model_name == "graphode":
+        save_name += f"_graph_encoder={args.graph_encoder}"
+    
     save_path = f"results/baseline_models/{save_name}"
     os.makedirs(save_path, exist_ok=True)
 
