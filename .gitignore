@@ -1,6 +1,5 @@
 *__pycache__*
 src/logs*
-data/*.pt
 src/*.txt
 src/results/*/*.npy
 src/results/*/*.ckpt
@@ -15,4 +14,5 @@ src/oldlogs/*
 notebooks/*.mp4
 src/*.mp4
 .DS_Store
-data/*
+data/*.mat
+data/*.png

@@ -4,6 +4,7 @@ import numpy as np
 import argparse
 from tqdm import tqdm
 from utils_pca import reconstruct_enso
+import os
 
 # Import the new dataset class
 from pygtemporal_models.graph_dataset_enso import (
@@ -38,9 +39,9 @@ def main():
                        help="Number of epochs to train for")
     parser.add_argument("--patience", type=int, default=50,
                        help="Patience for early stopping")
-    parser.add_argument("--use_normalization", action="store_true",
+    parser.add_argument("--use_normalization", action="store_true", default=True,
                        help="Whether to normalize the data")
-    parser.add_argument("--use_loss_weights", action="store_true",
+    parser.add_argument("--use_loss_weights", action="store_true", default=True,
                        help="Whether to use weighted loss function")
     parser.add_argument("--train_length", type=int, default=700,
                        help="Number of time steps to use for training")
@@ -58,6 +59,12 @@ def main():
                         help="Use only region data for evaluation (default=True)")
     parser.add_argument("--n_samples", type=int, default=1,
                         help="Number of samples for NSDE")
+    parser.add_argument("--from_checkpoint", type=str, default=None,
+                        help="Path to checkpoint file to resume training from")
+    parser.add_argument("--save_best_model", action="store_true",
+                        help="Whether to save the best model during training")
+    parser.add_argument("--gnn_latent_dim", type=int, default=None,
+                        help="Latent dimension for GNN layers")
 
     args = parser.parse_args()
     # Default to True for use_region_data if not specified
@@ -168,7 +175,8 @@ def main():
                 forecast_length=args.horizon,
                 num_nodes=grid_size,
                 use_periodic_activation=args.use_periodic_activation,
-                graph_encoder=args.graph_encoder
+                graph_encoder=args.graph_encoder,
+                gnn_latent_dim=args.gnn_latent_dim
             ).to(device)
         else:
             model = GraphNeuralODE(
@@ -176,9 +184,22 @@ def main():
                 hidden_dim=args.hidden_size,
                 forecast_horizon=args.horizon,
                 use_periodic_activation=args.use_periodic_activation,
-                graph_encoder=args.graph_encoder
+                graph_encoder=args.graph_encoder,
+                gnn_latent_dim=args.gnn_latent_dim
             ).to(device)
         print(f"Initialized GraphODE model with {grid_size} nodes using {args.graph_encoder} encoder")
+        if args.gnn_latent_dim:
+            print(f"Using GNN latent dimension of {args.gnn_latent_dim}")
+
+    # Load model from checkpoint if provided
+    if args.from_checkpoint and os.path.exists(args.from_checkpoint):
+        print(f"Loading model from checkpoint: {args.from_checkpoint}")
+        checkpoint = torch.load(args.from_checkpoint)
+        if isinstance(checkpoint, tuple):
+            model_state = checkpoint[0]
+            model.load_state_dict(model_state)
+        else:
+            model.load_state_dict(checkpoint)
 
     # Training setup
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -388,6 +409,14 @@ def main():
                 losses_train, losses_test, rmses_train, rmses_test,
                 rmses_train_reconstructed, rmses_test_reconstructed, 
                 edge_index=edge_index, indsst=indsst)
+    
+    # Save the best model if requested
+    if args.save_best_model:
+        model_dir = "models"
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, f"{args.model_name}_{args.graph_encoder}_best.pt")
+        torch.save(best_model.state_dict(), model_path)
+        print(f"Best model saved to {model_path}")
 
 if __name__ == "__main__":
     main()

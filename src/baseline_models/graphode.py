@@ -10,7 +10,7 @@ from torch_geometric.loader import DataLoader as PyGDataLoader
 
 class GraphODEFunc_GNODE(nn.Module):
     """ODE function using GNN"""
-    def __init__(self, node_features, hidden_dim, use_periodic_activation=False, graph_encoder="gcn"):
+    def __init__(self, node_features, hidden_dim, use_periodic_activation=False, graph_encoder="gcn", gnn_latent_dim=None):
         super().__init__()
         self.use_periodic_activation = use_periodic_activation
         self.graph_encoder = graph_encoder
@@ -18,24 +18,27 @@ class GraphODEFunc_GNODE(nn.Module):
         self.periodic_activation = PeriodicActivation()
         self.tanh_activation = nn.Tanh()
         
+        # Use gnn_latent_dim if provided, otherwise use default values
+        latent_dim = gnn_latent_dim if gnn_latent_dim is not None else 64
+        
         # Initialize graph layers based on encoder type
         self.graph_layers = nn.ModuleList()
         if graph_encoder == "gcn":
             self.graph_layers.extend([
-                GCNConv(node_features, 64),
-                GCNConv(64, hidden_dim),   
+                GCNConv(node_features, latent_dim),
+                GCNConv(latent_dim, hidden_dim),   
                 GCNConv(hidden_dim, hidden_dim),
-                GCNConv(hidden_dim, 64),
-                GCNConv(64, node_features)
+                GCNConv(hidden_dim, latent_dim),
+                GCNConv(latent_dim, node_features)
             ])
         elif graph_encoder == "gat":
             # GAT with fewer attention heads and smaller dimensions to save memory
             self.graph_layers.extend([
-                GATConv(node_features, 32, heads=1, dropout=0.2),  # Single head, 32 features
-                GATConv(32, hidden_dim // 2, heads=1, dropout=0.2),   # Takes 32 as input (not 32*2)
+                GATConv(node_features, latent_dim // 2, heads=1, dropout=0.2),  # Single head
+                GATConv(latent_dim // 2, hidden_dim // 2, heads=1, dropout=0.2),   
                 GATConv(hidden_dim // 2, hidden_dim // 2, heads=1, dropout=0.2),
-                GATConv(hidden_dim // 2, 32, heads=1, dropout=0.2),
-                GATConv(32, node_features, heads=1, dropout=0.2)
+                GATConv(hidden_dim // 2, latent_dim // 2, heads=1, dropout=0.2),
+                GATConv(latent_dim // 2, node_features, heads=1, dropout=0.2)
             ])
         
     def forward(self, t, x, edge_index, batch=None):
@@ -57,7 +60,7 @@ class GraphODEFunc_GNODE(nn.Module):
 
 class GraphNeuralODE(nn.Module):
     def __init__(self, node_features=1, hidden_dim=64, forecast_horizon=10, 
-                 use_periodic_activation=False, graph_encoder="gcn"):
+                 use_periodic_activation=False, graph_encoder="gcn", gnn_latent_dim=None):
         """
         Graph Neural ODE for time series forecasting
         
@@ -67,6 +70,7 @@ class GraphNeuralODE(nn.Module):
             forecast_horizon (int): Number of future time steps to forecast
             use_periodic_activation (bool): Whether to use periodic activation
             graph_encoder (str): Type of graph encoder to use ("gcn" or "gat")
+            gnn_latent_dim (int, optional): Latent dimension for GNN layers
         """
         super().__init__()
         self.node_features = node_features
@@ -74,11 +78,13 @@ class GraphNeuralODE(nn.Module):
         self.forecast_horizon = forecast_horizon
         self.use_periodic_activation = use_periodic_activation
         self.graph_encoder = graph_encoder
+        self.gnn_latent_dim = gnn_latent_dim
         
         # ODE function with GNN
         self.ode_func = GraphODEFunc_GNODE(node_features, hidden_dim, 
                                           self.use_periodic_activation, 
-                                          self.graph_encoder)
+                                          self.graph_encoder,
+                                          gnn_latent_dim)
     
     def forward(self, x, edge_index=None):
         """
@@ -170,22 +176,25 @@ class GraphNeuralODE(nn.Module):
 
 class GraphODEFunc(nn.Module):
     """ODE function for graph evolution"""
-    def __init__(self, hidden_dim, edge_index, use_periodic_activation, graph_encoder="gcn"):
+    def __init__(self, hidden_dim, edge_index, use_periodic_activation, graph_encoder="gcn", gnn_latent_dim=None):
         super(GraphODEFunc, self).__init__()
         self.edge_index = edge_index
         self.graph_encoder = graph_encoder
+        
+        # Use gnn_latent_dim if provided, otherwise use hidden_dim
+        latent_dim = gnn_latent_dim if gnn_latent_dim is not None else hidden_dim
         
         # Graph layers for state evolution
         self.graph_layers = nn.ModuleList()
         if graph_encoder == "gcn":
             self.graph_layers.extend([
-                GCNConv(hidden_dim, hidden_dim),
-                GCNConv(hidden_dim, hidden_dim)
+                GCNConv(hidden_dim, latent_dim),
+                GCNConv(latent_dim, hidden_dim)
             ])
         elif graph_encoder == "gat":
             self.graph_layers.extend([
-                GATConv(hidden_dim, hidden_dim, heads=1, dropout=0.3),  # Single head attention
-                GATConv(hidden_dim, hidden_dim, heads=1, dropout=0.3)   # Single head attention
+                GATConv(hidden_dim, latent_dim, heads=1, dropout=0.3),  # Single head attention
+                GATConv(latent_dim, hidden_dim, heads=1, dropout=0.3)   # Single head attention
             ])
         
         self.use_periodic_activation = use_periodic_activation
@@ -218,7 +227,7 @@ class GraphODEFunc(nn.Module):
 
 class NeuralGDEForecaster(nn.Module):
     def __init__(self, input_dim, hidden_dim, time_series_length, forecast_length, 
-                 num_nodes, use_periodic_activation, graph_encoder="gcn"):
+                 num_nodes, use_periodic_activation, graph_encoder="gcn", gnn_latent_dim=None):
         """
         Neural GDE with encoder-decoder structure for forecasting
         
@@ -230,6 +239,7 @@ class NeuralGDEForecaster(nn.Module):
             num_nodes (int): Number of nodes in the graph
             use_periodic_activation (bool): Whether to use periodic activation function
             graph_encoder (str): Type of graph encoder to use ("gcn" or "gat")
+            gnn_latent_dim (int, optional): Latent dimension for GNN layers
         """
         super(NeuralGDEForecaster, self).__init__()
         self.input_dim = input_dim
@@ -239,20 +249,24 @@ class NeuralGDEForecaster(nn.Module):
         self.num_nodes = num_nodes
         self.use_periodic_activation = use_periodic_activation
         self.graph_encoder = graph_encoder
+        self.gnn_latent_dim = gnn_latent_dim
 
+        # Use gnn_latent_dim if provided, otherwise use default values
+        latent_dim = gnn_latent_dim if gnn_latent_dim is not None else 64
+        
         # Graph layers for spatial relationships - input is 1 since we have scalar time series
         self.spatial_gcn = nn.ModuleList()
         if graph_encoder == "gcn":
             self.spatial_gcn.extend([
-                GCNConv(1, 64),  # Changed from input_dim to 1
-                GCNConv(64, hidden_dim),
+                GCNConv(1, latent_dim),  # Changed from fixed value to latent_dim
+                GCNConv(latent_dim, hidden_dim),
                 GCNConv(hidden_dim, hidden_dim)
             ])
         elif graph_encoder == "gat":
             self.spatial_gcn.extend([
-                GATConv(1, 32, heads=1, dropout=0.3),  # Single head, reduced dimension
-                GATConv(32, 64, heads=1, dropout=0.3),
-                GATConv(64, hidden_dim, heads=1, dropout=0.3)
+                GATConv(1, latent_dim // 2, heads=1, dropout=0.3),  # Single head, reduced dimension
+                GATConv(latent_dim // 2, latent_dim, heads=1, dropout=0.3),
+                GATConv(latent_dim, hidden_dim, heads=1, dropout=0.3)
             ])
         
         # Temporal attention
@@ -356,7 +370,8 @@ class NeuralGDEForecaster(nn.Module):
             hidden_dim=self.hidden_dim,
             edge_index=edge_index_batched,
             use_periodic_activation=self.use_periodic_activation,
-            graph_encoder=self.graph_encoder
+            graph_encoder=self.graph_encoder,
+            gnn_latent_dim=self.gnn_latent_dim
         ).to(device)
         
         # Create time points for forecasting
