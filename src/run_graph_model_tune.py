@@ -275,10 +275,13 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
             
         # Report metrics to Ray Tune
         tune.report(
-            train_loss=train_loss,
-            test_loss=test_loss,
-            train_rmse_recon=train_rmse_recon,
-            test_rmse_recon=test_rmse_recon
+            loss=test_loss,  # Primary metric (can be used for optimization)
+            test_rmse_recon=test_rmse_recon,  # This is what we'll optimize
+            training_iteration=epoch,
+            **{
+                "train_loss": train_loss,
+                "train_rmse_recon": train_rmse_recon
+            }
         )
         
         # Track best model
