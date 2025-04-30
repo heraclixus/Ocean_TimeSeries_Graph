@@ -4,7 +4,6 @@ import numpy as np
 import argparse
 import os
 import json
-import sys
 from tqdm import tqdm
 import ray
 from ray import tune
@@ -21,9 +20,6 @@ from pygtemporal_models.graph_dataset_enso import (
 from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
 from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
 from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
-
-# Create results directory
-os.makedirs("results", exist_ok=True)
 
 # Global tracking of results
 all_results = []
@@ -297,12 +293,6 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         "train_rmse_recon": train_rmse_recon
     }
     
-    # Also save to a local file for this trial
-    trial_id = os.environ.get("TUNE_TRIAL_ID", "unknown_trial")
-    results_file = f"results/trial_{trial_id}_results.json"
-    with open(results_file, "w") as f:
-        json.dump(result, f, indent=4)
-    
     print(f"Trial completed with best test RMSE: {best_test_rmse_recon:.4f}")
     
     # Add to global results
@@ -393,15 +383,6 @@ def main():
         if best_result is None or result["test_rmse_recon"] < best_result["test_rmse_recon"]:
             best_result = result
     
-    # If no results in global tracker, try to load from files
-    if best_result is None:
-        all_result_files = [f for f in os.listdir("results") if f.startswith("trial_") and f.endswith("_results.json")]
-        for file in all_result_files:
-            with open(os.path.join("results", file), "r") as f:
-                result = json.load(f)
-                if best_result is None or result["test_rmse_recon"] < best_result["test_rmse_recon"]:
-                    best_result = result
-    
     # If we found a best result, print and save it
     if best_result:
         print("\nBest Hyperparameters:")
@@ -412,6 +393,7 @@ def main():
         print(f"Train RMSE: {best_result.get('train_rmse_recon', 'N/A')}")
         
         # Save the best hyperparameters to a file
+        os.makedirs("results", exist_ok=True)  # Ensure directory exists
         best_params_file = f"results/best_params_{args.model_name}_{args.graph_encoder}.json"
         with open(best_params_file, "w") as f:
             json.dump(best_result["config"], f, indent=4)
