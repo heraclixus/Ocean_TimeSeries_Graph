@@ -6,8 +6,8 @@ from tqdm import tqdm
 import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
-from ray.tune.integration.wandb import wandb_mixin
-from ray.tune.integration.wandb import WandbLoggerCallback
+from ray.air.integrations.wandb import wandb_mixin
+from ray.air.integrations.wandb import WandbLoggerCallback
 from utils_pca import reconstruct_enso
 import wandb
 
