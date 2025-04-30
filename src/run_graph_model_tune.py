@@ -273,16 +273,18 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         train_rmse_recon = np.mean(train_rmses_recon)
         test_rmse_recon = np.mean(test_rmses_recon)
             
-        # Report metrics to Ray Tune - use the simplest format
-        metrics = {
-            "test_rmse_recon": test_rmse_recon,
-            "train_rmse_recon": train_rmse_recon,
-            "test_loss": test_loss,
-            "train_loss": train_loss
-        }
-        tune.report(**metrics)
+        # Print metrics instead of reporting to Ray Tune
+        print(f"[Trial {tune.get_trial_id()}] Epoch {epoch}: "
+              f"test_rmse_recon={test_rmse_recon:.4f}, "
+              f"train_rmse_recon={train_rmse_recon:.4f}, "
+              f"test_loss={test_loss:.4f}, "
+              f"train_loss={train_loss:.4f}")
         
-        # Track best model
+        # Save the current metrics for Ray Tune to track - use only a single metric for simplicity
+        if epoch == args.epochs_per_tune - 1:  # Only report on the last epoch
+            tune.report(rmse=test_rmse_recon)
+        
+        # Track best model locally
         if test_rmse_recon < best_test_rmse_recon:
             best_test_rmse_recon = test_rmse_recon
 
@@ -358,16 +360,11 @@ def main():
     
     # Define scheduler for early stopping
     scheduler = ASHAScheduler(
-        metric="test_rmse_recon",
+        metric="rmse",
         mode="min",
-        max_t=args.max_num_epochs,
-        grace_period=5,
+        max_t=1,  # Just one epoch per trial (which will be our last epoch)
+        grace_period=1,
         reduction_factor=2
-    )
-    
-    # Define reporter for printing progress
-    reporter = CLIReporter(
-        metric_columns=["train_loss", "test_loss", "train_rmse_recon", "test_rmse_recon", "training_iteration"]
     )
     
     # Run hyperparameter search
@@ -377,15 +374,15 @@ def main():
         config=config,
         num_samples=args.num_samples,
         scheduler=scheduler,
-        progress_reporter=reporter,
-        name=f"tune_{args.model_name}_{args.graph_encoder}"
+        name=f"tune_{args.model_name}_{args.graph_encoder}",
+        verbose=1  # Reduce verbosity since we're printing manually
     )
     
-    # Get best trial based on test RMSE reconstruction
-    best_trial = result.get_best_trial("test_rmse_recon", "min", "last")
+    # Get best trial based on RMSE reconstruction
+    best_trial = result.get_best_trial("rmse", "min", "last")
     print(f"Best trial config: {best_trial.config}")
-    print(f"Best trial final test RMSE reconstruction: {best_trial.last_result['test_rmse_recon']}")
-    print(f"Best trial final train RMSE reconstruction: {best_trial.last_result['train_rmse_recon']}")
+    print(f"Best trial final test RMSE reconstruction: {best_trial.last_result['rmse']}")
+    print(f"Best trial final train RMSE reconstruction: {best_trial.last_result.get('train_rmse_recon', 'N/A')}")
     
     # Apply the best hyperparameters to the original args
     args.hidden_size = best_trial.config["hidden_size"]
