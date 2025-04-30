@@ -6,7 +6,6 @@ from tqdm import tqdm
 import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
-from ray.air.integrations.wandb import WandbLoggerCallback
 from utils_pca import reconstruct_enso
 
 # Import the dataset class
@@ -284,15 +283,7 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         if test_rmse_recon < best_test_rmse_recon:
             best_test_rmse_recon = test_rmse_recon
     
-    # After all epochs, report metrics to tune for wandb integration
-    # tune.report(
-    #     test_rmse_recon=best_test_rmse_recon,
-    #     train_rmse_recon=train_rmse_recon,
-    #     test_loss=test_loss,
-    #     train_loss=train_loss
-    # )
-    
-    # Save the results to our global tracker
+    # After all epochs, save the results to our global tracker
     global all_results
     result = {
         "config": config,
@@ -350,10 +341,6 @@ def main():
                        help="Number of GPUs per trial")
     parser.add_argument("--cpus_per_trial", type=int, default=8,
                        help="Number of CPUs per trial")
-    parser.add_argument("--wandb_project", type=str, default="ocean_graph_ts",
-                       help="Weights & Biases project name")
-    parser.add_argument("--wandb_api_key", type=str, default="853c7fee8ce1ad1cf4cb1520d0fd750dce2e9b60",
-                       help="Weights & Biases API key (optional if already logged in)")
 
     args = parser.parse_args()
     # Default to True for use_region_data if not specified
@@ -379,7 +366,7 @@ def main():
         config["gnn_latent_dim"] = tune.choice([16, 32, 64])
         config["graph_encoder"] = tune.choice(["gcn", "gat"])
     
-    # Run trials with wandb integration using the logger callback
+    # Run trials
     experiment_name = f"{args.model_name}_{args.graph_encoder}_tuning"
     
     analysis = tune.run(
@@ -388,12 +375,7 @@ def main():
         config=config,
         num_samples=args.num_samples,
         verbose=1,
-        name=experiment_name,
-        callbacks=[WandbLoggerCallback(
-            project=args.wandb_project,
-            api_key=args.wandb_api_key,
-            log_config=True
-        )]
+        name=experiment_name
     )
     
     # Find the best trial from our global tracker
