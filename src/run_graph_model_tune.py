@@ -6,7 +6,6 @@ from tqdm import tqdm
 import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
-from ray.air.integrations.wandb import wandb_mixin
 from ray.air.integrations.wandb import WandbLoggerCallback
 from utils_pca import reconstruct_enso
 import wandb
@@ -25,7 +24,6 @@ from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
 # Global tracking of results
 all_results = []
 
-@wandb_mixin
 def train_graph_model(config, checkpoint_dir=None, args=None):
     """
     Training function for ray tune with wandb integration
