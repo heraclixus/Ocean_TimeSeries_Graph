@@ -21,7 +21,6 @@ from pygtemporal_models.graph_dataset_enso import (
 # Import models
 from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
 from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
-from baseline_models.utils import save_results
 from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
 
 def train_graph_model(config, checkpoint_dir=None, args=None):
