@@ -302,7 +302,7 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", type=str, default="../data/wrapped_grid_graph.pt",
+    parser.add_argument("--input_file", type=str, default="/home/mosaicml/Ocean_TimeSeries_Graph/data/wrapped_grid_graph.pt",
                        help="Path to graph file for ENSO dataset")
     parser.add_argument("--model_name", type=str, default="graphode",
                        choices=["node", "graphode"],

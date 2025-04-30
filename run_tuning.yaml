@@ -3,22 +3,24 @@ image: mosaicml/pytorch:latest-aws
 command: |-  
   cd home/mosaicml
   git clone git@github.com:heraclixus/Ocean_TimeSeries_Graph.git
-
   pip install gitpython wandb ray ray[tune] optuna
   pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
   pip install torch_geometric
   pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.5.1+cu124.html
-  pip install numpy scipy pandas matplotlib
+  pip install numpy scipy pandas matplotlib seaborn
   pip install scikit-learn
   pip install toml tqdm
   pip install torchsde
   pip install torchdiffeq
   pip install networkx
-  pip install json
+  pip install netCDF4
+  pip install torch-geometric-temporal
+  pip install xarray
+  pip install xskillscore
 
   cd Ocean_TimeSeries_Graph
   cd src
-  python run_graph_model_tune.py --config config/spdeode_rm_baseline.json
+  python run_graph_model_tune.py
 
 compute:
   cluster: r4z13p2
