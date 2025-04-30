@@ -18,6 +18,11 @@ command: |-
   pip install xarray
   pip install xskillscore
 
+  export WANDB_ENTITY="Ocean_TimeSeries_Graph"
+  export WANDB_PROJECT="ocean_graph_ts"
+  export WANDB_NAME="ocean_graph_tuning"
+  export WANDB_API_KEY="853c7fee8ce1ad1cf4cb1520d0fd750dce2e9b60"
+
   cd Ocean_TimeSeries_Graph
   cd src
   python run_graph_model_tune.py

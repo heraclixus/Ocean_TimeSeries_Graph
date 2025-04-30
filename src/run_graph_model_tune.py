@@ -6,7 +6,10 @@ from tqdm import tqdm
 import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
+from ray.tune.integration.wandb import wandb_mixin
+from ray.tune.integration.wandb import WandbLoggerCallback
 from utils_pca import reconstruct_enso
+import wandb
 
 # Import the dataset class
 from pygtemporal_models.graph_dataset_enso import (
@@ -22,15 +25,20 @@ from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
 # Global tracking of results
 all_results = []
 
+@wandb_mixin
 def train_graph_model(config, checkpoint_dir=None, args=None):
     """
-    Training function for ray tune
+    Training function for ray tune with wandb integration
     
     Args:
         config: hyperparameters from ray tune
         checkpoint_dir: directory for checkpoints
         args: command line arguments
     """
+    # Initialize wandb for this trial
+    experiment_name = f"{args.model_name}_{args.graph_encoder}_tuning"
+    wandb.init(project="ocean_ts_graph", name=experiment_name, config=config)
+    
     # Update args with config parameters
     for key, value in config.items():
         setattr(args, key, value)
@@ -272,7 +280,16 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         train_rmse_recon = np.mean(train_rmses_recon)
         test_rmse_recon = np.mean(test_rmses_recon)
             
-        # Print metrics instead of reporting to Ray Tune
+        # Log metrics to wandb
+        wandb.log({
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "test_loss": test_loss,
+            "train_rmse_recon": train_rmse_recon,
+            "test_rmse_recon": test_rmse_recon
+        })
+        
+        # Print metrics
         print(f"Epoch {epoch}: "
               f"test_rmse_recon={test_rmse_recon:.4f}, "
               f"train_rmse_recon={train_rmse_recon:.4f}, "
@@ -282,19 +299,31 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         # Track best model locally
         if test_rmse_recon < best_test_rmse_recon:
             best_test_rmse_recon = test_rmse_recon
+            # Log best model metric to wandb
+            wandb.run.summary["best_test_rmse_recon"] = best_test_rmse_recon
     
-    # After all epochs, save the results to our global tracker
+    # After all epochs, log final metrics to tune
+    tune.report(test_rmse_recon=best_test_rmse_recon)
+    
+    # Log final best metric to wandb
+    wandb.log({"final_best_test_rmse_recon": best_test_rmse_recon})
+    
+    # Save the results to our global tracker
     global all_results
     result = {
         "config": config,
         "test_rmse_recon": best_test_rmse_recon,
-        "train_rmse_recon": train_rmse_recon
+        "train_rmse_recon": train_rmse_recon,
+        "wandb_run_id": wandb.run.id  # Store wandb run ID for reference
     }
     
     print(f"Trial completed with best test RMSE: {best_test_rmse_recon:.4f}")
     
     # Add to global results
     all_results.append(result)
+    
+    # Finish wandb run
+    wandb.finish()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -341,11 +370,19 @@ def main():
                        help="Number of GPUs per trial")
     parser.add_argument("--cpus_per_trial", type=int, default=8,
                        help="Number of CPUs per trial")
+    parser.add_argument("--wandb_project", type=str, default="ocean_graph_ts",
+                       help="Weights & Biases project name")
+    parser.add_argument("--wandb_api_key", type=str, default="853c7fee8ce1ad1cf4cb1520d0fd750dce2e9b60",
+                       help="Weights & Biases API key (optional if already logged in)")
 
     args = parser.parse_args()
     # Default to True for use_region_data if not specified
     if not hasattr(args, 'use_region_data') or args.use_region_data is None:
         args.use_region_data = True
+    
+    # Initialize wandb if API key is provided
+    if args.wandb_api_key:
+        wandb.login(key=args.wandb_api_key)
 
     # Initialize Ray
     ray.init(num_cpus=args.cpus_per_trial * 2, num_gpus=2)
@@ -366,13 +403,26 @@ def main():
         config["gnn_latent_dim"] = tune.choice([16, 32, 64])
         config["graph_encoder"] = tune.choice(["gcn", "gat"])
     
-    # Run trials without a scheduler
+    # Configure wandb integration
+    wandb_config = {
+        "project": args.wandb_project,
+        "api_key": args.wandb_api_key,
+        "log_config": True
+    }
+    
+    # Run trials with wandb integration
     analysis = tune.run(
         tune.with_parameters(train_graph_model, args=args),
         resources_per_trial={"cpu": args.cpus_per_trial, "gpu": args.gpus_per_trial},
         config=config,
         num_samples=args.num_samples,
-        verbose=1
+        verbose=1,
+        name=f"{args.model_name}_{args.graph_encoder}_tuning",
+        callbacks=[WandbLoggerCallback(
+            project=args.wandb_project,
+            log_config=True,
+            api_key=args.wandb_api_key
+        )]
     )
     
     # Find the best trial from our global tracker
@@ -381,7 +431,7 @@ def main():
         if best_result is None or result["test_rmse_recon"] < best_result["test_rmse_recon"]:
             best_result = result
     
-    # If we found a best result, print it
+    # If we found a best result, print it and log to wandb
     if best_result:
         print("\nBest Hyperparameters:")
         for key, value in best_result["config"].items():
@@ -389,6 +439,14 @@ def main():
             
         print(f"\nBest test RMSE: {best_result['test_rmse_recon']}")
         print(f"Train RMSE: {best_result.get('train_rmse_recon', 'N/A')}")
+        
+        # Log best overall result to wandb
+        wandb.init(project=args.wandb_project, name="best_hyperparameters_summary")
+        wandb.config.update(best_result["config"])
+        wandb.log({"best_test_rmse_recon": best_result["test_rmse_recon"]})
+        if "wandb_run_id" in best_result:
+            wandb.log({"best_run_id": best_result["wandb_run_id"]})
+        wandb.finish()
         
         # Apply the best hyperparameters to the original args
         args.hidden_size = best_result["config"]["hidden_size"]
