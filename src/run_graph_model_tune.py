@@ -8,7 +8,6 @@ import sys
 from tqdm import tqdm
 import ray
 from ray import tune
-from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
 from utils_pca import reconstruct_enso
 
@@ -22,6 +21,12 @@ from pygtemporal_models.graph_dataset_enso import (
 from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
 from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
 from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
+
+# Create results directory
+os.makedirs("results", exist_ok=True)
+
+# Global tracking of results
+all_results = []
 
 def train_graph_model(config, checkpoint_dir=None, args=None):
     """
@@ -280,13 +285,28 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
               f"test_loss={test_loss:.4f}, "
               f"train_loss={train_loss:.4f}")
         
-        # Save the current metrics for Ray Tune to track - use only a single metric for simplicity
-        if epoch == args.epochs_per_tune - 1:  # Only report on the last epoch
-            tune.report(rmse=test_rmse_recon)
-        
         # Track best model locally
         if test_rmse_recon < best_test_rmse_recon:
             best_test_rmse_recon = test_rmse_recon
+    
+    # After all epochs, save the results to our global tracker
+    global all_results
+    result = {
+        "config": config,
+        "test_rmse_recon": best_test_rmse_recon,
+        "train_rmse_recon": train_rmse_recon
+    }
+    
+    # Also save to a local file for this trial
+    trial_id = os.environ.get("TUNE_TRIAL_ID", "unknown_trial")
+    results_file = f"results/trial_{trial_id}_results.json"
+    with open(results_file, "w") as f:
+        json.dump(result, f, indent=4)
+    
+    print(f"Trial completed with best test RMSE: {best_test_rmse_recon:.4f}")
+    
+    # Add to global results
+    all_results.append(result)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -358,59 +378,59 @@ def main():
         config["gnn_latent_dim"] = tune.choice([16, 32, 64])
         config["graph_encoder"] = tune.choice(["gcn", "gat"])
     
-    # Define scheduler for early stopping
-    scheduler = ASHAScheduler(
-        metric="rmse",
-        mode="min",
-        max_t=1,  # Just one epoch per trial (which will be our last epoch)
-        grace_period=1,
-        reduction_factor=2
-    )
-    
-    # Run hyperparameter search
-    result = tune.run(
+    # Run trials without a scheduler
+    analysis = tune.run(
         tune.with_parameters(train_graph_model, args=args),
         resources_per_trial={"cpu": args.cpus_per_trial, "gpu": args.gpus_per_trial},
         config=config,
         num_samples=args.num_samples,
-        scheduler=scheduler,
-        name=f"tune_{args.model_name}_{args.graph_encoder}",
-        verbose=1  # Reduce verbosity since we're printing manually
+        verbose=1
     )
     
-    # Get best trial based on RMSE reconstruction
-    best_trial = result.get_best_trial("rmse", "min", "last")
-    print(f"Best trial config: {best_trial.config}")
-    print(f"Best trial final test RMSE reconstruction: {best_trial.last_result['rmse']}")
-    print(f"Best trial final train RMSE reconstruction: {best_trial.last_result.get('train_rmse_recon', 'N/A')}")
+    # Find the best trial from our global tracker
+    best_result = None
+    for result in all_results:
+        if best_result is None or result["test_rmse_recon"] < best_result["test_rmse_recon"]:
+            best_result = result
     
-    # Apply the best hyperparameters to the original args
-    args.hidden_size = best_trial.config["hidden_size"]
-    args.learning_rate = best_trial.config["learning_rate"]
-    args.batch_size = best_trial.config["batch_size"]
-    args.ode_encoder_decoder = best_trial.config["ode_encoder_decoder"]
-    args.use_periodic_activation = best_trial.config["use_periodic_activation"]
-    args.use_region_only = best_trial.config["use_region_only"]
+    # If no results in global tracker, try to load from files
+    if best_result is None:
+        all_result_files = [f for f in os.listdir("results") if f.startswith("trial_") and f.endswith("_results.json")]
+        for file in all_result_files:
+            with open(os.path.join("results", file), "r") as f:
+                result = json.load(f)
+                if best_result is None or result["test_rmse_recon"] < best_result["test_rmse_recon"]:
+                    best_result = result
     
-    if args.model_name == "graphode":
-        args.gnn_latent_dim = best_trial.config.get("gnn_latent_dim", None)
-        args.graph_encoder = best_trial.config.get("graph_encoder", "gcn")
-    
-    # Print best hyperparameters
-    print("\nBest Hyperparameters:")
-    for key, value in best_trial.config.items():
-        print(f"{key}: {value}")
+    # If we found a best result, print and save it
+    if best_result:
+        print("\nBest Hyperparameters:")
+        for key, value in best_result["config"].items():
+            print(f"{key}: {value}")
+            
+        print(f"\nBest test RMSE: {best_result['test_rmse_recon']}")
+        print(f"Train RMSE: {best_result.get('train_rmse_recon', 'N/A')}")
         
-    # Save the best hyperparameters to a file
-    # Create results directory if it doesn't exist
-    os.makedirs("results", exist_ok=True)
-    
-    # Save best hyperparameters to a JSON file
-    best_params_file = f"results/best_params_{args.model_name}_{args.graph_encoder}.json"
-    with open(best_params_file, "w") as f:
-        json.dump(best_trial.config, f, indent=4)
-    
-    print(f"\nBest hyperparameters saved to {best_params_file}")
+        # Save the best hyperparameters to a file
+        best_params_file = f"results/best_params_{args.model_name}_{args.graph_encoder}.json"
+        with open(best_params_file, "w") as f:
+            json.dump(best_result["config"], f, indent=4)
+        
+        print(f"\nBest hyperparameters saved to {best_params_file}")
+        
+        # Apply the best hyperparameters to the original args
+        args.hidden_size = best_result["config"]["hidden_size"]
+        args.learning_rate = best_result["config"]["learning_rate"]
+        args.batch_size = best_result["config"]["batch_size"]
+        args.ode_encoder_decoder = best_result["config"]["ode_encoder_decoder"]
+        args.use_periodic_activation = best_result["config"]["use_periodic_activation"]
+        args.use_region_only = best_result["config"]["use_region_only"]
+        
+        if args.model_name == "graphode":
+            args.gnn_latent_dim = best_result["config"].get("gnn_latent_dim", None)
+            args.graph_encoder = best_result["config"].get("graph_encoder", "gcn")
+    else:
+        print("\nNo results found. Check if trials completed successfully.")
 
 if __name__ == "__main__":
     main() 
