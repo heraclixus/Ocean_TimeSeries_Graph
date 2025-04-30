@@ -273,16 +273,14 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         train_rmse_recon = np.mean(train_rmses_recon)
         test_rmse_recon = np.mean(test_rmses_recon)
             
-        # Report metrics to Ray Tune
-        tune.report(
-            loss=test_loss,  # Primary metric (can be used for optimization)
-            test_rmse_recon=test_rmse_recon,  # This is what we'll optimize
-            training_iteration=epoch,
-            **{
-                "train_loss": train_loss,
-                "train_rmse_recon": train_rmse_recon
-            }
-        )
+        # Report metrics to Ray Tune - use the simplest format
+        metrics = {
+            "test_rmse_recon": test_rmse_recon,
+            "train_rmse_recon": train_rmse_recon,
+            "test_loss": test_loss,
+            "train_loss": train_loss
+        }
+        tune.report(**metrics)
         
         # Track best model
         if test_rmse_recon < best_test_rmse_recon:
