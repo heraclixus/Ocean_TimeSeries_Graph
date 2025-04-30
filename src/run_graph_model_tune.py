@@ -2,8 +2,6 @@ import torch
 import torch.optim as optim
 import numpy as np
 import argparse
-import os
-import json
 from tqdm import tqdm
 import ray
 from ray import tune
@@ -355,7 +353,7 @@ def main():
     # Define hyperparameter search space
     config = {
         "hidden_size": tune.choice([32, 64, 128, 256]),
-        "learning_rate": tune.loguniform(1e-4, 1e-2),
+        "learning_rate": tune.loguniform(1e-5, 1e-3),
         "batch_size": tune.choice([16, 32, 64, 128]),
         "ode_encoder_decoder": tune.choice([True, False]),
         "use_periodic_activation": tune.choice([True, False]),
@@ -383,7 +381,7 @@ def main():
         if best_result is None or result["test_rmse_recon"] < best_result["test_rmse_recon"]:
             best_result = result
     
-    # If we found a best result, print and save it
+    # If we found a best result, print it
     if best_result:
         print("\nBest Hyperparameters:")
         for key, value in best_result["config"].items():
@@ -391,14 +389,6 @@ def main():
             
         print(f"\nBest test RMSE: {best_result['test_rmse_recon']}")
         print(f"Train RMSE: {best_result.get('train_rmse_recon', 'N/A')}")
-        
-        # Save the best hyperparameters to a file
-        os.makedirs("results", exist_ok=True)  # Ensure directory exists
-        best_params_file = f"results/best_params_{args.model_name}_{args.graph_encoder}.json"
-        with open(best_params_file, "w") as f:
-            json.dump(best_result["config"], f, indent=4)
-        
-        print(f"\nBest hyperparameters saved to {best_params_file}")
         
         # Apply the best hyperparameters to the original args
         args.hidden_size = best_result["config"]["hidden_size"]
