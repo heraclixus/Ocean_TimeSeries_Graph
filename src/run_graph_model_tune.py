@@ -335,7 +335,7 @@ def main():
                        help="Use periodic activation")
     parser.add_argument("--use_region_only", action="store_true",
                        help="Use only nodes in the ENSO region")
-    parser.add_argument("--add_sin_cos", action="store_true",
+    parser.add_argument("--add_sin_cos", action="store_true", default=False,
                        help="Add sin and cos to the input")
     parser.add_argument("--use_region_data", action="store_true", default=True,
                         help="Use only region data for evaluation (default=True)")
@@ -361,8 +361,7 @@ def main():
         "batch_size": tune.choice([16, 32, 64, 128]),
         "ode_encoder_decoder": tune.choice([True, False]),
         "use_periodic_activation": tune.choice([True, False]),
-        "use_region_only": tune.choice([True, False]),
-        "add_sin_cos": tune.choice([True, False])
+        "use_region_only": tune.choice([True, False])
     }
     
     # Add model-specific hyperparameters
@@ -409,7 +408,6 @@ def main():
     args.ode_encoder_decoder = best_trial.config["ode_encoder_decoder"]
     args.use_periodic_activation = best_trial.config["use_periodic_activation"]
     args.use_region_only = best_trial.config["use_region_only"]
-    args.add_sin_cos = best_trial.config["add_sin_cos"]
     
     if args.model_name == "graphode":
         args.gnn_latent_dim = best_trial.config.get("gnn_latent_dim", None)
