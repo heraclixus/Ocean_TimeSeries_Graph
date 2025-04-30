@@ -274,7 +274,7 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         test_rmse_recon = np.mean(test_rmses_recon)
             
         # Print metrics instead of reporting to Ray Tune
-        print(f"[Trial {tune.get_trial_id()}] Epoch {epoch}: "
+        print(f"Epoch {epoch}: "
               f"test_rmse_recon={test_rmse_recon:.4f}, "
               f"train_rmse_recon={train_rmse_recon:.4f}, "
               f"test_loss={test_loss:.4f}, "
