@@ -313,9 +313,9 @@ def main():
                        help="Learning rate for training")
     parser.add_argument("--epochs", type=int, default=500,
                        help="Number of epochs to train for")
-    parser.add_argument("--epochs_per_tune", type=int, default=10,
+    parser.add_argument("--epochs_per_tune", type=int, default=500,
                        help="Number of epochs to train for each tune trial")
-    parser.add_argument("--num_samples", type=int, default=10,
+    parser.add_argument("--num_samples", type=int, default=200,
                        help="Number of hyperparameter samples for Ray Tune")
     parser.add_argument("--use_normalization", action="store_true", default=True,
                        help="Whether to normalize the data")
@@ -353,7 +353,7 @@ def main():
     # Define hyperparameter search space
     config = {
         "hidden_size": tune.choice([32, 64, 128, 256]),
-        "learning_rate": tune.loguniform(1e-5, 1e-3),
+        "learning_rate": tune.choice([1e-5, 1e-4, 1e-3]),
         "batch_size": tune.choice([16, 32, 64, 128]),
         "ode_encoder_decoder": tune.choice([True, False]),
         "use_periodic_activation": tune.choice([True, False]),
