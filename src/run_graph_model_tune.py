@@ -3,14 +3,14 @@ import torch.optim as optim
 import numpy as np
 import argparse
 import os
+import json
+import sys
 from tqdm import tqdm
 import ray
 from ray import tune
 from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
 from utils_pca import reconstruct_enso
-import json
-import sys
 
 # Import the dataset class
 from pygtemporal_models.graph_dataset_enso import (
@@ -137,18 +137,8 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
                 gnn_latent_dim=config.get("gnn_latent_dim", None)
             ).to(device)
 
-    # Load checkpoint if provided
-    if checkpoint_dir:
-        checkpoint = os.path.join(checkpoint_dir, "checkpoint.pt")
-        model_state, optimizer_state = torch.load(checkpoint)
-        model.load_state_dict(model_state)
-
     # Training setup
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-    
-    # If loading from checkpoint, load optimizer state
-    if checkpoint_dir:
-        optimizer.load_state_dict(optimizer_state)
 
     # Training loop
     best_test_rmse_recon = float('inf')
@@ -282,11 +272,6 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         test_loss = np.mean(test_losses)
         train_rmse_recon = np.mean(train_rmses_recon)
         test_rmse_recon = np.mean(test_rmses_recon)
-        
-        # Save checkpoint
-        with tune.checkpoint_dir(epoch) as checkpoint_dir:
-            path = os.path.join(checkpoint_dir, "checkpoint.pt")
-            torch.save((model.state_dict(), optimizer.state_dict()), path)
             
         # Report metrics to Ray Tune
         tune.report(
@@ -428,33 +413,6 @@ def main():
         json.dump(best_trial.config, f, indent=4)
     
     print(f"\nBest hyperparameters saved to {best_params_file}")
-    
-    # Train a final model using the best hyperparameters
-    print("\nTraining final model with best hyperparameters...")
-    
-    # Update args with best configuration
-    for key, value in best_trial.config.items():
-        setattr(args, key, value)
-    
-    args.epochs = args.epochs  # Use the full number of epochs for final training
-    
-    # Get checkpoint path of best trial
-    best_checkpoint = os.path.join(best_trial.checkpoint.value, "checkpoint.pt")
-    
-    try:
-        # Try to import the main training function from run_graph_models.py
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from run_graph_models import main as train_main
-        
-        # Run the main training function with the best hyperparameters
-        args.from_checkpoint = best_checkpoint
-        args.save_best_model = True
-        train_main(args)
-        
-        print("\nFinal model training complete!")
-    except ImportError:
-        print("\nCould not import run_graph_models.py for final training.")
-        print("You can manually train the final model using the saved hyperparameters.")
 
 if __name__ == "__main__":
     main() 
