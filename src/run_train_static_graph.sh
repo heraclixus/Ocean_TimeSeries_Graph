@@ -1,3 +1,5 @@
+CUDA_VISIBLE_DEVICES=6 nohup python run_graph_models.py --model_name=graphode --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=128 --gnn_latent_dim=32 --graph_encoder=gcn --hidden_size=64 --learning_rate=0.00001 --ode_encoder_decoder &> log_graphode_config1.txt &
+CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py --model_name=graphode --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=32 --gnn_latent_dim=32 --graph_encoder=gcn --hidden_size=32 --learning_rate=0.0001 --use_periodic_activation &> log_graphode_config2.txt &
 # CUDA_VISIBLE_DEVICES=2 nohup python run_pygtemporal_models.py --model_name=wavenet --use_normalization &> log_wavenet.txt &
 # CUDA_VISIBLE_DEVICES=0 nohup python run_pygtemporal_models.py --model_name=stemgnn --use_normalization &> log_stemgnn.txt &
 # CUDA_VISIBLE_DEVICES=1 nohup python run_pygtemporal_models.py --model_name=agcrn --use_normalization &> log_agcrn.txt &

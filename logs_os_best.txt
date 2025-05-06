@@ -1,0 +1,159 @@
+[36m(train_graph_model pid=2028)[0m Trial completed with best test RMSE: 2.0727
+[36m(train_graph_model pid=3100)[0m Trial completed with best test RMSE: 0.7591
+[36m(train_graph_model pid=4439)[0m Trial completed with best test RMSE: 1.0906
+[36m(train_graph_model pid=3966)[0m Trial completed with best test RMSE: 2.0118
+[36m(train_graph_model pid=5182)[0m Trial completed with best test RMSE: 0.7469
+[36m(train_graph_model pid=5863)[0m Trial completed with best test RMSE: 0.7121
+[36m(train_graph_model pid=20076)[0m Trial completed with best test RMSE: 0.7816
+[36m(train_graph_model pid=16004)[0m Trial completed with best test RMSE: 1.0805
+[36m(train_graph_model pid=23065)[0m Trial completed with best test RMSE: 0.8042
+[36m(train_graph_model pid=37553)[0m Trial completed with best test RMSE: 0.7648
+[36m(train_graph_model pid=28480)[0m Trial completed with best test RMSE: 13.0736
+[36m(train_graph_model pid=39068)[0m Trial completed with best test RMSE: 0.7271
+[36m(train_graph_model pid=52663)[0m Trial completed with best test RMSE: 0.8457
+[36m(train_graph_model pid=53703)[0m Trial completed with best test RMSE: 0.8099
+[36m(train_graph_model pid=43495)[0m Trial completed with best test RMSE: 1.7828
+[36m(train_graph_model pid=55462)[0m Trial completed with best test RMSE: 0.7671
+[36m(train_graph_model pid=57148)[0m Trial completed with best test RMSE: 1.8389
+[36m(train_graph_model pid=56609)[0m Trial completed with best test RMSE: 0.8297
+[36m(train_graph_model pid=68291)[0m Trial completed with best test RMSE: 0.7442
+[36m(train_graph_model pid=59497)[0m Trial completed with best test RMSE: 0.6917
+[36m(train_graph_model pid=69898)[0m Trial completed with best test RMSE: 0.7470
+[36m(train_graph_model pid=81612)[0m Trial completed with best test RMSE: 0.7565
+[36m(train_graph_model pid=82986)[0m Trial completed with best test RMSE: 0.8635
+[36m(train_graph_model pid=78031)[0m Trial completed with best test RMSE: 0.7340
+[36m(train_graph_model pid=93685)[0m Trial completed with best test RMSE: 0.8147
+[36m(train_graph_model pid=96500)[0m Trial completed with best test RMSE: 0.7597
+[36m(train_graph_model pid=84268)[0m Trial completed with best test RMSE: 0.6959
+[36m(train_graph_model pid=98201)[0m Trial completed with best test RMSE: 0.7547
+[36m(train_graph_model pid=101150)[0m Trial completed with best test RMSE: 1.0373
+[36m(train_graph_model pid=102197)[0m Trial completed with best test RMSE: 0.7312
+[36m(train_graph_model pid=103793)[0m Trial completed with best test RMSE: 0.7725
+[36m(train_graph_model pid=106068)[0m Trial completed with best test RMSE: 0.7456
+[36m(train_graph_model pid=107777)[0m Trial completed with best test RMSE: 0.7476
+[36m(train_graph_model pid=98705)[0m Trial completed with best test RMSE: 0.7483
+[36m(train_graph_model pid=111694)[0m Trial completed with best test RMSE: 0.7839
+[36m(train_graph_model pid=108822)[0m Trial completed with best test RMSE: 0.7605
+[36m(train_graph_model pid=122364)[0m Trial completed with best test RMSE: 2.5105
+[36m(train_graph_model pid=123817)[0m Trial completed with best test RMSE: 0.7537
+[36m(train_graph_model pid=114693)[0m Trial completed with best test RMSE: 6.3872
+[36m(train_graph_model pid=125196)[0m Trial completed with best test RMSE: 1.3339
+[36m(train_graph_model pid=136193)[0m Trial completed with best test RMSE: 1.6403
+[36m(train_graph_model pid=139145)[0m Trial completed with best test RMSE: 1.3627
+[36m(train_graph_model pid=140239)[0m Trial completed with best test RMSE: 1.2092
+[36m(train_graph_model pid=132429)[0m Trial completed with best test RMSE: 0.6901
+[36m(train_graph_model pid=141684)[0m Trial completed with best test RMSE: 4.1854
+[36m(train_graph_model pid=153027)[0m Trial completed with best test RMSE: 3.4000
+[36m(train_graph_model pid=147637)[0m Trial completed with best test RMSE: 2.1120
+[36m(train_graph_model pid=160926)[0m Trial completed with best test RMSE: 19.5694
+[36m(train_graph_model pid=154194)[0m Trial completed with best test RMSE: 0.7540
+[36m(train_graph_model pid=169953)[0m Trial completed with best test RMSE: 1.9409
+[36m(train_graph_model pid=164222)[0m Trial completed with best test RMSE: 1.3049
+[36m(train_graph_model pid=170720)[0m Trial completed with best test RMSE: 25.2099
+[36m(train_graph_model pid=181325)[0m Trial completed with best test RMSE: 1.7347
+[36m(train_graph_model pid=186040)[0m Trial completed with best test RMSE: 0.7456
+[36m(train_graph_model pid=197858)[0m Trial completed with best test RMSE: 0.7557
+[36m(train_graph_model pid=195930)[0m Trial completed with best test RMSE: 0.7432
+[36m(train_graph_model pid=198679)[0m Trial completed with best test RMSE: 0.6951
+[36m(train_graph_model pid=207803)[0m Trial completed with best test RMSE: 0.7569
+[36m(train_graph_model pid=211209)[0m Trial completed with best test RMSE: 0.8059
+[36m(train_graph_model pid=224951)[0m Trial completed with best test RMSE: 1.2289
+[36m(train_graph_model pid=220207)[0m Trial completed with best test RMSE: 2.2536
+[36m(train_graph_model pid=227185)[0m Trial completed with best test RMSE: 0.7505
+[36m(train_graph_model pid=242825)[0m Trial completed with best test RMSE: 0.7095
+[36m(train_graph_model pid=248364)[0m Trial completed with best test RMSE: 0.7687
+[36m(train_graph_model pid=236153)[0m Trial completed with best test RMSE: 0.7126
+[36m(train_graph_model pid=257482)[0m Trial completed with best test RMSE: 0.7577
+[36m(train_graph_model pid=258623)[0m Trial completed with best test RMSE: 0.6874
+[36m(train_graph_model pid=261732)[0m Trial completed with best test RMSE: 1.1674
+[36m(train_graph_model pid=250070)[0m Trial completed with best test RMSE: 0.7549
+[36m(train_graph_model pid=262964)[0m Trial completed with best test RMSE: 0.7666
+[36m(train_graph_model pid=263753)[0m Trial completed with best test RMSE: 2.1181
+[36m(train_graph_model pid=262552)[0m Trial completed with best test RMSE: 4.4176
+[36m(train_graph_model pid=265175)[0m Trial completed with best test RMSE: 0.7809
+[36m(train_graph_model pid=277088)[0m Trial completed with best test RMSE: 0.9002
+[36m(train_graph_model pid=277713)[0m Trial completed with best test RMSE: 0.7690
+[36m(train_graph_model pid=279722)[0m Trial completed with best test RMSE: 2.1576
+[36m(train_graph_model pid=278429)[0m Trial completed with best test RMSE: 0.8250
+[36m(train_graph_model pid=280700)[0m Trial completed with best test RMSE: 0.7213
+[36m(train_graph_model pid=301631)[0m Trial completed with best test RMSE: 0.7282
+[36m(train_graph_model pid=304428)[0m Trial completed with best test RMSE: 7.4109
+[36m(train_graph_model pid=290310)[0m Trial completed with best test RMSE: 1.3529
+[36m(train_graph_model pid=307439)[0m Trial completed with best test RMSE: 0.7112
+[36m(train_graph_model pid=306282)[0m Trial completed with best test RMSE: 0.7748
+[36m(train_graph_model pid=312986)[0m Trial completed with best test RMSE: 0.7129
+[36m(train_graph_model pid=317361)[0m Trial completed with best test RMSE: 0.8706
+[36m(train_graph_model pid=328784)[0m Trial completed with best test RMSE: 0.7667
+[36m(train_graph_model pid=318103)[0m Trial completed with best test RMSE: 0.7187
+[36m(train_graph_model pid=335581)[0m Trial completed with best test RMSE: 0.7438
+[36m(train_graph_model pid=338293)[0m Trial completed with best test RMSE: 0.7457
+[36m(train_graph_model pid=340011)[0m Trial completed with best test RMSE: 0.8540
+[36m(train_graph_model pid=329819)[0m Trial completed with best test RMSE: 0.7588
+[36m(train_graph_model pid=341041)[0m Trial completed with best test RMSE: 0.7643
+[36m(train_graph_model pid=342389)[0m Trial completed with best test RMSE: 43.2436
+[36m(train_graph_model pid=344895)[0m Trial completed with best test RMSE: 0.9099
+[36m(train_graph_model pid=345974)[0m Trial completed with best test RMSE: 31.9867
+[36m(train_graph_model pid=349284)[0m Trial completed with best test RMSE: 0.8645
+[36m(train_graph_model pid=350031)[0m Trial completed with best test RMSE: 0.6942
+[36m(train_graph_model pid=344004)[0m Trial completed with best test RMSE: 0.8530
+[36m(train_graph_model pid=352748)[0m Trial completed with best test RMSE: 12.3165
+[36m(train_graph_model pid=355865)[0m Trial completed with best test RMSE: 1.7835
+[36m(train_graph_model pid=367228)[0m Trial completed with best test RMSE: 0.7674
+[36m(train_graph_model pid=365650)[0m Trial completed with best test RMSE: 2.9948
+[36m(train_graph_model pid=378519)[0m Trial completed with best test RMSE: 0.7139
+[36m(train_graph_model pid=380438)[0m Trial completed with best test RMSE: 0.8243
+[36m(train_graph_model pid=381687)[0m Trial completed with best test RMSE: 1.0246
+[36m(train_graph_model pid=382853)[0m Trial completed with best test RMSE: 0.8022
+[36m(train_graph_model pid=382355)[0m Trial completed with best test RMSE: 0.9501
+[36m(train_graph_model pid=393754)[0m Trial completed with best test RMSE: 2.5469
+[36m(train_graph_model pid=395104)[0m Trial completed with best test RMSE: 0.8804
+[36m(train_graph_model pid=405928)[0m Trial completed with best test RMSE: 0.7446
+[36m(train_graph_model pid=407628)[0m Trial completed with best test RMSE: 5.6298
+[36m(train_graph_model pid=408776)[0m Trial completed with best test RMSE: 0.7721
+[36m(train_graph_model pid=394337)[0m Trial completed with best test RMSE: 0.6892
+[36m(train_graph_model pid=409870)[0m Trial completed with best test RMSE: 0.7515
+[36m(train_graph_model pid=411819)[0m Trial completed with best test RMSE: 0.7842
+[36m(train_graph_model pid=414181)[0m Trial completed with best test RMSE: 0.8699
+[36m(train_graph_model pid=415218)[0m Trial completed with best test RMSE: 0.8131
+[36m(train_graph_model pid=416272)[0m Trial completed with best test RMSE: 119.0969
+[36m(train_graph_model pid=410870)[0m Trial completed with best test RMSE: 0.7148
+[36m(train_graph_model pid=419539)[0m Trial completed with best test RMSE: 0.7644
+[36m(train_graph_model pid=428295)[0m Trial completed with best test RMSE: 1.7647
+[36m(train_graph_model pid=439662)[0m Trial completed with best test RMSE: 0.7883
+[36m(train_graph_model pid=433865)[0m Trial completed with best test RMSE: 10.8922
+[36m(train_graph_model pid=442459)[0m Trial completed with best test RMSE: 0.8109
+[36m(train_graph_model pid=453886)[0m Trial completed with best test RMSE: 1.1159
+[36m(train_graph_model pid=454677)[0m Trial completed with best test RMSE: 31.9375
+[36m(train_graph_model pid=449929)[0m Trial completed with best test RMSE: 0.7818
+[36m(train_graph_model pid=464450)[0m Trial completed with best test RMSE: 1.3394
+[36m(train_graph_model pid=465286)[0m Trial completed with best test RMSE: 0.6905
+[36m(train_graph_model pid=456529)[0m Trial completed with best test RMSE: 0.7444
+[36m(train_graph_model pid=468016)[0m Trial completed with best test RMSE: 0.8295
+[36m(train_graph_model pid=469043)[0m Trial completed with best test RMSE: 1.4727
+
+
+╭────────────────────────────────────────────────────────╮
+│ Trial train_graph_model_d1947_00072 config             │
+├────────────────────────────────────────────────────────┤
+│ batch_size                                         128 │
+│ gnn_latent_dim                                      32 │
+│ graph_encoder                                      gcn │
+│ hidden_size                                         64 │
+│ learning_rate                                  0.00001 │
+│ ode_encoder_decoder                               True │
+│ use_periodic_activation                          False │
+│ use_region_only                                   True │
+╰────────────────────────────────────────────────────────╯
+
+╭───────────────────────────────────────────────────────╮
+│ Trial train_graph_model_d1947_00071 config            │
+├───────────────────────────────────────────────────────┤
+│ batch_size                                         32 │
+│ gnn_latent_dim                                     32 │
+│ graph_encoder                                     gcn │
+│ hidden_size                                        32 │
+│ learning_rate                                  0.0001 │
+│ ode_encoder_decoder                             False │
+│ use_periodic_activation                          True │
+│ use_region_only                                  True │
+╰───────────────────────────────────────────────────────╯
