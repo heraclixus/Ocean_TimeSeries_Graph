@@ -1,0 +1,40 @@
+name: stochastic-messagepassing-spdeode-rm-baseline-1
+image: mosaicml/pytorch:latest-aws
+command: |-  
+  cd home/mosaicml
+  git clone git@github.com:heraclixus/Ocean_TimeSeries_Graph.git
+  pip install gitpython wandb ray ray[tune] optuna
+  pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+  pip install torch_geometric
+  pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.5.1+cu124.html
+  pip install numpy scipy pandas matplotlib seaborn
+  pip install scikit-learn
+  pip install toml tqdm
+  pip install torchsde
+  pip install torchdiffeq
+  pip install networkx
+  pip install netCDF4
+  pip install torch-geometric-temporal
+  pip install xarray
+  pip install xskillscore
+
+  export WANDB_ENTITY="Ocean_TimeSeries_Graph"
+  export WANDB_PROJECT="ocean_graph_ts"
+  export WANDB_NAME="ocean_graph_tuning"
+  export WANDB_API_KEY="853c7fee8ce1ad1cf4cb1520d0fd750dce2e9b60"
+
+  cd Ocean_TimeSeries_Graph
+  cd src
+  python run_graph_model_tune.py --model_name stemgnn
+
+compute:
+  cluster: r4z13p2
+  gpus: 2
+  cpus: 16 
+
+scheduling:
+  priority: low
+integrations:
+  - integration_type: git_repo
+    git_repo: heraclixus/Ocean_TimeSeries_Graph
+    git_branch: main

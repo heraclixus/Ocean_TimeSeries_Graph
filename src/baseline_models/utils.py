@@ -203,8 +203,10 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 print(f"test_x_tensor.shape = {test_x_tensor.shape}")
                 if args.model_name == "graphode":
                     output = model(test_x_tensor.squeeze(1), edge_index=edge_index)
-                # elif args.use_convnet:
-                #     output = model(test_x_tensor.view(-1, 1, lat, lon, args.window))
+                elif args.model_name in ["mtgnn", "agcrn", "fgnn", "wavenet"]:
+                    output = model(test_x_tensor).permute(0, 3, 2, 1)
+                elif args.model_name == "stemgnn":
+                    output, _ = model(test_x_tensor)
                 elif args.model_name == "nsde":
                     output = model(test_x_tensor.squeeze(1), n_samples=n_samples)
                     if args.add_sin_cos:
@@ -213,8 +215,6 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                     output = model(test_x_tensor.squeeze(1))
                     if args.add_sin_cos: 
                         output = output[:, :-2, :]
-                # if not args.use_convnet:
-                #     output = output.unsqueeze(1)        
         # Process predictions
         if args.model_name == "nsde" or args.model_name == "gp":
             if isinstance(output, torch.Tensor):
@@ -230,11 +230,11 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
             output_np_ts = np.stack(output_np_ts)
         else: 
             if isinstance(output, torch.Tensor):
-                output_np = output.detach().cpu().numpy()
+                output_np = output.squeeze().detach().cpu().numpy()
             else:
                 output_np = output
             output_np_ts = batch_data_to_timeseries(output_np)
-            
+            print(f"output_np_ts.shape: {output_np_ts.shape}")
             if args.use_normalization:
                 output_np_ts = inverse_normalize(output_np_ts, max, min)
 
@@ -322,7 +322,7 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     
 
     # plot skills 
-    if args.model_name in ['nsde', 'node', 'graphode']:
+    if args.model_name in ['nsde', 'node', 'graphode', 'mtgnn', 'stemgnn', 'agcrn', 'fgnn', 'wavenet']:
 
         final_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=1, shuffle=False, drop_last=True)
         if isinstance(model, nn.Module): # only for neural models
@@ -346,10 +346,17 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
                 if args.add_sin_cos:
                     output = output[:, :-2, :]
                     label = label[:, :, :-2, :].squeeze(1)
+            elif args.model_name in ["mtgnn", "agcrn", "fgnn", "wavenet"]:
+                output = model(encoder_input).permute(0, 3, 2, 1)
+                if args.add_sin_cos:
+                    output = output[:, :, :-2, :].squeeze(1)
+                    label = label[:, :, :-2, :].squeeze(1)
+            elif args.model_name == "stemgnn":
+                output, _ = model(encoder_input)
+                if args.add_sin_cos:
+                    output = output[:, :, :-2, :].squeeze(1)
+                    label = label[:, :, :-2, :].squeeze(1)
             else:
-                # if args.use_convnet:
-                #     output = model(encoder_input.view(-1, 1, lat, lon, args.window))
-                # else:
                 output = model(encoder_input.squeeze(1))
                 if args.add_sin_cos:
                     if len(output.shape) == 4: # stochastic models

@@ -19,6 +19,14 @@ from baseline_models.node import TimeSeriesNODE, NeuralODEForecaster
 from baseline_models.graphode import GraphNeuralODE, NeuralGDEForecaster
 from pygtemporal_models.pyg_temp_dataset import batch_data_to_timeseries
 
+# Import additional PyG temporal models
+from torch_geometric_temporal.nn.attention.mtgnn import MTGNN
+from pygtemporal_models.stemgnn import StemGNN
+from pygtemporal_models.agcrn import AGCRN
+from pygtemporal_models.fouriergnn import FGN
+from pygtemporal_models.graphwavenet import gwnet
+from pygtemporal_models.math_utils import weighted_mse
+
 # Global tracking of results
 all_results = []
 
@@ -75,6 +83,11 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
         train_x_tensor = train_x_tensor.unsqueeze(1)
         train_target_tensor = train_target_tensor.unsqueeze(1)
     
+    # For PyG temporal models, we need to unsqueeze the channel dimension
+    if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+        train_x_tensor = train_x_tensor.unsqueeze(1)  # (B, 1, N, T)
+        train_target_tensor = train_target_tensor.unsqueeze(1)  # (B, 1, N, T)
+    
     train_dataset_new = torch.utils.data.TensorDataset(train_x_tensor, train_target_tensor)
     train_loader = torch.utils.data.DataLoader(train_dataset_new, batch_size=args.batch_size, 
                                               shuffle=True, drop_last=True)
@@ -86,6 +99,11 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
     if args.model_name == "node":
         test_x_tensor = test_x_tensor.unsqueeze(1)
         test_target_tensor = test_target_tensor.unsqueeze(1)
+    
+    # For PyG temporal models, we need to unsqueeze the channel dimension
+    if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+        test_x_tensor = test_x_tensor.unsqueeze(1)  # (B, 1, N, T)
+        test_target_tensor = test_target_tensor.unsqueeze(1)  # (B, 1, N, T)
     
     test_dataset_new = torch.utils.data.TensorDataset(test_x_tensor, test_target_tensor)
     test_loader = torch.utils.data.DataLoader(test_dataset_new, batch_size=args.batch_size, 
@@ -135,9 +153,58 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
                 graph_encoder=config.get("graph_encoder", args.graph_encoder),
                 gnn_latent_dim=config.get("gnn_latent_dim", None)
             ).to(device)
+    elif args.model_name == "mtgnn":
+        model = MTGNN(gcn_true=True, 
+                      build_adj=True, 
+                      gcn_depth=3, 
+                      num_nodes=grid_size, 
+                      kernel_set=[1,1,1,1], 
+                      kernel_size=1, 
+                      dropout=config.get("dropout", 0.3), 
+                      subgraph_size=grid_size, 
+                      node_dim=1,
+                      dilation_exponential=1,
+                      conv_channels=config.get("conv_channels", 32), 
+                      residual_channels=config.get("residual_channels", 32), 
+                      skip_channels=config.get("skip_channels", 64), 
+                      end_channels=config.get("end_channels", 128), 
+                      seq_length=args.window, 
+                      in_dim=1, 
+                      out_dim=args.horizon, 
+                      layers=config.get("layers", 3), 
+                      propalpha=0.05, 
+                      tanhalpha=3, 
+                      layer_norm_affline=True).to(device)
+    elif args.model_name == "stemgnn":
+        model = StemGNN(units=grid_size,
+                      stack_cnt=config.get("stack_cnt", 2),
+                      time_step=args.window,
+                      multi_layer=config.get("multi_layer", 5),
+                      horizon=args.horizon).to(device)
+    elif args.model_name == "agcrn":
+        model = AGCRN(args=args, num_nodes=grid_size).to(device)
+    elif args.model_name == "fgnn":
+        model = FGN(pre_length=args.horizon, 
+                    embed_size=config.get("embed_dim", 32), 
+                    feature_size=grid_size, 
+                    seq_length=args.window, 
+                    hidden_size=config.get("rnn_units", 64)).to(device)
+    elif args.model_name == "wavenet":
+        model = gwnet(device=device, 
+                    window=args.window, 
+                    horizon=args.horizon,
+                    num_nodes=grid_size,
+                    in_dim=1,
+                    out_dim=args.horizon).to(device)
 
     # Training setup
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    # Initialize std_tensor if available
+    if hasattr(dataloader, '_std'):
+        std_tensor = torch.tensor(dataloader._std, device=device)
+    else:
+        std_tensor = None
 
     # Training loop
     best_test_rmse_recon = float('inf')
@@ -157,18 +224,40 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
             # Forward pass
             if args.model_name == "graphode":
                 output = model(encoder_input, edge_index=edge_index)
-            else:  # node model
+            elif args.model_name == "node":
                 output = model(encoder_input.squeeze(1))
+            elif args.model_name == "stemgnn":
+                output, _ = model(encoder_input)
+            elif args.model_name in ["mtgnn", "agcrn", "fgnn", "wavenet"]:
+                output = model(encoder_input).permute(0, 3, 2, 1)  # Adjust output dimensions to match label
                 
             # Compute loss
             if args.use_loss_weights:
-                if hasattr(dataloader, '_std'):
-                    std_tensor = torch.tensor(dataloader._std, device=device)
-                    loss = model.compute_loss(output, label, std_tensor, add_sin_cos=args.add_sin_cos)
+                if std_tensor is not None:
+                    if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+                        # For PyG temporal models, use weighted_mse directly
+                        if args.add_sin_cos:
+                            output_trim = output[:, :, :-2, :]
+                            label_trim = label[:, :, :-2, :]
+                            std_trim = std_tensor[:-2]
+                            loss = weighted_mse(label_trim, output_trim, std_trim)
+                        else:
+                            loss = weighted_mse(label, output, std_tensor)
+                    else:
+                        # For NODE/GraphODE models use their compute_loss method
+                        loss = model.compute_loss(output, label, std_tensor, add_sin_cos=args.add_sin_cos)
+                else:
+                    if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+                        # If no std_tensor available, use regular MSE
+                        loss = torch.nn.MSELoss()(output, label)
+                    else:
+                        loss = model.compute_loss(output, label)
+            else:
+                # Without weighting
+                if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+                    loss = torch.nn.MSELoss()(output, label)
                 else:
                     loss = model.compute_loss(output, label)
-            else:
-                loss = model.compute_loss(output, label)
                 
             loss.backward()
             optimizer.step()
@@ -179,9 +268,9 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
             if args.model_name == "node":
                 pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
                 label_np = batch_data_to_timeseries(label.detach().cpu().squeeze(1).numpy())
-            else:
-                pred_np = output.detach().cpu().numpy()
-                label_np = label.detach().cpu().numpy()
+            else: # all graph models are the same
+                pred_np = output.squeeze().detach().cpu().numpy()
+                label_np = label.squeeze().detach().cpu().numpy()
             
             # Inverse normalize if needed
             if args.use_normalization:
@@ -220,18 +309,40 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
                 # Forward pass
                 if args.model_name == "graphode":
                     output = model(encoder_input, edge_index=edge_index)
-                else:  # node model
+                elif args.model_name == "node":
                     output = model(encoder_input.squeeze(1))
+                elif args.model_name == "stemgnn":
+                    output, _ = model(encoder_input)
+                elif args.model_name in ["mtgnn", "agcrn", "fgnn", "wavenet"]:
+                    output = model(encoder_input).permute(0, 3, 2, 1)  # Adjust output dimensions to match label
                 
                 # Compute loss
                 if args.use_loss_weights:
-                    if hasattr(dataloader, '_std'):
-                        std_tensor = torch.tensor(dataloader._std, device=device)
-                        loss = model.compute_loss(output, label, std_tensor, add_sin_cos=args.add_sin_cos)
+                    if std_tensor is not None:
+                        if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+                            # For PyG temporal models, use weighted_mse directly
+                            if args.add_sin_cos:
+                                output_trim = output[:, :, :-2, :]
+                                label_trim = label[:, :, :-2, :]
+                                std_trim = std_tensor[:-2]
+                                loss = weighted_mse(label_trim, output_trim, std_trim)
+                            else:
+                                loss = weighted_mse(label, output, std_tensor)
+                        else:
+                            # For NODE/GraphODE models use their compute_loss method
+                            loss = model.compute_loss(output, label, std_tensor, add_sin_cos=args.add_sin_cos)
+                    else:
+                        if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+                            # If no std_tensor available, use regular MSE
+                            loss = torch.nn.MSELoss()(output, label)
+                        else:
+                            loss = model.compute_loss(output, label)
+                else:
+                    # Without weighting
+                    if args.model_name in ["mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"]:
+                        loss = torch.nn.MSELoss()(output, label)
                     else:
                         loss = model.compute_loss(output, label)
-                else:
-                    loss = model.compute_loss(output, label)
 
                 test_losses.append(loss.item())
 
@@ -240,8 +351,8 @@ def train_graph_model(config, checkpoint_dir=None, args=None):
                     pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
                     label_np = batch_data_to_timeseries(label.detach().cpu().squeeze(1).numpy())
                 else:
-                    pred_np = output.detach().cpu().numpy()
-                    label_np = label.detach().cpu().numpy()
+                    pred_np = output.squeeze().detach().cpu().numpy()
+                    label_np = label.squeeze().detach().cpu().numpy()
                 
                 # Inverse normalize if needed
                 if args.use_normalization:
@@ -301,7 +412,7 @@ def main():
     parser.add_argument("--input_file", type=str, default="/home/mosaicml/Ocean_TimeSeries_Graph/data/wrapped_grid_graph.pt",
                        help="Path to graph file for ENSO dataset")
     parser.add_argument("--model_name", type=str, default="graphode",
-                       choices=["node", "graphode"],
+                       choices=["node", "graphode", "mtgnn", "stemgnn", "agcrn", "fgnn", "wavenet"],
                        help="Model to use for forecasting")
     parser.add_argument("--window", type=int, default=6,
                        help="Number of timesteps to use as input")
@@ -315,7 +426,7 @@ def main():
                        help="Number of epochs to train for")
     parser.add_argument("--epochs_per_tune", type=int, default=500,
                        help="Number of epochs to train for each tune trial")
-    parser.add_argument("--num_samples", type=int, default=200,
+    parser.add_argument("--num_samples", type=int, default=64,
                        help="Number of hyperparameter samples for Ray Tune")
     parser.add_argument("--use_normalization", action="store_true", default=True,
                        help="Whether to normalize the data")
@@ -341,6 +452,21 @@ def main():
                        help="Number of GPUs per trial")
     parser.add_argument("--cpus_per_trial", type=int, default=8,
                        help="Number of CPUs per trial")
+    # Additional arguments for PyG temporal models
+    parser.add_argument("--multi_layer", type=int, default=5,
+                       help="Number of layers for StemGNN")
+    parser.add_argument("--input_dim", type=int, default=1,
+                       help="Input dimension for models")
+    parser.add_argument("--output_dim", type=int, default=1,
+                       help="Output dimension for models")
+    parser.add_argument("--num_layers", type=int, default=2,
+                       help="Number of layers for some models")
+    parser.add_argument("--cheb_k", type=int, default=2,
+                       help="Chebyshev filter size for some models")
+    parser.add_argument("--rnn_units", type=int, default=64,
+                       help="RNN units for AGCRN")
+    parser.add_argument("--embed_dim", type=int, default=32,
+                       help="Embedding dimension for some models")
 
     args = parser.parse_args()
     # Default to True for use_region_data if not specified
@@ -355,19 +481,63 @@ def main():
         "hidden_size": tune.choice([32, 64, 128, 256]),
         "learning_rate": tune.choice([1e-5, 1e-4, 1e-3]),
         "batch_size": tune.choice([16, 32, 64, 128]),
-        "ode_encoder_decoder": tune.choice([True, False]),
-        "use_periodic_activation": tune.choice([True, False]),
         "use_region_only": tune.choice([True, False])
     }
     
     # Add model-specific hyperparameters
+    if args.model_name == "node" or args.model_name == "graphode":
+        config.update({
+            "ode_encoder_decoder": tune.choice([True, False]),
+            "use_periodic_activation": tune.choice([True, False])
+        })
+    
     if args.model_name == "graphode":
         # For GraphODE models, add GNN latent dimension as a hyperparameter
         config["gnn_latent_dim"] = tune.choice([16, 32, 64])
         config["graph_encoder"] = tune.choice(["gcn", "gat"])
     
+    elif args.model_name == "mtgnn":
+        # MTGNN specific hyperparameters
+        config.update({
+            "dropout": tune.choice([0.1, 0.3, 0.5]),
+            "conv_channels": tune.choice([16, 32, 64]),
+            "residual_channels": tune.choice([16, 32, 64]),
+            "skip_channels": tune.choice([32, 64, 128]),
+            "end_channels": tune.choice([64, 128, 256]),
+            "layers": tune.choice([2, 3, 4])
+        })
+    
+    elif args.model_name == "stemgnn":
+        # StemGNN specific hyperparameters
+        config.update({
+            "stack_cnt": tune.choice([1, 2, 3]),
+            "multi_layer": tune.choice([3, 5, 7])
+        })
+    
+    elif args.model_name == "agcrn":
+        # AGCRN specific hyperparameters
+        config.update({
+            "rnn_units": tune.choice([32, 64, 128]),
+            "num_layers": tune.choice([1, 2, 3]),
+            "cheb_k": tune.choice([2, 3])
+        })
+    
+    elif args.model_name == "fgnn":
+        # FGN specific hyperparameters
+        config.update({
+            "embed_dim": tune.choice([16, 32, 64]),
+            "rnn_units": tune.choice([32, 64, 128])
+        })
+    
+    elif args.model_name == "wavenet":
+        # Graph WaveNet specific hyperparameters
+        config.update({
+            "dropout": tune.choice([0.1, 0.3, 0.5]),
+            "num_layers": tune.choice([2, 3, 4])
+        })
+    
     # Run trials
-    experiment_name = f"{args.model_name}_{args.graph_encoder}_tuning"
+    experiment_name = f"{args.model_name}_tuning"
     
     analysis = tune.run(
         tune.with_parameters(train_graph_model, args=args),
@@ -394,16 +564,8 @@ def main():
         print(f"Train RMSE: {best_result.get('train_rmse_recon', 'N/A')}")
         
         # Apply the best hyperparameters to the original args
-        args.hidden_size = best_result["config"]["hidden_size"]
-        args.learning_rate = best_result["config"]["learning_rate"]
-        args.batch_size = best_result["config"]["batch_size"]
-        args.ode_encoder_decoder = best_result["config"]["ode_encoder_decoder"]
-        args.use_periodic_activation = best_result["config"]["use_periodic_activation"]
-        args.use_region_only = best_result["config"]["use_region_only"]
-        
-        if args.model_name == "graphode":
-            args.gnn_latent_dim = best_result["config"].get("gnn_latent_dim", None)
-            args.graph_encoder = best_result["config"].get("graph_encoder", "gcn")
+        for key, value in best_result["config"].items():
+            setattr(args, key, value)
     else:
         print("\nNo results found. Check if trials completed successfully.")
 
