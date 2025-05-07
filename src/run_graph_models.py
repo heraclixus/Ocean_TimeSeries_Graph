@@ -623,7 +623,7 @@ def main():
                         label_np_enso = label_np
                     
                     # Plot errors
-                    plot_node_errors(pred_np_enso, label_np_enso, enso_indices_np, epoch, args.save_dir)
+                    plot_node_errors(pred_np_enso, label_np_enso, epoch, args.save_dir)
 
         # Log metrics
         train_loss = np.mean(train_losses)
