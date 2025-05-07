@@ -236,7 +236,7 @@ def main():
                       dilation_exponential=1,
                       conv_channels=32, 
                       residual_channels=32, 
-                      skip_channels=64, 
+                      skip_channels=128, 
                       end_channels=128, 
                       seq_length=args.window, 
                       in_dim=1, 
