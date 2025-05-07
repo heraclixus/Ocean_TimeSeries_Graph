@@ -5,6 +5,9 @@ import argparse
 from tqdm import tqdm
 from utils_pca import reconstruct_enso
 import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+import torch.fft as fft
 
 # Import the new dataset class
 from pygtemporal_models.graph_dataset_enso import (
@@ -25,6 +28,58 @@ from pygtemporal_models.agcrn import AGCRN
 from pygtemporal_models.fouriergnn import FGN
 from pygtemporal_models.graphwavenet import gwnet
 from pygtemporal_models.math_utils import weighted_mse
+
+def plot_node_errors(pred_np, label_np, enso_indices, epoch, save_dir):
+    """
+    Plot error heatmap for nodes in ENSO region
+    
+    Args:
+        pred_np (np.ndarray): Predictions
+        label_np (np.ndarray): Ground truth
+        enso_indices (np.ndarray): Indices of ENSO region nodes
+        epoch (int): Current epoch
+        save_dir (str): Directory to save plots
+    """
+    # Calculate error for each node
+    errors = np.abs(pred_np - label_np)
+    
+    # Create figure
+    plt.figure(figsize=(12, 8))
+    
+    # Plot error heatmap
+    sns.heatmap(errors, cmap='YlOrRd', cbar_kws={'label': 'Absolute Error'})
+    plt.title(f'Node-wise Errors in ENSO Region (Epoch {epoch})')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Nodes')
+    
+    # Save plot
+    os.makedirs(save_dir, exist_ok=True)
+    plt.savefig(os.path.join(save_dir, f'node_errors_epoch_{epoch}.png'))
+    plt.close()
+
+def compute_fourier_loss(pred, target):
+    """
+    Compute loss based on DFT of predictions and targets
+    
+    Args:
+        pred (torch.Tensor): Predictions of shape (B, N, T)
+        target (torch.Tensor): Targets of shape (B, N, T)
+        
+    Returns:
+        torch.Tensor: Fourier loss
+    """
+    # Compute DFT along temporal dimension
+    pred_fft = fft.fft(pred, dim=-1)
+    target_fft = fft.fft(target, dim=-1)
+    
+    # Compute magnitude spectrum
+    pred_magnitude = torch.abs(pred_fft)
+    target_magnitude = torch.abs(target_fft)
+    
+    # Compute MSE between magnitude spectra
+    fourier_loss = torch.mean((pred_magnitude - target_magnitude) ** 2)
+    
+    return fourier_loss
 
 def main():
     parser = argparse.ArgumentParser()
@@ -88,6 +143,16 @@ def main():
                        help="RNN units for AGCRN")
     parser.add_argument("--embed_dim", type=int, default=32,
                        help="Embedding dimension for some models")
+    parser.add_argument("--save_dir", type=str, default="results",
+                       help="Directory to save results and visualizations")
+    parser.add_argument("--plot_interval", type=int, default=10,
+                       help="Interval (in epochs) for plotting node errors")
+    parser.add_argument("--use_skip_connection", action="store_true",
+                       help="Use skip connections in GraphODE model")
+    parser.add_argument("--use_fourier_loss", action="store_true",
+                       help="Use Fourier-based loss in addition to MSE")
+    parser.add_argument("--fourier_lambda", type=float, default=0.1,
+                       help="Weight for Fourier loss term")
 
     args = parser.parse_args()
     # Default to True for use_region_data if not specified
@@ -209,7 +274,8 @@ def main():
                 num_nodes=grid_size,
                 use_periodic_activation=args.use_periodic_activation,
                 graph_encoder=args.graph_encoder,
-                gnn_latent_dim=args.gnn_latent_dim
+                gnn_latent_dim=args.gnn_latent_dim,
+                use_skip_connection=args.use_skip_connection
             ).to(device)
         else:
             model = GraphNeuralODE(
@@ -218,11 +284,14 @@ def main():
                 forecast_horizon=args.horizon,
                 use_periodic_activation=args.use_periodic_activation,
                 graph_encoder=args.graph_encoder,
-                gnn_latent_dim=args.gnn_latent_dim
+                gnn_latent_dim=args.gnn_latent_dim,
+                use_skip_connection=args.use_skip_connection
             ).to(device)
         print(f"Initialized GraphODE model with {grid_size} nodes using {args.graph_encoder} encoder")
         if args.gnn_latent_dim:
             print(f"Using GNN latent dimension of {args.gnn_latent_dim}")
+        if args.use_skip_connection:
+            print("Using skip connections in GraphODE model")
     elif args.model_name == "mtgnn":
         model = MTGNN(gcn_true=True, 
                       build_adj=True, 
@@ -358,13 +427,31 @@ def main():
                     loss = torch.nn.MSELoss()(output, label)
                 else:
                     loss = model.compute_loss(output, label)
+            
+            # Add Fourier loss if enabled
+            if args.use_fourier_loss:
+                # Ensure we're using the right dimensions for Fourier transform
+                if args.model_name == "node":
+                    pred_for_fft = output.squeeze(1)  # Remove channel dimension
+                    target_for_fft = label.squeeze(1)
+                else:
+                    pred_for_fft = output.squeeze(1)  # Remove channel dimension
+                    target_for_fft = label.squeeze(1)
+                
+                fourier_loss = compute_fourier_loss(pred_for_fft, target_for_fft)
+                loss = loss + args.fourier_lambda * fourier_loss
                 
             loss.backward()
             optimizer.step()
-            # print(f"loss: {loss.item()}")
+
+            # Log both losses if Fourier loss is enabled
+            if args.use_fourier_loss:
+                train_losses.append((loss.item(), fourier_loss.item()))
+            else:
+                train_losses.append(loss.item())
 
             # Compute metrics
-            train_losses.append(loss.item())
+            train_rmses.append(loss.item())
 
             # Convert to numpy for metric calculation
             if args.model_name == "node":
@@ -454,8 +541,25 @@ def main():
                         loss = torch.nn.MSELoss()(output, label)
                     else:
                         loss = model.compute_loss(output, label)
+                
+                # Add Fourier loss if enabled
+                if args.use_fourier_loss:
+                    # Ensure we're using the right dimensions for Fourier transform
+                    if args.model_name == "node":
+                        pred_for_fft = output.squeeze(1)  # Remove channel dimension
+                        target_for_fft = label.squeeze(1)
+                    else:
+                        pred_for_fft = output.squeeze(1)  # Remove channel dimension
+                        target_for_fft = label.squeeze(1)
+                    
+                    fourier_loss = compute_fourier_loss(pred_for_fft, target_for_fft)
+                    loss = loss + args.fourier_lambda * fourier_loss
 
-                test_losses.append(loss.item())
+                # Log both losses if Fourier loss is enabled
+                if args.use_fourier_loss:
+                    test_losses.append((loss.item(), fourier_loss.item()))
+                else:
+                    test_losses.append(loss.item())
 
                 # Convert to numpy for metric calculation
                 if args.model_name == "node":
@@ -495,6 +599,27 @@ def main():
                 test_rmses.append(rmse)
                 test_rmses_recon.append(rmse_recon)
 
+                # Plot node errors every plot_interval epochs
+                if epoch % args.plot_interval == 0 and args.use_region_data:
+                    if args.model_name == "node":
+                        pred_np = batch_data_to_timeseries(output.detach().cpu().numpy())
+                        label_np = batch_data_to_timeseries(label.detach().cpu().squeeze(1).numpy())
+                    else:
+                        pred_np = output.squeeze().detach().cpu().numpy()
+                        label_np = label.squeeze().cpu().numpy()
+                    
+                    if args.use_normalization:
+                        label_np = inverse_normalize(label_np, max, min)
+                        pred_np = inverse_normalize(pred_np, max, min)
+                    
+                    # Get ENSO region predictions
+                    enso_indices_np = enso_indices.cpu().numpy()
+                    pred_np_enso = pred_np[:, enso_indices_np, :]
+                    label_np_enso = label_np[:, enso_indices_np, :]
+                    
+                    # Plot errors
+                    plot_node_errors(pred_np_enso, label_np_enso, enso_indices_np, epoch, args.save_dir)
+
         # Log metrics
         train_loss = np.mean(train_losses)
         test_loss = np.mean(test_losses)
@@ -510,10 +635,23 @@ def main():
         rmses_train_reconstructed.append(train_rmse_recon)
         rmses_test_reconstructed.append(test_rmse_recon)
 
-        print(f"Epoch {epoch}: Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}")
-        print(f"Train RMSE: {train_rmse:.4f}, Test RMSE: {test_rmse:.4f}")
-        print(f"Train RMSE Recon: {train_rmse_recon:.4f}, Test RMSE Recon: {test_rmse_recon:.4f}")
-
+        if args.use_fourier_loss:
+            train_loss = np.mean([l[0] for l in train_losses])
+            train_fourier_loss = np.mean([l[1] for l in train_losses])
+            test_loss = np.mean([l[0] for l in test_losses])
+            test_fourier_loss = np.mean([l[1] for l in test_losses])
+            
+            print(f"Epoch {epoch}: "
+                  f"Train Loss: {train_loss:.4f}, "
+                  f"Train Fourier Loss: {train_fourier_loss:.4f}, "
+                  f"Test Loss: {test_loss:.4f}, "
+                  f"Test Fourier Loss: {test_fourier_loss:.4f}")
+        else:
+            train_loss = np.mean(train_losses)
+            test_loss = np.mean(test_losses)
+            print(f"Epoch {epoch}: "
+                  f"Train Loss: {train_loss:.4f}, "
+                  f"Test Loss: {test_loss:.4f}")
         # Early stopping
         if test_rmse_recon < best_enso_reconstructed_loss:
             best_enso_reconstructed_loss = test_rmse_recon
@@ -536,7 +674,7 @@ def main():
     
     # Save the best model if requested
     if args.save_best_model:
-        model_dir = "models"
+        model_dir = os.path.join(args.save_dir, "models")
         os.makedirs(model_dir, exist_ok=True)
         model_path = os.path.join(model_dir, f"{args.model_name}_{args.graph_encoder}_best.pt")
         torch.save(best_model.state_dict(), model_path)

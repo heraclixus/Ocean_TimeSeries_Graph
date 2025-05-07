@@ -1,8 +1,114 @@
-# CUDA_VISIBLE_DEVICES=6 nohup python run_graph_models.py --model_name=graphode --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=128 --gnn_latent_dim=32 --graph_encoder=gcn --hidden_size=64 --learning_rate=0.00001 --ode_encoder_decoder &> log_graphode_config1.txt &
-# CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py --model_name=graphode --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=32 --gnn_latent_dim=32 --graph_encoder=gcn --hidden_size=32 --learning_rate=0.0001 --use_periodic_activation &> log_graphode_config2.txt &
-CUDA_VISIBLE_DEVICES=4 nohup python run_graph_models.py --model_name=agcrn --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=32 --hidden_size=128 --cheb_k=2 --learning_rate=0.0001 --num_layers=3 --rnn_units=32 &> log_agcrn.txt &
-CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py --model_name=fgnn --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=32 --hidden_size=128 --embed_dim=32 --learning_rate=0.0001 --rnn_units=128 &> log_fgnn.txt &
-CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py --model_name=mtgnn --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=16 --hidden_size=64 --learning_rate=0.0001 &> log_mtgnn.txt &
+
+
+CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+    --model_name=graphode \
+    --use_normalization \
+    --use_loss_weights \
+    --use_region_only \
+    --use_region_data \
+    --batch_size=32 \
+    --gnn_latent_dim=32 \
+    --graph_encoder=gcn \
+    --hidden_size=32 \
+    --learning_rate=0.0001 \
+    --use_periodic_activation \
+    --save_dir=base_results \
+    &> log_graphode_base.txt &
+
+# Fourier loss with lambda=0.1
+CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+    --model_name=graphode \
+    --use_normalization \
+    --use_loss_weights \
+    --use_region_only \
+    --use_region_data \
+    --batch_size=32 \
+    --gnn_latent_dim=32 \
+    --graph_encoder=gcn \
+    --hidden_size=32 \
+    --learning_rate=0.0001 \
+    --use_periodic_activation \
+    --use_fourier_loss \
+    --fourier_lambda=0.1 \
+    --save_dir=fourier_results_lambda_0.1 \
+    &> log_graphode_fourier_0.1.txt &
+
+# Fourier loss with lambda=0.5
+CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+    --model_name=graphode \
+    --use_normalization \
+    --use_loss_weights \
+    --use_region_only \
+    --use_region_data \
+    --batch_size=32 \
+    --gnn_latent_dim=32 \
+    --graph_encoder=gcn \
+    --hidden_size=32 \
+    --learning_rate=0.0001 \
+    --use_periodic_activation \
+    --use_fourier_loss \
+    --fourier_lambda=0.5 \
+    --save_dir=fourier_results_lambda_0.5 \
+    &> log_graphode_fourier_0.5.txt &
+
+CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+    --model_name=graphode \
+    --use_normalization \
+    --use_loss_weights \
+    --use_region_only \
+    --use_region_data \
+    --batch_size=32 \
+    --gnn_latent_dim=32 \
+    --graph_encoder=gcn \
+    --hidden_size=32 \
+    --learning_rate=0.0001 \
+    --use_periodic_activation \
+    --use_skip_connection \
+    --save_dir=skip_connection_results \
+    &> log_graphode_skip.txt &
+
+# Combined with lambda=0.1
+CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+    --model_name=graphode \
+    --use_normalization \
+    --use_loss_weights \
+    --use_region_only \
+    --use_region_data \
+    --batch_size=32 \
+    --gnn_latent_dim=32 \
+    --graph_encoder=gcn \
+    --hidden_size=32 \
+    --learning_rate=0.0001 \
+    --use_periodic_activation \
+    --use_skip_connection \
+    --use_fourier_loss \
+    --fourier_lambda=0.1 \
+    --save_dir=fourier_results_lambda_0.1_skip_connection \
+    &> log_graphode_combined_0.1.txt &
+
+# Combined with lambda=0.5
+CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+    --model_name=graphode \
+    --use_normalization \
+    --use_loss_weights \
+    --use_region_only \
+    --use_region_data \
+    --batch_size=32 \
+    --gnn_latent_dim=32 \
+    --graph_encoder=gcn \
+    --hidden_size=32 \
+    --learning_rate=0.0001 \
+    --use_periodic_activation \
+    --use_skip_connection \
+    --use_fourier_loss \
+    --fourier_lambda=0.5 \
+    --save_dir=fourier_results_lambda_0.5_skip_connection \
+    &> log_graphode_combined_0.5.txt &
+
+
+# CUDA_VISIBLE_DEVICES=4 nohup python run_graph_models.py --model_name=agcrn --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=32 --hidden_size=128 --cheb_k=2 --learning_rate=0.0001 --num_layers=3 --rnn_units=32 &> log_agcrn.txt &
+# CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py --model_name=fgnn --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=32 --hidden_size=128 --embed_dim=32 --learning_rate=0.0001 --rnn_units=128 &> log_fgnn.txt &
+# CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py --model_name=mtgnn --use_normalization --use_loss_weights --use_region_only --use_region_data --batch_size=16 --hidden_size=64 --learning_rate=0.0001 &> log_mtgnn.txt &
 
 # CUDA_VISIBLE_DEVICES=2 nohup python run_pygtemporal_models.py --model_name=wavenet --use_normalization &> log_wavenet.txt &
 # CUDA_VISIBLE_DEVICES=0 nohup python run_pygtemporal_models.py --model_name=stemgnn --use_normalization &> log_stemgnn.txt &

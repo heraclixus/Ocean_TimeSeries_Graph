@@ -154,6 +154,11 @@ def save_results(args, model, test_x_tensor, test_target_tensor, test_dataset_ne
     if args.model_name == "graphode":
         save_name += f"_graph_encoder={args.graph_encoder}"
     
+    if args.use_fourier_loss:
+        save_name += f"_fourier_loss_lambda={args.fourier_lambda}"
+    if args.use_skip_connection:
+        save_name += "_skip_connection"
+    
     save_path = f"results/baseline_models/{save_name}"
     os.makedirs(save_path, exist_ok=True)
 

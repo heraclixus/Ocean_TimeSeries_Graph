@@ -9,11 +9,12 @@ from torch_geometric.data import Data, Batch
 from torch_geometric.loader import DataLoader as PyGDataLoader
 
 class GraphODEFunc_GNODE(nn.Module):
-    """ODE function using GNN"""
-    def __init__(self, node_features, hidden_dim, use_periodic_activation=False, graph_encoder="gcn", gnn_latent_dim=None):
+    """ODE function using GNN with optional skip connections"""
+    def __init__(self, node_features, hidden_dim, use_periodic_activation=False, graph_encoder="gcn", gnn_latent_dim=None, use_skip_connection=False):
         super().__init__()
         self.use_periodic_activation = use_periodic_activation
         self.graph_encoder = graph_encoder
+        self.use_skip_connection = use_skip_connection
 
         self.periodic_activation = PeriodicActivation()
         self.tanh_activation = nn.Tanh()
@@ -49,6 +50,9 @@ class GraphODEFunc_GNODE(nn.Module):
             edge_index (torch.Tensor): Graph connectivity (2, E)
             batch (torch.Tensor, optional): Batch assignments for each node
         """
+        # Store initial input for skip connection if enabled
+        skip_input = x if self.use_skip_connection else None
+        
         for i, layer in enumerate(self.graph_layers):
             x = layer(x, edge_index)
             if i < len(self.graph_layers) - 1:
@@ -56,11 +60,17 @@ class GraphODEFunc_GNODE(nn.Module):
                     x = self.periodic_activation(x)
                 else:
                     x = self.tanh_activation(x)
+                    
+                # Add skip connection every other layer if enabled
+                if self.use_skip_connection and i % 2 == 1 and i > 0:
+                    x = x + skip_input
+                    skip_input = x  # Update skip input for next connection
+        
         return x
 
 class GraphNeuralODE(nn.Module):
     def __init__(self, node_features=1, hidden_dim=64, forecast_horizon=10, 
-                 use_periodic_activation=False, graph_encoder="gcn", gnn_latent_dim=None):
+                 use_periodic_activation=False, graph_encoder="gcn", gnn_latent_dim=None, use_skip_connection=False):
         """
         Graph Neural ODE for time series forecasting
         
@@ -71,6 +81,7 @@ class GraphNeuralODE(nn.Module):
             use_periodic_activation (bool): Whether to use periodic activation
             graph_encoder (str): Type of graph encoder to use ("gcn" or "gat")
             gnn_latent_dim (int, optional): Latent dimension for GNN layers
+            use_skip_connection (bool): Whether to use skip connections
         """
         super().__init__()
         self.node_features = node_features
@@ -79,12 +90,14 @@ class GraphNeuralODE(nn.Module):
         self.use_periodic_activation = use_periodic_activation
         self.graph_encoder = graph_encoder
         self.gnn_latent_dim = gnn_latent_dim
+        self.use_skip_connection = use_skip_connection
         
         # ODE function with GNN
         self.ode_func = GraphODEFunc_GNODE(node_features, hidden_dim, 
                                           self.use_periodic_activation, 
                                           self.graph_encoder,
-                                          gnn_latent_dim)
+                                          gnn_latent_dim,
+                                          self.use_skip_connection)
     
     def forward(self, x, edge_index=None):
         """
