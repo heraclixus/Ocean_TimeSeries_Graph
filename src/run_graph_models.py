@@ -29,7 +29,7 @@ from pygtemporal_models.fouriergnn import FGN
 from pygtemporal_models.graphwavenet import gwnet
 from pygtemporal_models.math_utils import weighted_mse
 
-def plot_node_errors(pred_np, label_np, enso_indices, epoch, save_dir):
+def plot_node_errors(pred_np, label_np, epoch, save_dir):
     """
     Plot error heatmap for nodes in ENSO region
     
@@ -613,9 +613,14 @@ def main():
                         pred_np = inverse_normalize(pred_np, max, min)
                     
                     # Get ENSO region predictions
+                    
                     enso_indices_np = enso_indices.cpu().numpy()
-                    pred_np_enso = pred_np[:, enso_indices_np, :]
-                    label_np_enso = label_np[:, enso_indices_np, :]
+                    if not args.use_region_only:
+                        pred_np_enso = pred_np[:, enso_indices_np, :]
+                        label_np_enso = label_np[:, enso_indices_np, :]
+                    else:
+                        pred_np_enso = pred_np
+                        label_np_enso = label_np
                     
                     # Plot errors
                     plot_node_errors(pred_np_enso, label_np_enso, enso_indices_np, epoch, args.save_dir)

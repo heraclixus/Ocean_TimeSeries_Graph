@@ -1,6 +1,6 @@
 
 
-CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+CUDA_VISIBLE_DEVICES=4 nohup python run_graph_models.py \
     --model_name=graphode \
     --use_normalization \
     --use_loss_weights \
@@ -16,7 +16,7 @@ CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
     &> log_graphode_base.txt &
 
 # Fourier loss with lambda=0.1
-CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+CUDA_VISIBLE_DEVICES=4 nohup python run_graph_models.py \
     --model_name=graphode \
     --use_normalization \
     --use_loss_weights \
@@ -34,7 +34,7 @@ CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
     &> log_graphode_fourier_0.1.txt &
 
 # Fourier loss with lambda=0.5
-CUDA_VISIBLE_DEVICES=7 nohup python run_graph_models.py \
+CUDA_VISIBLE_DEVICES=4 nohup python run_graph_models.py \
     --model_name=graphode \
     --use_normalization \
     --use_loss_weights \
