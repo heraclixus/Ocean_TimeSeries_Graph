@@ -31,31 +31,40 @@ from pygtemporal_models.math_utils import weighted_mse
 
 # input is shape (B, N, T) 
 # plot for each time step
-def plot_node_errors(pred_np, label_np, epoch, save_dir, epoch_str):
+def plot_node_errors(pred_np, label_np, save_dir, epoch_str):
     """
-    Plot error heatmap for nodes in ENSO region
+    Plot error heatmap for nodes in ENSO region for each time step
     
     Args:
-        pred_np (np.ndarray): Predictions
-        label_np (np.ndarray): Ground truth
+        pred_np (np.ndarray): Predictions of shape (B, N, T)
+        label_np (np.ndarray): Ground truth of shape (B, N, T)
         epoch (int): Current epoch
         save_dir (str): Directory to save plots
         epoch_str (str): Epoch string
     """
     # Calculate error for each node
     # errors is shape (N, T)
-    errors = np.abs(pred_np - label_np).mean(axis=0)
+    errors = np.abs(pred_np - label_np).mean(axis=0)  # Average over batch dimension
     
-    for i in range(errors.shape[1]):
-        # Create figure
+    # Create directory for this epoch's plots
+    epoch_dir = os.path.join(save_dir, f'epoch_{epoch_str}')
+    os.makedirs(epoch_dir, exist_ok=True)
+    
+    # Plot heatmap for each time step
+    for t in range(errors.shape[1]):
         plt.figure(figsize=(12, 8))
-        sns.heatmap(errors[:, i], cmap='YlOrRd', cbar_kws={'label': 'Absolute Error'})
-        plt.title(f'Node-wise Errors in ENSO Region (Epoch {epoch_str})')
-        plt.xlabel('Time Steps')
+        
+        # Get errors for this time step and reshape to 2D for heatmap
+        time_step_errors = errors[:, t].reshape(-1, 1)  # Shape: (N, 1)
+        
+        # Plot heatmap
+        sns.heatmap(time_step_errors, cmap='YlOrRd', cbar_kws={'label': 'Absolute Error'})
+        plt.title(f'Node-wise Errors in ENSO Region (Epoch {epoch_str}, Time Step {t})')
+        plt.xlabel('Time Step')
         plt.ylabel('Nodes')
+        
         # Save plot
-        os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(os.path.join(save_dir, f'node_errors_epoch_{epoch_str}_time_step_{i}.png'))
+        plt.savefig(os.path.join(epoch_dir, f'node_errors_time_step_{t}.png'))
         plt.close()
 
 def compute_fourier_loss(pred, target):
@@ -624,7 +633,7 @@ def main():
                         label_np_enso = label_np
                     
                     # Plot errors
-                    plot_node_errors(pred_np_enso, label_np_enso, epoch, args.save_dir, epoch)
+                    plot_node_errors(pred_np_enso, label_np_enso, args.save_dir, epoch)
 
         # Log metrics
         train_loss = np.mean(train_losses)
