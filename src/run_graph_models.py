@@ -29,33 +29,34 @@ from pygtemporal_models.fouriergnn import FGN
 from pygtemporal_models.graphwavenet import gwnet
 from pygtemporal_models.math_utils import weighted_mse
 
-def plot_node_errors(pred_np, label_np, epoch, save_dir):
+# input is shape (B, N, T) 
+# plot for each time step
+def plot_node_errors(pred_np, label_np, epoch, save_dir, epoch_str):
     """
     Plot error heatmap for nodes in ENSO region
     
     Args:
         pred_np (np.ndarray): Predictions
         label_np (np.ndarray): Ground truth
-        enso_indices (np.ndarray): Indices of ENSO region nodes
         epoch (int): Current epoch
         save_dir (str): Directory to save plots
+        epoch_str (str): Epoch string
     """
     # Calculate error for each node
-    errors = np.abs(pred_np - label_np)
+    # errors is shape (N, T)
+    errors = np.abs(pred_np - label_np).mean(axis=0)
     
-    # Create figure
-    plt.figure(figsize=(12, 8))
-    
-    # Plot error heatmap
-    sns.heatmap(errors, cmap='YlOrRd', cbar_kws={'label': 'Absolute Error'})
-    plt.title(f'Node-wise Errors in ENSO Region (Epoch {epoch})')
-    plt.xlabel('Time Steps')
-    plt.ylabel('Nodes')
-    
-    # Save plot
-    os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(os.path.join(save_dir, f'node_errors_epoch_{epoch}.png'))
-    plt.close()
+    for i in range(errors.shape[1]):
+        # Create figure
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(errors[:, i], cmap='YlOrRd', cbar_kws={'label': 'Absolute Error'})
+        plt.title(f'Node-wise Errors in ENSO Region (Epoch {epoch_str})')
+        plt.xlabel('Time Steps')
+        plt.ylabel('Nodes')
+        # Save plot
+        os.makedirs(save_dir, exist_ok=True)
+        plt.savefig(os.path.join(save_dir, f'node_errors_epoch_{epoch_str}_time_step_{i}.png'))
+        plt.close()
 
 def compute_fourier_loss(pred, target):
     """
@@ -98,7 +99,7 @@ def main():
                        help="Batch size for training")
     parser.add_argument("--learning_rate", type=float, default=0.0001,
                        help="Learning rate for training")
-    parser.add_argument("--epochs", type=int, default=500,
+    parser.add_argument("--epochs", type=int, default=300,
                        help="Number of epochs to train for")
     parser.add_argument("--patience", type=int, default=50,
                        help="Patience for early stopping")
@@ -623,7 +624,7 @@ def main():
                         label_np_enso = label_np
                     
                     # Plot errors
-                    plot_node_errors(pred_np_enso, label_np_enso, epoch, args.save_dir)
+                    plot_node_errors(pred_np_enso, label_np_enso, epoch, args.save_dir, epoch)
 
         # Log metrics
         train_loss = np.mean(train_losses)
