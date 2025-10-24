@@ -16,3 +16,4 @@ src/*.mp4
 .DS_Store
 data/*.mat
 data/*.png
+results/
