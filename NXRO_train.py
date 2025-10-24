@@ -22,7 +22,7 @@ from nxro.train import (
     train_nxro_neural_phys,
     train_nxro_resmix,
 )
-from utils.xro_utils import calc_forecast_skill, nxro_reforecast, plot_forecast_plume
+from utils.xro_utils import calc_forecast_skill, nxro_reforecast, plot_forecast_plume, evaluate_stochastic_ensemble
 from nxro.stochastic import compute_residuals_series, fit_seasonal_ar1_from_residuals, SeasonalAR1Noise, nxro_reforecast_stochastic
 
 
@@ -214,6 +214,8 @@ def main():
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
                 plot_forecast_plume(NXRO_fcst, NXRO_fcst_m, obs_ds, init_dates, fname_prefix='results/NXRO_linear_plume')
+            # Ensemble evaluation
+            evaluate_stochastic_ensemble(NXRO_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_linear_stochastic_eval')
 
         # Seasonal synchronization via long-run deterministic simulation
         sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
@@ -253,6 +255,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_ro_fcst_m = nxro_reforecast_stochastic(ro_model, init_ds=obs_ds, n_month=21, var_order=ro_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_ro_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_ro_stochastic_eval')
             np.savez('results/nxro_ro_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': ro_model.state_dict(), 'var_order': ro_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_ro_stochastic.pt')
@@ -304,6 +307,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_rd_fcst_m = nxro_reforecast_stochastic(rd_model, init_ds=obs_ds, n_month=21, var_order=rd_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_rd_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_rodiag_stochastic_eval')
             np.savez('results/nxro_rodiag_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': rd_model.state_dict(), 'var_order': rd_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_rodiag_stochastic.pt')
@@ -356,6 +360,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_rs_fcst_m = nxro_reforecast_stochastic(rs_model, init_ds=obs_ds, n_month=21, var_order=rs_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_rs_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_res_stochastic_eval')
             np.savez('results/nxro_res_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': rs_model.state_dict(), 'var_order': rs_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_res_stochastic.pt')
@@ -408,6 +413,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_nn_fcst_m = nxro_reforecast_stochastic(nn_model, init_ds=obs_ds, n_month=21, var_order=nn_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_nn_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_neural_stochastic_eval')
             np.savez('results/nxro_neural_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': nn_model.state_dict(), 'var_order': nn_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_neural_stochastic.pt')
@@ -463,6 +469,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_np_fcst_m = nxro_reforecast_stochastic(np_model, init_ds=obs_ds, n_month=21, var_order=np_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_np_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_neural_phys_stochastic_eval')
             np.savez('results/nxro_neural_phys_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': np_model.state_dict(), 'var_order': np_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_neural_phys_stochastic.pt')
@@ -516,6 +523,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_rx_fcst_m = nxro_reforecast_stochastic(rx_model, init_ds=obs_ds, n_month=21, var_order=rx_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_rx_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_resmix_stochastic_eval')
             np.savez('results/nxro_resmix_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': rx_model.state_dict(), 'var_order': rx_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_resmix_stochastic.pt')
@@ -566,6 +574,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_bl_fcst_m = nxro_reforecast_stochastic(bl_model, init_ds=obs_ds, n_month=21, var_order=bl_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_bl_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_bilinear_stochastic_eval')
             np.savez('results/nxro_bilinear_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': bl_model.state_dict(), 'var_order': bl_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_bilinear_stochastic.pt')
@@ -618,6 +627,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_at_fcst_m = nxro_reforecast_stochastic(at_model, init_ds=obs_ds, n_month=21, var_order=at_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_at_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_attentive_stochastic_eval')
             np.savez('results/nxro_attentive_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': at_model.state_dict(), 'var_order': at_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_attentive_stochastic.pt')
@@ -670,6 +680,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_gr_fcst_m = nxro_reforecast_stochastic(gr_model, init_ds=obs_ds, n_month=21, var_order=gr_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_gr_fcst_m, obs_ds, var='Nino34', out_prefix='results/NXRO_graph_stochastic_eval')
             np.savez('results/nxro_graph_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': gr_model.state_dict(), 'var_order': gr_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        'results/nxro_graph_stochastic.pt')
@@ -723,6 +734,7 @@ def main():
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_gp_fcst_m = nxro_reforecast_stochastic(gp_model, init_ds=obs_ds, n_month=21, var_order=gp_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
+            evaluate_stochastic_ensemble(NXRO_gp_fcst_m, obs_ds, var='Nino34', out_prefix=f'results/NXRO_graphpyg_{tag2}_stochastic_eval')
             np.savez(f'results/nxro_graphpyg_{tag2}_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': gp_model.state_dict(), 'var_order': gp_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
                        f'results/nxro_graphpyg_{tag2}_stochastic.pt')

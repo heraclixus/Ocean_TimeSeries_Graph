@@ -46,6 +46,28 @@ Why it matters:
 Connection to NXRO:
 - Variant 6) NXRO-Stochastic will mirror XRO’s seasonal AR(1) noise by learning {a1(m), σ(m)} (or parameterizing them via Fourier features) and sampling during reforecasts. Deterministic skill (ACC/RMSE) is still reported with noise disabled; probabilistic metrics use ensembles.
 
+### Probabilistic evaluation and calibration (new)
+
+We added a unified evaluation for stochastic (ensemble) reforecasts to complement deterministic ACC/RMSE:
+
+- **Ensemble-mean ACC/RMSE**: Skill of the ensemble mean (noise impacts only spread; skill is computed on mean).
+- **Coverage of central prediction intervals**: Fraction of observations falling inside central 50/80/90% intervals; target near the nominal level without over-coverage.
+- **Interval width (sharpness)**: Average width of each interval; used with coverage to assess calibration vs. over‑dispersion.
+- **Spread vs RMSE**: Lead‑wise comparison of ensemble spread and ensemble‑mean RMSE to assess spread–skill consistency.
+- **CRPS**: Proper scoring rule aggregating both location and spread quality.
+- **Brier score + reliability diagram (threshold events)**: E.g., P(|Nino34| > 0.5°C), verifying probabilistic calibration.
+
+Justification:
+- ACC/RMSE alone ignores uncertainty. Coverage and width capture calibration and sharpness trade‑offs; CRPS provides a single proper score; spread vs RMSE and reliability identify under/over‑dispersion.
+
+Implementation details:
+- In code, `NXRO_train.py --stochastic` produces ensemble reforecasts (default 100 members) and evaluates them via `utils/xro_utils.evaluate_stochastic_ensemble`.
+- Saved artifacts per variant under `results/` include:
+  - Forecasts: `NXRO_<variant>_stochastic_forecasts.nc` and fitted noise params `nxro_<variant>_stochastic_noise.npz`.
+  - Skill of ensemble mean: `NXRO_<variant>_stochastic_acc.png`, `..._rmse.png`.
+  - Ensemble diagnostics: CSVs `..._lead_metrics.csv` (spread, RMSE(mean), CRPS, Brier), `..._coverage.csv`, `..._interval_width.csv` and plots `..._coverage_heatmap.png`, `..._spread_rmse.png`, `..._crps.png`, `..._reliability.png`.
+- Deterministic skills continue to be computed with noise disabled (for fair comparison to non‑stochastic variants).
+
 ## Neural XRO (NXRO)
 
 

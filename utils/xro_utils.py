@@ -185,3 +185,182 @@ def nxro_reforecast(model, init_ds: xr.Dataset, n_month: int = 21, var_order: Op
     return fcst
 
 
+
+def _align_obs_for_lead(obs_var: xr.DataArray, init_times: np.ndarray, lead_val: int) -> xr.DataArray:
+    """Align observations to forecast inits shifted by lead months.
+
+    Uses reindex to tolerate missing targets (beyond obs range). Returns a DataArray
+    over dimension 'init' with NaNs where observations are unavailable.
+    """
+    target_times = pd.to_datetime(init_times)
+    target_times = pd.DatetimeIndex(target_times) + pd.DateOffset(months=int(lead_val))
+    target_da = xr.DataArray(target_times, dims=['time'])
+    obs_re = obs_var.reindex(time=target_da)
+    # Rename time->init to match forecast dim
+    obs_re = obs_re.rename({'time': 'init'})
+    return obs_re
+
+
+def evaluate_stochastic_ensemble(
+    fcst_m: xr.Dataset,
+    obs_ds: xr.Dataset,
+    var: str = 'Nino34',
+    out_prefix: str = 'results/NXRO_eval',
+    intervals: list = [0.5, 0.8, 0.9],
+    threshold: float = 0.5,
+) -> xr.Dataset:
+    """Evaluate ensemble forecasts: coverage, width, spread, RMSE(mean), CRPS, Brier, reliability plot.
+
+    Saves plots and CSVs with the given out_prefix. Returns an xr.Dataset of lead-wise metrics.
+    """
+    leads = fcst_m['lead'].values
+    init_vals = fcst_m['init'].values
+    fc = fcst_m[var]  # dims: lead, init, member
+    obs_var = obs_ds[var]
+
+    # Pre-allocate
+    cov_intervals = np.zeros((len(leads), len(intervals)), dtype=np.float32)
+    wid_intervals = np.zeros((len(leads), len(intervals)), dtype=np.float32)
+    spread = np.zeros(len(leads), dtype=np.float32)
+    rmse_mean = np.zeros(len(leads), dtype=np.float32)
+    crps = np.zeros(len(leads), dtype=np.float32)
+    brier = np.zeros(len(leads), dtype=np.float32)
+
+    # Reliability bins
+    bin_edges = np.linspace(0.0, 1.0, 11)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    rel_counts = np.zeros((len(leads), len(bin_centers)), dtype=np.float32)
+    rel_obsfreq = np.zeros((len(leads), len(bin_centers)), dtype=np.float32)
+
+    for iL, L in enumerate(leads):
+        fc_L = fc.sel(lead=L)  # [init, member]
+        obs_L = _align_obs_for_lead(obs_var, init_vals, int(L))  # [init]
+
+        # Mask to available observations
+        valid_mask = xr.ufuncs.isfinite(obs_L)
+        fc_L_valid = fc_L.where(valid_mask, drop=True)
+        obs_L_valid = obs_L.where(valid_mask, drop=True)
+        # Ensemble mean and spread
+        mean_L = fc_L_valid.mean('member')
+        std_L = fc_L_valid.std('member')
+        spread[iL] = float(std_L.mean('init')) if std_L.size > 0 else np.nan
+        # RMSE of ensemble mean
+        diff = (mean_L - obs_L_valid)
+        rmse_mean[iL] = float(np.sqrt((diff ** 2).mean('init'))) if diff.size > 0 else np.nan
+
+        # Coverage and width per interval
+        ens_vals = fc_L_valid.values  # [I, M]
+        obs_vals = obs_L_valid.values  # [I]
+        if ens_vals.size == 0 or obs_vals.size == 0:
+            continue
+        for j, c in enumerate(intervals):
+            alpha = (1.0 - c) / 2.0
+            lo = np.quantile(ens_vals, alpha, axis=1)
+            hi = np.quantile(ens_vals, 1.0 - alpha, axis=1)
+            covered = (obs_vals >= lo) & (obs_vals <= hi)
+            cov_intervals[iL, j] = float(covered.mean())
+            wid_intervals[iL, j] = float((hi - lo).mean())
+
+        # CRPS (ensemble) using fair estimator
+        # (1/M) sum |x_m - y| - 0.5/M^2 sum |x_m - x_n|
+        M = ens_vals.shape[1]
+        term1 = np.mean(np.abs(ens_vals - obs_vals[:, None]), axis=1)
+        # pairwise abs differences averaged over all pairs
+        diff_pairs = np.abs(ens_vals[:, :, None] - ens_vals[:, None, :])
+        term2 = np.mean(diff_pairs, axis=(1, 2))
+        crps[iL] = float(np.mean(term1 - 0.5 * term2))
+
+        # Brier for threshold event
+        p_hat = (ens_vals > threshold).mean(axis=1)
+        y_evt = (obs_vals > threshold).astype(np.float32)
+        brier[iL] = float(np.mean((p_hat - y_evt) ** 2))
+
+        # Reliability components
+        bin_idx = np.digitize(p_hat, bin_edges) - 1
+        bin_idx = np.clip(bin_idx, 0, len(bin_centers) - 1)
+        for b in range(len(bin_centers)):
+            sel = bin_idx == b
+            if np.any(sel):
+                rel_counts[iL, b] = np.sum(sel)
+                rel_obsfreq[iL, b] = float(y_evt[sel].mean())
+
+    # Build xr outputs
+    coords = {'lead': leads}
+    ds_out = xr.Dataset({
+        'coverage': (['lead', 'interval'], cov_intervals),
+        'interval_width': (['lead', 'interval'], wid_intervals),
+        'spread': (['lead'], spread),
+        'rmse_mean': (['lead'], rmse_mean),
+        'crps': (['lead'], crps),
+        'brier': (['lead'], brier),
+    }, coords={**coords, 'interval': intervals})
+
+    # Save CSV summaries
+    pd.DataFrame({'lead': leads, 'spread': spread, 'rmse_mean': rmse_mean, 'crps': crps, 'brier': brier}).to_csv(
+        f'{out_prefix}_lead_metrics.csv', index=False)
+    cov_df = pd.DataFrame(cov_intervals, columns=[f'cov_{int(c*100)}%' for c in intervals])
+    cov_df.insert(0, 'lead', leads)
+    cov_df.to_csv(f'{out_prefix}_coverage.csv', index=False)
+    wid_df = pd.DataFrame(wid_intervals, columns=[f'width_{int(c*100)}%' for c in intervals])
+    wid_df.insert(0, 'lead', leads)
+    wid_df.to_csv(f'{out_prefix}_interval_width.csv', index=False)
+
+    # Plots
+    # Coverage heatmap
+    fig, ax = plt.subplots(1, 1, figsize=(8, 3 + 0.3 * len(intervals)))
+    im = ax.imshow(cov_intervals.T, aspect='auto', origin='lower', vmin=0.0, vmax=1.0, cmap='viridis')
+    ax.set_yticks(np.arange(len(intervals)))
+    ax.set_yticklabels([f'{int(c*100)}%' for c in intervals])
+    ax.set_xticks(np.arange(len(leads)))
+    ax.set_xticklabels(leads)
+    ax.set_xlabel('Lead (months)')
+    ax.set_ylabel('Central interval')
+    ax.set_title(f'Coverage rates ({var})')
+    plt.colorbar(im, ax=ax, label='Coverage')
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_coverage_heatmap.png', dpi=300)
+    plt.close()
+
+    # Spread vs RMSE
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    ax.plot(leads, spread, label='Ensemble spread', marker='o')
+    ax.plot(leads, rmse_mean, label='RMSE (ensemble mean)', marker='s')
+    ax.set_xlabel('Lead (months)')
+    ax.set_ylabel('℃')
+    ax.set_title(f'Spread vs RMSE ({var})')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_spread_rmse.png', dpi=300)
+    plt.close()
+
+    # CRPS per lead
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    ax.plot(leads, crps, label='CRPS', c='tab:purple')
+    ax.set_xlabel('Lead (months)')
+    ax.set_ylabel('CRPS')
+    ax.set_title(f'CRPS by lead ({var})')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_crps.png', dpi=300)
+    plt.close()
+
+    # Reliability diagram for threshold
+    # Aggregate across leads for a compact plot
+    total_counts = rel_counts.sum(axis=0)
+    with np.errstate(invalid='ignore'):
+        avg_obsfreq = np.where(total_counts > 0, (rel_obsfreq * rel_counts).sum(axis=0) / total_counts, np.nan)
+    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+    ax.plot([0, 1], [0, 1], 'k--', label='Perfect')
+    ax.plot(bin_centers, avg_obsfreq, marker='o', label=f'Threshold {threshold:.2f}℃')
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
+    ax.set_xlabel('Forecast probability')
+    ax.set_ylabel('Observed frequency')
+    ax.set_title(f'Reliability diagram ({var})')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_reliability.png', dpi=300)
+    plt.close()
+
+    return ds_out
+
