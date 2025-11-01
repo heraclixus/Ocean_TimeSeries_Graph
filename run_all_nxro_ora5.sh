@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-# Usage: bash run_all_nxro.sh [--stochastic] [--members 100] [--rollout_k 1] [--epochs 2000] [--device auto] [--test] [--topk 3] [--extra_train_nc <paths...>]
-# Note: By default, this script includes all data/XRO_indices_*_preproc.nc as extra training data.
+# Usage: bash run_all_nxro_ora5.sh [--stochastic] [--members 100] [--rollout_k 1] [--epochs 2000] [--device auto] [--test] [--topk 3]
+# Note: This script trains on ORAS5 only (no extra training NetCDFs).
 #
 # NOTE: This script runs BASE VARIANTS ONLY (random initialization).
 # For warm-start variants and freezing ablations, see run_all_warmstart_variants.sh
@@ -12,10 +12,9 @@ set -euo pipefail
 STOCH=""
 MEMBERS=100
 ROLLOUT=1
-EPOCHS=500
+EPOCHS=50
 DEVICE=auto
 TEST=""
-EXTRA_TRAIN_ARGS="--extra_train_nc"
 TOPK=3
 
 while [[ $# -gt 0 ]]; do
@@ -32,26 +31,15 @@ while [[ $# -gt 0 ]]; do
       DEVICE="$2"; shift 2 ;;
     --test)
       TEST="--test"; shift ;;
-    --extra_train_nc)
-      shift
-      EXTRA_TRAIN_LIST=()
-      while [[ $# -gt 0 && $1 != --* ]]; do
-        EXTRA_TRAIN_LIST+=("$1")
-        shift
-      done
-      if [[ ${#EXTRA_TRAIN_LIST[@]} -gt 0 ]]; then
-        EXTRA_TRAIN_ARGS="--extra_train_nc ${EXTRA_TRAIN_LIST[*]}"
-      fi
-      ;;
     --topk)
       TOPK="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
-common="--epochs ${EPOCHS} --rollout_k ${ROLLOUT} --device ${DEVICE} ${STOCH} ${TEST} --members ${MEMBERS} ${EXTRA_TRAIN_ARGS}"
+common="--epochs ${EPOCHS} --rollout_k ${ROLLOUT} --device ${DEVICE} ${STOCH} ${TEST} --members ${MEMBERS}"
 
-echo "Running NXRO variants with: ${common}"
+echo "Running NXRO (ORAS5-only) variants with: ${common}"
 
 python NXRO_train.py --model linear ${common}
 python NXRO_train.py --model ro ${common}
@@ -62,6 +50,7 @@ python NXRO_train.py --model neural_phys ${common}
 python NXRO_train.py --model resmix ${common}
 python NXRO_train.py --model bilinear ${common}
 python NXRO_train.py --model attentive ${common}
+
 # Graph ODE variants
 # 1) Fixed XRO-based graph (default)
 python NXRO_train.py --model graph ${common}
@@ -87,4 +76,7 @@ python NXRO_train.py --model graph_pyg ${common} --top_k ${TOPK} --graph_stat_me
 python NXRO_train.py --model graph_pyg ${common} --top_k ${TOPK} --graph_stat_method mi --gat
 python NXRO_train.py --model graph_pyg ${common} --top_k ${TOPK} --graph_stat_method xcorr_max
 python NXRO_train.py --model graph_pyg ${common} --top_k ${TOPK} --graph_stat_method xcorr_max --gat
+
 echo "Done."
+
+

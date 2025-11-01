@@ -17,3 +17,8 @@ src/*.mp4
 data/*.mat
 data/*.png
 results/
+data/*.nc
+*.pdf
+results-old/
+results/
+results_out_of_sample/

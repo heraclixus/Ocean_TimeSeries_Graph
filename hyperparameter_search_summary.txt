@@ -1,0 +1,200 @@
+HYPERPARAMETER SEARCH SCRIPTS FOR GRAPH-BASED NXRO MODELS
+==============================================================
+
+Created 3 comprehensive scripts for grid search optimization:
+
+1. run_graph_hyperparam_search.py
+   - Python-based implementation
+   - Detailed configuration tracking (JSON output)
+   - Automatic result extraction and ranking
+   - ~10,800 total configurations (full grid)
+   - Estimated time: 5-10 days on single GPU
+
+2. run_graph_grid_search.sh
+   - Bash-based exhaustive grid search
+   - Same ~10,800 configurations as Python version
+   - Logging to grid_search.log
+   - Auto-analysis at completion
+   - Supports --dry_run for previewing commands
+
+3. run_graph_quick_search.sh
+   - Bash-based focused search
+   - Reduced to ~500 promising configurations
+   - Faster iteration (1-2 days on single GPU)
+   - Good starting point before full search
+
+SEARCH SPACE
+============
+
+Model Types:
+- graph (NXROGraphModel)
+  - Fixed adjacency
+  - Learned adjacency with L1 regularization
+- graph_pyg (NXROGraphPyGModel)
+  - GCN architecture
+  - GAT architecture
+
+Graph Structures:
+- xro: XRO-based interaction graph
+- stat_pearson: Pearson correlation k-NN
+- stat_spearman: Spearman correlation k-NN
+- stat_mi: Mutual Information k-NN
+- stat_xcorr_max: Cross-correlation k-NN
+
+Hyperparameters (Full Grid):
+- top_k: [1, 2, 3, 5, 7, 10]
+- hidden_dim: [32, 64, 128, 256]
+- learning_rate: [1e-4, 5e-4, 1e-3, 5e-3]
+- rollout_k: [1, 2, 3]
+- l1_lambda (learned only): [1e-4, 5e-4, 1e-3, 5e-3]
+
+Hyperparameters (Quick Grid):
+- top_k: [3, 5, 7]
+- hidden_dim: [64, 128]
+- learning_rate: [5e-4, 1e-3]
+- rollout_k: [1, 2]
+- l1_lambda: [1e-3, 5e-3]
+- graph_structures: [xro, pearson, spearman]
+
+SELECTION CRITERION
+===================
+
+Test RMSE on Niño3.4, averaged across all forecast leads (1-24 months)
+
+USAGE EXAMPLES
+==============
+
+# Quick search (recommended first step)
+bash run_graph_quick_search.sh --epochs 1000 --device cuda --test
+
+# Full grid search
+bash run_graph_grid_search.sh --epochs 2000 --device cuda --test
+
+# Python version
+python run_graph_hyperparam_search.py --epochs 2000 --device cuda --test
+
+# Dry run (preview without execution)
+bash run_graph_grid_search.sh --epochs 2000 --test --dry_run
+
+# Custom output directory
+python run_graph_hyperparam_search.py \
+    --epochs 2000 \
+    --device cuda \
+    --test \
+    --output_dir results/my_search
+
+OUTPUT FILES
+============
+
+results/hyperparam_search/
+├── grid_search_results.csv     # All configs ranked by test RMSE
+├── best_config.json            # Best configuration details
+├── search_grid.json            # Full grid specification
+└── grid_search.log             # Execution log
+
+results/hyperparam_search_quick/
+├── results.csv                 # Quick search results
+└── quick_search.log            # Execution log
+
+ANALYSIS
+========
+
+# View top 10 models
+head -11 results/hyperparam_search/grid_search_results.csv
+
+# Visualize with existing tools
+python XRO_variants.py --test --data_filter base --graph_filter graph
+python XRO_graph_variants.py --test --data_filter base
+
+# Custom analysis
+python -c "
+import pandas as pd
+df = pd.read_csv('results/hyperparam_search/grid_search_results.csv')
+
+# Best graph structure?
+print('\\nBest graph structure:')
+print(df.groupby('graph_structure')['test_rmse'].mean().sort_values())
+
+# Best top_k?
+print('\\nBest top_k:')
+print(df.groupby('top_k')['test_rmse'].mean().sort_values())
+
+# Fixed vs learned?
+print('\\nFixed vs Learned:')
+print(df.groupby('use_learned_graph')['test_rmse'].mean())
+
+# GCN vs GAT?
+print('\\nGCN vs GAT:')
+pyg = df[df['model_type'] == 'graph_pyg']
+print(pyg.groupby('gnn_type')['test_rmse'].mean())
+
+# Top 10 overall
+print('\\nTop 10 configurations:')
+print(df.head(10)[['config_name', 'test_rmse']])
+"
+
+DOCUMENTATION
+=============
+
+- README.md: Updated with "Hyperparameter Search for Graph Models" section
+- HYPERPARAM_SEARCH.md: Comprehensive guide with examples and troubleshooting
+- This summary: Quick reference for all scripts
+
+STRATEGIES
+==========
+
+1. Coarse-to-Fine:
+   - Start with quick search at low epochs (500)
+   - Identify top 3-5 configs
+   - Retrain those with high epochs (5000)
+
+2. Focused Sub-Grids:
+   - Edit grid arrays in bash scripts
+   - Focus on specific graph structures or model types
+
+3. Parallel Execution:
+   - Split grid across multiple GPUs
+   - E.g., Machine 1 = GCN, Machine 2 = GAT
+
+4. Early Stopping:
+   - Add --patience to reduce wasted epochs
+   - Stop if validation loss plateaus
+
+CONFIGURATION BREAKDOWN
+=======================
+
+For NXROGraphModel (fixed):
+  5 structures × 6 top_k × 4 hidden × 4 lr × 3 rollout = 1,440 configs
+
+For NXROGraphModel (learned):
+  5 structures × 6 top_k × 4 hidden × 4 lr × 3 rollout × 4 l1 = 5,760 configs
+
+For NXROGraphPyGModel (GCN):
+  5 structures × 6 top_k × 4 hidden × 4 lr × 3 rollout = 1,440 configs
+
+For NXROGraphPyGModel (GAT):
+  5 structures × 6 top_k × 4 hidden × 4 lr × 3 rollout = 1,440 configs
+
+TOTAL: 10,080 configurations
+
+Quick search reduces this to ~500 by:
+- 3 structures instead of 5
+- 3 top_k values instead of 6
+- 2 hidden_dim instead of 4
+- 2 lr instead of 4
+- 2 rollout instead of 3
+- 2 l1 instead of 4
+
+FILES CREATED
+=============
+
+1. run_graph_hyperparam_search.py  - Python grid search
+2. run_graph_grid_search.sh        - Bash full search (executable)
+3. run_graph_quick_search.sh       - Bash quick search (executable)
+4. HYPERPARAM_SEARCH.md            - Comprehensive documentation
+5. hyperparameter_search_summary.txt - This file
+
+All scripts are ready to use with base ORAS5 data only (no extra training data).
+All scripts select based on test RMSE.
+All scripts are compatible with existing NXRO_train.py infrastructure.
+

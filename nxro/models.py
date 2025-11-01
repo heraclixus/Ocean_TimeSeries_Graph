@@ -28,9 +28,22 @@ class NXROLinearModel(nn.Module):
     """NXRO-Linear: Seasonal linear operator with Fourier time embedding.
 
     dX/dt = L_θ(t) · X, where L_θ(t) = sum_k W_k * φ_k(t), φ_k are Fourier features.
+    
+    Variants:
+        - Variant 1 (NXRO-Linear): Random initialization (L_basis_init=None)
+        - Variant 1a (NXRO-Linear-WS): Warm-start from XRO (L_basis_init from XRO fit)
     """
 
-    def __init__(self, n_vars: int, k_max: int = 2):
+    def __init__(self, n_vars: int, k_max: int = 2, L_basis_init: Optional[torch.Tensor] = None):
+        """Initialize NXRO-Linear model.
+        
+        Args:
+            n_vars: number of variables
+            k_max: maximum harmonic order (default 2 for semi-annual)
+            L_basis_init: optional initial values for L_basis [n_basis, n_vars, n_vars]
+                         If None: random Xavier initialization (Variant 1)
+                         If provided: warm-start from XRO (Variant 1a)
+        """
         super().__init__()
         self.n_vars = n_vars
         self.k_max = k_max
@@ -38,8 +51,17 @@ class NXROLinearModel(nn.Module):
         self.n_basis = 1 + 2 * k_max
         # Parameterize L as a stack of basis-weighted matrices: [n_basis, n_vars, n_vars]
         self.L_basis = nn.Parameter(torch.zeros(self.n_basis, n_vars, n_vars))
-        # Initialize small to be close to zero drift initially
-        nn.init.xavier_uniform_(self.L_basis)
+        
+        # Initialize L_basis
+        if L_basis_init is not None:
+            # Variant 1a: Warm-start from XRO
+            assert L_basis_init.shape == (self.n_basis, n_vars, n_vars), \
+                f"L_basis_init shape {L_basis_init.shape} must match ({self.n_basis}, {n_vars}, {n_vars})"
+            with torch.no_grad():
+                self.L_basis.copy_(L_basis_init)
+        else:
+            # Variant 1: Random initialization
+            nn.init.xavier_uniform_(self.L_basis)
 
     def forward(self, x: torch.Tensor, t_years: torch.Tensor) -> torch.Tensor:
         """Compute f(x,t) = dX/dt.
@@ -68,23 +90,68 @@ class NXROROModel(nn.Module):
     dX/dt = L_θ(t) · X + [RO_T(T,H,t), RO_H(T,H,t), 0, ..., 0]^T
 
     RO monomials: [T^2, T*H, T^3, T^2*H, T*H^2] with seasonal coefficients.
+    
+    Variants:
+        - Variant 2: Random initialization (all init params = None, all freeze flags = False)
+        - Variant 2a (NXRO-RO-WS): Warm-start (provide init params, freeze_linear=False, freeze_ro=False)
+        - Variant 2a-FixL: Warm-start with frozen linear (freeze_linear=True, freeze_ro=False)
+        - Variant 2a-FixRO: Warm-start with frozen RO (freeze_linear=False, freeze_ro=True)
+        - Variant 2a-FixAll: All frozen, no training (freeze_linear=True, freeze_ro=True)
     """
 
-    def __init__(self, n_vars: int, k_max: int = 2, n_ro: int = 5):
+    def __init__(self, n_vars: int, k_max: int = 2, n_ro: int = 5,
+                 L_basis_init: Optional[torch.Tensor] = None,
+                 W_T_init: Optional[torch.Tensor] = None,
+                 W_H_init: Optional[torch.Tensor] = None,
+                 freeze_linear: bool = False,
+                 freeze_ro: bool = False):
+        """Initialize NXRO-RO model.
+        
+        Args:
+            n_vars: number of variables
+            k_max: maximum harmonic order
+            n_ro: number of RO basis functions (default 5)
+            L_basis_init: optional initial values for L_basis [n_basis, n_vars, n_vars]
+            W_T_init: optional initial values for W_T [n_basis, n_ro]
+            W_H_init: optional initial values for W_H [n_basis, n_ro]
+            freeze_linear: if True, freeze L_basis (requires L_basis_init)
+            freeze_ro: if True, freeze W_T and W_H (requires W_T_init, W_H_init)
+        """
         super().__init__()
         assert n_vars >= 2, "NXROROModel assumes first two vars are T and H"
         self.n_vars = n_vars
         self.k_max = k_max
         self.n_basis = 1 + 2 * k_max
         self.n_ro = n_ro
+        
         # Seasonal linear operator
         self.L_basis = nn.Parameter(torch.zeros(self.n_basis, n_vars, n_vars))
-        nn.init.xavier_uniform_(self.L_basis)
+        if L_basis_init is not None:
+            with torch.no_grad():
+                self.L_basis.copy_(L_basis_init)
+        else:
+            nn.init.xavier_uniform_(self.L_basis)
+        
+        # Freeze linear if requested
+        if freeze_linear:
+            self.L_basis.requires_grad = False
+        
         # Seasonal RO coefficients for T and H tendencies
         self.W_T = nn.Parameter(torch.zeros(self.n_basis, n_ro))
         self.W_H = nn.Parameter(torch.zeros(self.n_basis, n_ro))
-        nn.init.xavier_uniform_(self.W_T)
-        nn.init.xavier_uniform_(self.W_H)
+        
+        if W_T_init is not None and W_H_init is not None:
+            with torch.no_grad():
+                self.W_T.copy_(W_T_init)
+                self.W_H.copy_(W_H_init)
+        else:
+            nn.init.xavier_uniform_(self.W_T)
+            nn.init.xavier_uniform_(self.W_H)
+        
+        # Freeze RO if requested
+        if freeze_ro:
+            self.W_T.requires_grad = False
+            self.W_H.requires_grad = False
 
     def _phi_ro(self, T: torch.Tensor, H: torch.Tensor) -> torch.Tensor:
         # Build RO basis [T^2, T*H, T^3, T^2*H, T*H^2]
@@ -119,28 +186,83 @@ class NXRORODiagModel(nn.Module):
     """NXRO-RO+Diag: Seasonal linear + RO (T/H) + diagonal quadratic/cubic per variable.
 
     dX/dt = L_θ(t) · X + RO_T/H(T,H,t) on first two vars + b_j(t) X_j^2 + c_j(t) X_j^3.
+    
+    Variants:
+        - Variant 3: Random initialization
+        - Variant 3a (NXRO-RO+Diag-WS): Warm-start all, train all
+        - Variant 3a-FixL: Warm-start, freeze linear, train RO+Diag
+        - Variant 3a-FixRO: Warm-start, freeze RO, train linear+Diag
+        - Variant 3a-FixDiag: Warm-start, freeze diagonal, train linear+RO
+        - Variant 3a-FixNL: Warm-start, freeze RO+Diag, train linear only
+        - Variant 3a-FixAll: Warm-start, freeze all (pure XRO baseline)
     """
 
-    def __init__(self, n_vars: int, k_max: int = 2, n_ro: int = 5):
+    def __init__(self, n_vars: int, k_max: int = 2, n_ro: int = 5,
+                 L_basis_init: Optional[torch.Tensor] = None,
+                 W_T_init: Optional[torch.Tensor] = None,
+                 W_H_init: Optional[torch.Tensor] = None,
+                 B_diag_init: Optional[torch.Tensor] = None,
+                 C_diag_init: Optional[torch.Tensor] = None,
+                 freeze_linear: bool = False,
+                 freeze_ro: bool = False,
+                 freeze_diag: bool = False):
+        """Initialize NXRO-RO+Diag model.
+        
+        Args:
+            n_vars: number of variables
+            k_max: maximum harmonic order
+            n_ro: number of RO basis functions
+            L_basis_init: optional initial values for L_basis
+            W_T_init, W_H_init: optional initial values for RO coefficients
+            B_diag_init, C_diag_init: optional initial values for diagonal coefficients
+            freeze_linear: if True, freeze L_basis
+            freeze_ro: if True, freeze W_T and W_H
+            freeze_diag: if True, freeze B_diag and C_diag
+        """
         super().__init__()
         assert n_vars >= 2, "NXRORODiagModel assumes first two vars are T and H"
         self.n_vars = n_vars
         self.k_max = k_max
         self.n_basis = 1 + 2 * k_max
         self.n_ro = n_ro
+        
         # Seasonal linear operator
         self.L_basis = nn.Parameter(torch.zeros(self.n_basis, n_vars, n_vars))
-        nn.init.xavier_uniform_(self.L_basis)
+        if L_basis_init is not None:
+            with torch.no_grad():
+                self.L_basis.copy_(L_basis_init)
+        else:
+            nn.init.xavier_uniform_(self.L_basis)
+        if freeze_linear:
+            self.L_basis.requires_grad = False
+        
         # Seasonal RO coefficients for T and H tendencies
         self.W_T = nn.Parameter(torch.zeros(self.n_basis, n_ro))
         self.W_H = nn.Parameter(torch.zeros(self.n_basis, n_ro))
-        nn.init.xavier_uniform_(self.W_T)
-        nn.init.xavier_uniform_(self.W_H)
+        if W_T_init is not None and W_H_init is not None:
+            with torch.no_grad():
+                self.W_T.copy_(W_T_init)
+                self.W_H.copy_(W_H_init)
+        else:
+            nn.init.xavier_uniform_(self.W_T)
+            nn.init.xavier_uniform_(self.W_H)
+        if freeze_ro:
+            self.W_T.requires_grad = False
+            self.W_H.requires_grad = False
+        
         # Seasonal diagonal quadratic and cubic: [basis, n_vars]
         self.B_diag = nn.Parameter(torch.zeros(self.n_basis, n_vars))
         self.C_diag = nn.Parameter(torch.zeros(self.n_basis, n_vars))
-        nn.init.xavier_uniform_(self.B_diag)
-        nn.init.xavier_uniform_(self.C_diag)
+        if B_diag_init is not None and C_diag_init is not None:
+            with torch.no_grad():
+                self.B_diag.copy_(B_diag_init)
+                self.C_diag.copy_(C_diag_init)
+        else:
+            nn.init.xavier_uniform_(self.B_diag)
+            nn.init.xavier_uniform_(self.C_diag)
+        if freeze_diag:
+            self.B_diag.requires_grad = False
+            self.C_diag.requires_grad = False
 
     def _phi_ro(self, T: torch.Tensor, H: torch.Tensor) -> torch.Tensor:
         return torch.stack([
@@ -173,19 +295,42 @@ class NXRORODiagModel(nn.Module):
 
 
 class NXROResModel(nn.Module):
-    """NXRO-Res: Seasonal linear + optional RO/Diag (set to minimal) + residual MLP R_θ(X,t).
+    """NXRO-Res: Seasonal linear + residual MLP R_θ(X,t).
 
-    dX/dt = L_θ(t) · X + R_θ([X, φ(t)]) where φ(t) are Fourier features. Residual is small (regularized in training).
+    dX/dt = L_θ(t) · X + R_θ([X, φ(t)]) where φ(t) are Fourier features.
+    
+    Variants:
+        - Variant 4: Random initialization (L_basis_init=None, freeze_linear=False)
+        - Variant 4a (NXRO-Res-WS-FixL): Warm-start linear and freeze, train only MLP
     """
 
-    def __init__(self, n_vars: int, k_max: int = 2, hidden: int = 64):
+    def __init__(self, n_vars: int, k_max: int = 2, hidden: int = 64,
+                 L_basis_init: Optional[torch.Tensor] = None,
+                 freeze_linear: bool = False):
+        """Initialize NXRO-Res model.
+        
+        Args:
+            n_vars: number of variables
+            k_max: maximum harmonic order
+            hidden: MLP hidden size
+            L_basis_init: optional initial values for L_basis
+            freeze_linear: if True, freeze L_basis (for variant 4a)
+        """
         super().__init__()
         self.n_vars = n_vars
         self.k_max = k_max
         self.n_basis = 1 + 2 * k_max
+        
         # Seasonal linear operator
         self.L_basis = nn.Parameter(torch.zeros(self.n_basis, n_vars, n_vars))
-        nn.init.xavier_uniform_(self.L_basis)
+        if L_basis_init is not None:
+            with torch.no_grad():
+                self.L_basis.copy_(L_basis_init)
+        else:
+            nn.init.xavier_uniform_(self.L_basis)
+        if freeze_linear:
+            self.L_basis.requires_grad = False
+        
         # Residual MLP: inputs X (n_vars) + time emb (n_basis)
         in_dim = n_vars + self.n_basis
         self.residual = nn.Sequential(
@@ -204,16 +349,139 @@ class NXROResModel(nn.Module):
         return dxdt_lin + dxdt_res
 
 
+class NXROResFullXROModel(nn.Module):
+    """NXRO-Res-FullXRO (Variant 4b): Frozen full XRO + trainable residual MLP.
+    
+    dX/dt = L_XRO(t)·X + N_RO,XRO(T,H,t) + N_Diag,XRO(X,t) + R_θ([X, φ(t)])
+    
+    All XRO components (L, RO, Diag) are frozen (from XRO fit).
+    Only the residual MLP R_θ is trainable.
+    
+    This is the most conservative hybrid approach: uses XRO exactly as-is,
+    adds only neural correction.
+    """
+    
+    def __init__(self, n_vars: int, k_max: int = 2, hidden: int = 64,
+                 L_basis_xro: torch.Tensor = None,
+                 W_T_xro: torch.Tensor = None,
+                 W_H_xro: torch.Tensor = None,
+                 B_diag_xro: torch.Tensor = None,
+                 C_diag_xro: torch.Tensor = None):
+        """Initialize NXRO-Res-FullXRO model (variant 4b).
+        
+        Args:
+            n_vars: number of variables
+            k_max: maximum harmonic order
+            hidden: MLP hidden size
+            L_basis_xro: Linear operator from XRO (REQUIRED, will be frozen)
+            W_T_xro, W_H_xro: RO coefficients from XRO (REQUIRED, will be frozen)
+            B_diag_xro, C_diag_xro: Diagonal coefficients from XRO (REQUIRED, will be frozen)
+        """
+        super().__init__()
+        assert L_basis_xro is not None, "Variant 4b requires XRO initialization!"
+        assert W_T_xro is not None and W_H_xro is not None, "Variant 4b requires RO coefficients!"
+        assert B_diag_xro is not None and C_diag_xro is not None, "Variant 4b requires Diag coefficients!"
+        assert n_vars >= 2, "Assumes first two vars are T and H"
+        
+        self.n_vars = n_vars
+        self.k_max = k_max
+        self.n_basis = 1 + 2 * k_max
+        self.n_ro = W_T_xro.shape[1]  # infer n_ro from W_T shape
+        
+        # Register XRO components as buffers (frozen, not trainable)
+        self.register_buffer('L_basis_xro', L_basis_xro)
+        self.register_buffer('W_T_xro', W_T_xro)
+        self.register_buffer('W_H_xro', W_H_xro)
+        self.register_buffer('B_diag_xro', B_diag_xro)
+        self.register_buffer('C_diag_xro', C_diag_xro)
+        
+        # Residual MLP: inputs X (n_vars) + time emb (n_basis)
+        in_dim = n_vars + self.n_basis
+        self.residual = nn.Sequential(
+            nn.Linear(in_dim, hidden), nn.Tanh(),
+            nn.Linear(hidden, hidden), nn.Tanh(),
+            nn.Linear(hidden, n_vars),
+        )
+    
+    def _phi_ro(self, T: torch.Tensor, H: torch.Tensor) -> torch.Tensor:
+        """Build RO basis [T^2, T*H, T^3, T^2*H, T*H^2]."""
+        return torch.stack([
+            T * T,
+            T * H,
+            T * T * T,
+            T * T * H,
+            T * H * H,
+        ], dim=-1)
+    
+    def forward(self, x: torch.Tensor, t_years: torch.Tensor) -> torch.Tensor:
+        """Compute dX/dt with frozen XRO base + trainable residual."""
+        B = x.shape[0]
+        emb = fourier_time_embedding(t_years, self.k_max)  # [B, n_basis]
+        
+        # Frozen XRO linear part
+        L_t = torch.einsum('bk,kuv->buv', emb, self.L_basis_xro)
+        dxdt = torch.einsum('buv,bv->bu', L_t, x)
+        
+        # Frozen XRO RO part (T/H)
+        T = x[:, 0]
+        H = x[:, 1]
+        phi = self._phi_ro(T, H)  # [B, n_ro]
+        cT = torch.einsum('bk,kn->bn', emb, self.W_T_xro)
+        cH = torch.einsum('bk,kn->bn', emb, self.W_H_xro)
+        dxdt[:, 0] = dxdt[:, 0] + torch.sum(cT * phi, dim=-1)
+        dxdt[:, 1] = dxdt[:, 1] + torch.sum(cH * phi, dim=-1)
+        
+        # Frozen XRO diagonal part
+        b_t = torch.einsum('bk,kv->bv', emb, self.B_diag_xro)
+        c_t = torch.einsum('bk,kv->bv', emb, self.C_diag_xro)
+        dxdt = dxdt + b_t * (x * x) + c_t * (x * x * x)
+        
+        # Trainable residual
+        res_in = torch.cat([x, emb], dim=-1)
+        dxdt_res = self.residual(res_in)
+        
+        return dxdt + dxdt_res
+
+
 class NXROResidualMixModel(NXRORODiagModel):
     """NXRO-ResidualMix: RO+Diag base plus a small residual MLP scaled by α.
 
     f(x,t) = f_RO+Diag(x,t) + α · R_θ([x, φ(t)]), with α small (fixed or learnable).
+    
+    Variants:
+        - Variant 5d: Random initialization
+        - Variant 5d-WS: Warm-start all physics components, train all
+        - Variant 5d-Fix*: Various freezing configurations (see README)
     """
 
     def __init__(self, n_vars: int, k_max: int = 2, hidden: int = 64,
                  alpha_init: float = 0.1, alpha_learnable: bool = False, alpha_max: float = 0.5,
-                 dropout: float = 0.0):
-        super().__init__(n_vars=n_vars, k_max=k_max, n_ro=5)
+                 dropout: float = 0.0,
+                 L_basis_init: Optional[torch.Tensor] = None,
+                 W_T_init: Optional[torch.Tensor] = None,
+                 W_H_init: Optional[torch.Tensor] = None,
+                 B_diag_init: Optional[torch.Tensor] = None,
+                 C_diag_init: Optional[torch.Tensor] = None,
+                 freeze_linear: bool = False,
+                 freeze_ro: bool = False,
+                 freeze_diag: bool = False):
+        """Initialize NXRO-ResidualMix model.
+        
+        Args:
+            n_vars: number of variables
+            k_max: maximum harmonic order
+            hidden: MLP hidden size
+            alpha_init: initial value for alpha scaling parameter
+            alpha_learnable: whether alpha is trainable
+            alpha_max: maximum value for alpha
+            dropout: dropout rate in residual MLP
+            L_basis_init, W_T_init, W_H_init, B_diag_init, C_diag_init: warm-start values
+            freeze_linear, freeze_ro, freeze_diag: freezing flags
+        """
+        super().__init__(n_vars=n_vars, k_max=k_max, n_ro=5,
+                        L_basis_init=L_basis_init, W_T_init=W_T_init, W_H_init=W_H_init,
+                        B_diag_init=B_diag_init, C_diag_init=C_diag_init,
+                        freeze_linear=freeze_linear, freeze_ro=freeze_ro, freeze_diag=freeze_diag)
         self.n_vars = n_vars
         self.k_max = k_max
         self.n_basis = 1 + 2 * k_max
@@ -366,6 +634,11 @@ class NXROAttentiveModel(nn.Module):
 
     Treat variables as tokens. Single-head attention by default with optional mask emphasizing T/H.
     dx/dt = L(t) x + α(t) * Proj(Softmax(M ⊙ (QK^T / sqrt(d))) V)
+    
+    Variants:
+        - 5a (NXRO-Attentive): Random initialization
+        - 5a-WS: Warm-start linear, train all
+        - 5a-FixL: Warm-start linear and freeze, train only attention
 
     Args:
         n_vars: number of variables
@@ -373,18 +646,30 @@ class NXROAttentiveModel(nn.Module):
         d: attention hidden size (keep small, e.g., 16–32)
         dropout: dropout on attention weights/output
         mask_mode: 'th_only' to allow attention mainly from T/H (cols 0/1) plus self; 'full' for all-to-all
+        L_basis_init: optional initial values for L_basis
+        freeze_linear: if True, freeze L_basis
     """
 
-    def __init__(self, n_vars: int, k_max: int = 2, d: int = 32, dropout: float = 0.0, mask_mode: str = 'th_only'):
+    def __init__(self, n_vars: int, k_max: int = 2, d: int = 32, dropout: float = 0.0, 
+                 mask_mode: str = 'th_only',
+                 L_basis_init: Optional[torch.Tensor] = None,
+                 freeze_linear: bool = False):
         super().__init__()
         self.n_vars = n_vars
         self.k_max = k_max
         self.n_basis = 1 + 2 * k_max
         self.d = d
         self.mask_mode = mask_mode
+        
         # Seasonal linear operator
         self.L_basis = nn.Parameter(torch.zeros(self.n_basis, n_vars, n_vars))
-        nn.init.xavier_uniform_(self.L_basis)
+        if L_basis_init is not None:
+            with torch.no_grad():
+                self.L_basis.copy_(L_basis_init)
+        else:
+            nn.init.xavier_uniform_(self.L_basis)
+        if freeze_linear:
+            self.L_basis.requires_grad = False
         # Attention projections
         self.Wq = nn.Linear(1, d, bias=False)
         self.Wk = nn.Linear(1, d, bias=False)
@@ -441,15 +726,25 @@ class NXROGraphModel(nn.Module):
     """
 
     def __init__(self, n_vars: int, k_max: int = 2, use_fixed_graph: bool = True,
-                 adj_init: torch.Tensor = None, top_k: int = 2, hidden: int = 0):
+                 adj_init: torch.Tensor = None, top_k: int = 2, hidden: int = 0,
+                 L_basis_init: Optional[torch.Tensor] = None,
+                 freeze_linear: bool = False):
         super().__init__()
         self.n_vars = n_vars
         self.k_max = k_max
         self.n_basis = 1 + 2 * k_max
         self.use_fixed_graph = use_fixed_graph
+        
         # Seasonal linear operator
         self.L_basis = nn.Parameter(torch.zeros(self.n_basis, n_vars, n_vars))
-        nn.init.xavier_uniform_(self.L_basis)
+        if L_basis_init is not None:
+            with torch.no_grad():
+                self.L_basis.copy_(L_basis_init)
+        else:
+            nn.init.xavier_uniform_(self.L_basis)
+        if freeze_linear:
+            self.L_basis.requires_grad = False
+        
         # Graph parameters
         if use_fixed_graph:
             if adj_init is None:
@@ -457,7 +752,11 @@ class NXROGraphModel(nn.Module):
             self.register_buffer('A_fixed', adj_init)
         else:
             self.A_param = nn.Parameter(torch.zeros(n_vars, n_vars))
-            nn.init.xavier_uniform_(self.A_param)
+            if adj_init is not None:
+                with torch.no_grad():
+                    self.A_param.copy_(adj_init)
+            else:
+                nn.init.xavier_uniform_(self.A_param)
         # Projection matrix for graph message
         self.W_g = nn.Parameter(torch.zeros(n_vars, n_vars))
         nn.init.xavier_uniform_(self.W_g)

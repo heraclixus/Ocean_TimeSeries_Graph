@@ -79,7 +79,7 @@ def calc_forecast_skill(fcst_ds: xr.Dataset, ref_ds: xr.Dataset, metric: str = '
 
 
 def plot_forecast_plume(fcst_det: xr.Dataset, fcst_stoc: xr.Dataset, obs_ds: xr.Dataset,
-                        date_arrs: List[str], fname_prefix: str = 'XRO_forecast_plume') -> None:
+                       date_arrs: List[str], fname_prefix: str = 'XRO_forecast_plume', fig_suffix: str = '') -> None:
     for idx, sel_date in enumerate(date_arrs):
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
         # Select deterministic and stochastic forecasts (Nino34)
@@ -129,7 +129,7 @@ def plot_forecast_plume(fcst_det: xr.Dataset, fcst_stoc: xr.Dataset, obs_ds: xr.
         ax.axhline(-0.5, c='blue', ls='--', dashes=[3, 3], alpha=0.3)
         ax.legend()
         fig.tight_layout()
-        plt.savefig(f'{fname_prefix}_{sel_date}_{idx}.png', dpi=300)
+        plt.savefig(f'{fname_prefix}_{sel_date}_{idx}{fig_suffix}.png', dpi=300)
         plt.close()
 
 
@@ -363,4 +363,160 @@ def evaluate_stochastic_ensemble(
     plt.close()
 
     return ds_out
+
+
+# ============================================================================
+# XRO to NXRO Warm-Start Utilities
+# ============================================================================
+
+def extract_L_basis_from_xro(xro_fit_ds: xr.Dataset, k_max: int = 2) -> torch.Tensor:
+    """Extract and convert XRO's Lcoef to NXRO's L_basis parameter format.
+    
+    XRO stores Fourier coefficients in Lcoef with dimension [ranky, rankx, cossin],
+    where cossin = [L_0^c, L_1^c, L_2^c, ..., L_1^s, L_2^s, ...].
+    
+    NXRO expects L_basis with shape [n_basis, n_vars, n_vars], where
+    n_basis = 1 + 2*k_max and the order is [L_0^c, L_1^c, L_1^s, L_2^c, L_2^s, ...].
+    
+    Args:
+        xro_fit_ds: XRO fit dataset containing 'Lcoef'
+        k_max: maximum harmonic order (should match ac_order in XRO fit)
+    
+    Returns:
+        L_basis: torch.Tensor of shape [n_basis, n_vars, n_vars]
+    """
+    Lcoef = xro_fit_ds['Lcoef'].values  # [ranky, rankx, cossin]
+    n_vars = Lcoef.shape[0]
+    
+    # XRO's cossin dimension ordering: [L_0^c, L_1^c, L_2^c, ..., L_K^c, L_1^s, L_2^s, ..., L_K^s]
+    # NXRO expects: [L_0^c, L_1^c, L_1^s, L_2^c, L_2^s, ...]
+    
+    n_basis = 1 + 2 * k_max
+    L_basis = np.zeros((n_basis, n_vars, n_vars))
+    
+    # L_0^c (annual mean, index 0 in both)
+    L_basis[0] = Lcoef[:, :, 0]
+    
+    # Interleave cos and sin terms for k=1 to k_max
+    for k in range(1, k_max + 1):
+        # Cosine term: L_k^c
+        L_basis[2*k - 1] = Lcoef[:, :, k]  # XRO: cossin[k], NXRO: basis[2k-1]
+        # Sine term: L_k^s  
+        L_basis[2*k] = Lcoef[:, :, k_max + k]  # XRO: cossin[k_max+k], NXRO: basis[2k]
+    
+    return torch.tensor(L_basis, dtype=torch.float32)
+
+
+def extract_ro_basis_from_xro(xro_fit_ds: xr.Dataset, k_max: int = 2, 
+                               n_ro: int = 5) -> tuple[torch.Tensor, torch.Tensor]:
+    """Extract RO coefficients from XRO fit for NXRO-RO model.
+    
+    Args:
+        xro_fit_ds: XRO fit dataset containing 'NROT_Lcoef' and 'NROH_Lcoef'
+        k_max: maximum harmonic order
+        n_ro: number of RO basis functions (default 5)
+    
+    Returns:
+        W_T: torch.Tensor of shape [n_basis, n_ro] for T tendency
+        W_H: torch.Tensor of shape [n_basis, n_ro] for H tendency
+    """
+    n_basis = 1 + 2 * k_max
+    
+    # Extract NROT and NROH coefficients if available
+    if 'NROT_Lcoef' in xro_fit_ds and 'NROH_Lcoef' in xro_fit_ds:
+        NROT_coef = xro_fit_ds['NROT_Lcoef'].values  # [nro_form, cossin]
+        NROH_coef = xro_fit_ds['NROH_Lcoef'].values  # [nro_form, cossin]
+        
+        W_T = np.zeros((n_basis, n_ro))
+        W_H = np.zeros((n_basis, n_ro))
+        
+        # Reorder from XRO's cossin format to NXRO's interleaved format
+        W_T[0] = NROT_coef[:, 0]  # L_0^c
+        W_H[0] = NROH_coef[:, 0]
+        
+        for k in range(1, k_max + 1):
+            W_T[2*k - 1] = NROT_coef[:, k]  # L_k^c
+            W_T[2*k] = NROT_coef[:, k_max + k]  # L_k^s
+            W_H[2*k - 1] = NROH_coef[:, k]  # L_k^c
+            W_H[2*k] = NROH_coef[:, k_max + k]  # L_k^s
+    else:
+        # If not available, return zeros
+        W_T = np.zeros((n_basis, n_ro))
+        W_H = np.zeros((n_basis, n_ro))
+    
+    return torch.tensor(W_T, dtype=torch.float32), torch.tensor(W_H, dtype=torch.float32)
+
+
+def extract_diag_basis_from_xro(xro_fit_ds: xr.Dataset, k_max: int = 2) -> tuple[torch.Tensor, torch.Tensor]:
+    """Extract diagonal nonlinear coefficients from XRO fit for NXRO-RO+Diag model.
+    
+    Args:
+        xro_fit_ds: XRO fit dataset containing 'NLb_Lcoef' and 'NLc_Lcoef'
+        k_max: maximum harmonic order
+    
+    Returns:
+        B_diag: torch.Tensor of shape [n_basis, n_vars] for quadratic terms
+        C_diag: torch.Tensor of shape [n_basis, n_vars] for cubic terms
+    """
+    n_vars = len(xro_fit_ds['ranky'])
+    n_basis = 1 + 2 * k_max
+    
+    if 'NLb_Lcoef' in xro_fit_ds and 'NLc_Lcoef' in xro_fit_ds:
+        NLb_coef = xro_fit_ds['NLb_Lcoef'].values  # [ranky, cossin]
+        NLc_coef = xro_fit_ds['NLc_Lcoef'].values  # [ranky, cossin]
+        
+        B_diag = np.zeros((n_basis, n_vars))
+        C_diag = np.zeros((n_basis, n_vars))
+        
+        # Reorder from XRO's cossin format to NXRO's interleaved format
+        B_diag[0] = NLb_coef[:, 0]  # L_0^c
+        C_diag[0] = NLc_coef[:, 0]
+        
+        for k in range(1, k_max + 1):
+            B_diag[2*k - 1] = NLb_coef[:, k]  # L_k^c
+            B_diag[2*k] = NLb_coef[:, k_max + k]  # L_k^s
+            C_diag[2*k - 1] = NLc_coef[:, k]  # L_k^c
+            C_diag[2*k] = NLc_coef[:, k_max + k]  # L_k^s
+    else:
+        # If not available, return zeros
+        B_diag = np.zeros((n_basis, n_vars))
+        C_diag = np.zeros((n_basis, n_vars))
+    
+    return torch.tensor(B_diag, dtype=torch.float32), torch.tensor(C_diag, dtype=torch.float32)
+
+
+def init_nxro_from_xro(xro_fit_ds: xr.Dataset, k_max: int = 2, 
+                       include_ro: bool = False, include_diag: bool = False) -> dict:
+    """Extract all relevant coefficients from XRO fit for NXRO initialization.
+    
+    Args:
+        xro_fit_ds: XRO fit dataset (output from XRO.fit_matrix())
+        k_max: maximum harmonic order (should match ac_order)
+        include_ro: whether to extract RO coefficients
+        include_diag: whether to extract diagonal coefficients
+    
+    Returns:
+        Dictionary with initialization tensors:
+            - 'L_basis': Linear operator coefficients
+            - 'W_T', 'W_H': RO coefficients (if include_ro=True)
+            - 'B_diag', 'C_diag': Diagonal coefficients (if include_diag=True)
+    """
+    init_dict = {}
+    
+    # Always extract linear operator
+    init_dict['L_basis'] = extract_L_basis_from_xro(xro_fit_ds, k_max=k_max)
+    
+    # Optionally extract RO coefficients
+    if include_ro:
+        W_T, W_H = extract_ro_basis_from_xro(xro_fit_ds, k_max=k_max)
+        init_dict['W_T'] = W_T
+        init_dict['W_H'] = W_H
+    
+    # Optionally extract diagonal coefficients
+    if include_diag:
+        B_diag, C_diag = extract_diag_basis_from_xro(xro_fit_ds, k_max=k_max)
+        init_dict['B_diag'] = B_diag
+        init_dict['C_diag'] = C_diag
+    
+    return init_dict
 

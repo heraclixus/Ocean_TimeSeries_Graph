@@ -18,56 +18,56 @@ Reference: Zhao et al. (2024), Nature. DOI: 10.1038/s41586-024-07534-6
 ## Mathematical formulation
 
 
-Let \(\mathbf{X}(t) \in \mathbb{R}^n\) be the state vector. By convention in this repository, the first two components are
-\(T(t)\) (ENSO SST proxy, e.g., Niño3.4) and \(H(t)\) (WWV), with optional additional indices thereafter.
+Let $\mathbf{X}(t) \in \mathbb{R}^n$ be the state vector. By convention in this repository, the first two components are
+$T(t)$ (ENSO SST proxy, e.g., Niño3.4) and $H(t)$ (WWV), with optional additional indices thereafter.
 
 The continuous-time governing equation is
-\[
+$$
 \frac{d\mathbf{X}}{dt} 
 \;=\; \mathbf{L}(t)\,\mathbf{X}(t) \;+
 \; \mathbf{\mathcal{N}}\big(\mathbf{X}(t), t\big)
 \;+
 \; \boldsymbol{\xi}(t),
-\]
-where \(\mathbf{L}(t)\) is a seasonally modulated linear operator, \(\mathbf{\mathcal{N}}\) collects nonlinear tendencies,
-and \(\boldsymbol{\xi}(t)\) is a stochastic residual (red- or white-noise) forcing.
+$$
+where $\mathbf{L}(t)$ is a seasonally modulated linear operator, $\mathbf{\mathcal{N}}$ collects nonlinear tendencies,
+and $\boldsymbol{\xi}(t)$ is a stochastic residual (red- or white-noise) forcing.
 
 ### Seasonal linear operator
 
-Let \(\omega = 2\pi\,\text{year}^{-1}\) and \(K=\text{ac\_order}\). The operator is expanded in seasonal harmonics:
-\[
+Let $\omega = 2\pi\,\text{year}^{-1}$ and $K=\text{ac\_order}$. The operator is expanded in seasonal harmonics:
+$$
 \mathbf{L}(t) 
 \;=\; \sum_{k=0}^{K} \Big( \mathbf{L}^{c}_{k}\,\cos(k\,\omega t) 
 \;+
 \mathbf{L}^{s}_{k}\,\sin(k\,\omega t) \Big),
-\]
-with the understanding that \(\mathbf{L}^{s}_{0}=\mathbf{0}\). Internally, these coefficients are stored in `Lcoef` and the
+$$
+with the understanding that $\mathbf{L}^{s}_{0}=\mathbf{0}$. Internally, these coefficients are stored in `Lcoef` and the
 reconstructed cycle-by-cycle operator appears as `Lac[ranky, rankx, cycle]` (see Shapes).
 
 ### Nonlinear recharge-oscillator (RO) terms and diagonal nonlinearities
 
 The model allows two kinds of nonlinearities:
-- RO monomials involving only the first two state variables \(T,H\) and applied specifically in their tendencies.
-- Diagonal quadratic/cubic nonlinearities applied componentwise to \(\mathbf{X}\).
+- RO monomials involving only the first two state variables $T,H$ and applied specifically in their tendencies.
+- Diagonal quadratic/cubic nonlinearities applied componentwise to $\mathbf{X}$.
 
 Define the RO basis
-\[\boldsymbol\phi(T,H) = \big[T^2,\; T\,H,\; T^3,\; T^2H,\; TH^2\big]^\top.\]
-Then the nonlinear terms entering the \(T\)- and \(H\)-equations are
-\[
+$$\boldsymbol\phi(T,H) = \big[T^2,\; T\,H,\; T^3,\; T^2H,\; TH^2\big]^\top.$$
+Then the nonlinear terms entering the $T$- and $H$-equations are
+$$
 \mathcal{N}_T(T,H,t) = \boldsymbol\beta_T(t)\cdot \boldsymbol\phi(T,H),\qquad
 \mathcal{N}_H(T,H,t) = \boldsymbol\beta_H(t)\cdot \boldsymbol\phi(T,H),
-\]
-where \(\boldsymbol\beta_T(t),\boldsymbol\beta_H(t)\) are seasonal coefficient vectors (masked on/off per `maskNT`, `maskNH`).
+$$
+where $\boldsymbol\beta_T(t),\boldsymbol\beta_H(t)$ are seasonal coefficient vectors (masked on/off per `maskNT`, `maskNH`).
 
-In addition, diagonal nonlinearities act on each component \(X_j\):
-\[
+In addition, diagonal nonlinearities act on each component $X_j$:
+$$
 \mathcal{N}_{\text{diag},j}(\mathbf{X},t) = b_j(t)\,X_j^2 + c_j(t)\,X_j^3,\quad j=1,\dots,n.
-\]
+$$
 These appear in the code as `NLb_Lac` and `NLc_Lac` (after fitting) and are used in time stepping as
 `b[:, None] * X**2 + c[:, None] * X**3`.
 
 Putting these together,
-\[
+$$
 \mathbf{\mathcal{N}}(\mathbf{X},t) = 
 \begin{bmatrix}
 \mathcal{N}_T(T,H,t) \\[2pt]
@@ -80,48 +80,48 @@ b_1(t)X_1^2+c_1(t)X_1^3 \\[2pt]
 \vdots \\[2pt]
 b_n(t)X_n^2+c_n(t)X_n^3
 \end{bmatrix}.
-\]
+$$
 
 ### Residual stochastic forcing (red/white noise)
 
-For each component \(j\) and seasonal cycle index \(c\), the red-noise residual evolves as
-\[
+For each component $j$ and seasonal cycle index $c$, the red-noise residual evolves as
+$$
 \xi_{j, m+1}(c) = a_{1,j}\,\xi_{j, m}(c)
 \;+
 \sqrt{1-a_{1,j}^2}\;\sigma_j(c)\,\varepsilon_{j,m+1},
-\]
-where \(a_{1,j}\) comes from `xi_a1`, and the seasonal variance \(\sigma_j(c)\) from `xi_stdac`. White noise uses \(a_{1,j}=0\).
-Optionally, a multiplicative factor \(1 + B_j X_j\) (or Heaviside variant) can be applied to the noise (`xi_B`).
+$$
+where $a_{1,j}$ comes from `xi_a1`, and the seasonal variance $\sigma_j(c)$ from `xi_stdac`. White noise uses $a_{1,j}=0$.
+Optionally, a multiplicative factor $1 + B_j X_j$ (or Heaviside variant) can be applied to the noise (`xi_B`).
 
 ### Discrete integration used in simulation/forecast
 
-Let \(\Delta t = 1/(\text{ncycle}\times \text{nstep})\). With explicit Euler stepping over sub-steps within each cycle
-index \(c_k\),
-\[
+Let $\Delta t = 1/(\text{ncycle}\times \text{nstep})$. With explicit Euler stepping over sub-steps within each cycle
+index $c_k$,
+$$
 \mathbf{X}_{k+1}
 \;=\; \mathbf{X}_{k}\;+
 \Big[ \mathbf{L}(c_k)\,\mathbf{X}_k + \mathbf{\mathcal{N}}(\mathbf{X}_k, c_k) + \boldsymbol{\xi}_k \Big]\,\Delta t,
-\]
+$$
 and an within-cycle average is accumulated for output. Reforecasting aligns the initial condition cycle with the
 target month and integrates for the requested lead.
 
 ### Linear-operator fitting
 
-Given samples \(X(t), Y(t)=dX/dt\), the code forms cosine/sine-weighted cross-covariance blocks
+Given samples $X(t), Y(t)=dX/dt$, the code forms cosine/sine-weighted cross-covariance blocks
 \[\begin{aligned}
 G_n^c &= \cos(n\omega t)\,Y(t)\,X^\top(t-d), &\quad 
 G_n^s &= \sin(n\omega t)\,Y(t)\,X^\top(t-d),\\
 C_n^c &= \cos(n\omega t)\,X(t)\,X^\top(t-d), &\quad
 C_n^s &= \sin(n\omega t)\,X(t)\,X^\top(t-d),
 \end{aligned}\]
-with integer lag \(d\) selected from `taus`. These are assembled into a block system \(G = L\,C\), which is solved for
+with integer lag $d$ selected from `taus`. These are assembled into a block system $G = L\,C$, which is solved for
 the coefficients (handling zero rows/columns). Reconstructed operators per cycle are reported as `Lac`, while `Lcomp`
 retains the harmonic decomposition. A normalized operator is optionally produced by scaling with the input stddevs
 (`get_norm_fit`).
 
 ### Skill metrics (used in the example)
 
-For a lead \(\ell\) (months) and initialization index set \(\mathcal{I}\), the deterministic forecast skill is computed as
+For a lead $\ell$ (months) and initialization index set $\mathcal{I}$, the deterministic forecast skill is computed as
 \[\text{ACC}(\ell) = \operatorname{corr}_{\,i\in\mathcal{I}}\Big( X^{\text{fcst}}_{i}(\ell),\; X^{\text{obs}}(t_i+\ell) \Big),\]
 \[\text{RMSE}(\ell) = \sqrt{\,\left\langle \big( X^{\text{fcst}}_{i}(\ell) - X^{\text{obs}}(t_i+\ell) \big)^2 \right\rangle_{i\in\mathcal{I}}}\, .\]
 The example computes these either via `climpred` or via manual alignment of `init+lead` pairs across time.
