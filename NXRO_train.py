@@ -99,6 +99,97 @@ def plot_seasonal_sync(train_ds: xr.Dataset, sim_ds: xr.Dataset, sel_var: str, o
     plt.close()
 
 
+def load_all_eval_datasets():
+    """Load all available evaluation datasets."""
+    import glob
+    datasets = {}
+    
+    # Primary dataset (always present)
+    datasets['ORAS5'] = xr.open_dataset('data/XRO_indices_oras5.nc')
+    
+    # Find all preprocessed datasets
+    all_nc_files = glob.glob('data/XRO_indices_*_preproc.nc')
+    for nc_file in all_nc_files:
+        basename = os.path.basename(nc_file)
+        # Extract dataset name
+        dataset_name = basename.replace('XRO_indices_', '').replace('_preproc.nc', '').upper()
+        if dataset_name and dataset_name != 'ORAS5':
+            try:
+                datasets[dataset_name] = xr.open_dataset(nc_file)
+                print(f"  Loaded {dataset_name}: {nc_file}")
+            except Exception as e:
+                print(f"  Warning: Could not load {nc_file}: {e}")
+    
+    return datasets
+
+
+def evaluate_on_all_datasets(fcst, datasets, eval_period, sel_var='Nino34'):
+    """Evaluate forecast on all datasets, return aggregated metrics."""
+    results = {}
+    
+    for ds_name, obs_ds in datasets.items():
+        try:
+            acc = calc_forecast_skill(fcst, obs_ds, metric='acc', is_mv3=True,
+                                     by_month=False, verify_periods=eval_period)
+            rmse = calc_forecast_skill(fcst, obs_ds, metric='rmse', is_mv3=True,
+                                      by_month=False, verify_periods=eval_period)
+        except Exception as e:
+            print(f"    Warning: Could not evaluate on {ds_name}: {e}")
+            continue
+        
+        results[ds_name] = {
+            'acc': acc,
+            'rmse': rmse,
+        }
+        
+        # Print summary
+        mean_acc = float(np.nanmean(acc[sel_var].values))
+        mean_rmse = float(np.nanmean(rmse[sel_var].values))
+        print(f"    {ds_name}: ACC={mean_acc:.3f}, RMSE={mean_rmse:.3f}")
+    
+    return results
+
+
+def plot_skill_curves_multi_dataset(all_results, sel_var, out_prefix, label):
+    """Plot skills across multiple datasets."""
+    if len(all_results) <= 1:
+        return
+    
+    # ACC plot
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    
+    for ds_name, results in all_results.items():
+        results['acc'][sel_var].plot(ax=ax, label=f'{ds_name}', marker='o', markersize=3)
+    
+    ax.set_ylabel('Correlation', fontsize=11)
+    ax.set_xlabel('Forecast lead (months)', fontsize=11)
+    ax.set_title(f'{label}: ACC (Multi-Dataset)', fontsize=12)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim([1., 21])
+    ax.set_ylim([0.2, 1.])
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_acc_multi_dataset.png', dpi=300)
+    plt.close()
+    
+    # RMSE plot
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    
+    for ds_name, results in all_results.items():
+        results['rmse'][sel_var].plot(ax=ax, label=f'{ds_name}', marker='o', markersize=3)
+    
+    ax.set_ylabel('RMSE (C)', fontsize=11)
+    ax.set_xlabel('Forecast lead (months)', fontsize=11)
+    ax.set_title(f'{label}: RMSE (Multi-Dataset)', fontsize=12)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim([1., 21])
+    ax.set_ylim([0., 1.])
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_rmse_multi_dataset.png', dpi=300)
+    plt.close()
+
+
 def plot_skill_curves(acc_ds: xr.Dataset, rmse_ds: xr.Dataset, sel_var: str, out_prefix: str, label: str) -> None:
     # ACC
     fig, ax = plt.subplots(1, 1, figsize=(8, 4))
@@ -115,7 +206,7 @@ def plot_skill_curves(acc_ds: xr.Dataset, rmse_ds: xr.Dataset, sel_var: str, out
     # RMSE
     fig, ax = plt.subplots(1, 1, figsize=(8, 4))
     rmse_ds[sel_var].plot(ax=ax, label=label, c='green', lw=2)
-    ax.set_ylabel('RMSE (℃)')
+    ax.set_ylabel('RMSE (C)')
     ax.set_xticks(np.arange(1, 24, step=2))
     ax.set_ylim([0., 1.])
     ax.set_xlim([1., 21])
@@ -150,8 +241,14 @@ def main():
     parser.add_argument('--device', type=str, default='auto')
     parser.add_argument('--stochastic', action='store_true', help='Enable stochastic reforecast outputs')
     parser.add_argument('--members', type=int, default=100, help='Number of ensemble members if stochastic')
+    parser.add_argument('--train_noise_stage2', action='store_true', 
+                        help='Use Stage 2 training (likelihood) instead of post-hoc for noise parameters')
+    parser.add_argument('--use_sim_noise', action='store_true',
+                        help='Use simulation-observation differences for noise instead of model residuals')
     parser.add_argument('--rollout_k', type=int, default=1, help='K-step rollout loss if >1')
     parser.add_argument('--test', action='store_true', help='Save checkpoint as *_best_test.pt (best on test)')
+    parser.add_argument('--eval_all_datasets', action='store_true',
+                        help='Evaluate on all available datasets (ORAS5, ERA5, GODAS, etc.) separately')
     parser.add_argument('--extra_train_nc', type=str, nargs='*', default=None,
                         help='Additional NetCDFs for training only (test stays ORAS5).\n'
                              'Usage: pass one or more paths (space-separated).\n'
@@ -172,7 +269,9 @@ def main():
                         help='Comma-separated list of components to freeze: linear, ro, diag (e.g., "linear,ro")')
     args = parser.parse_args()
 
-    ensure_dir('results')
+    # Use different results directory if eval_all_datasets is enabled
+    base_results_dir = 'results_all_insample' if args.eval_all_datasets else 'results'
+    ensure_dir(base_results_dir)
     device = args.device
     
     # Helper function to parse freeze argument
@@ -315,12 +414,22 @@ def main():
     # Data
     obs_ds = xr.open_dataset(args.nc_path)
     train_ds = obs_ds.sel(time=slice(args.train_start, args.train_end))
+    
+    # Load all eval datasets if requested
+    all_eval_datasets = None
+    if args.eval_all_datasets:
+        print("\nLoading all available datasets for evaluation...")
+        all_eval_datasets = load_all_eval_datasets()
+        print(f"Loaded {len(all_eval_datasets)} datasets: {list(all_eval_datasets.keys())}\n")
+    
+    # Evaluation period
+    eval_period = slice(args.train_start, args.train_end)
 
     # Observed plot
-    plot_observed_nino34(obs_ds, out_path='results/NXRO_observed_Nino34.png')
+    plot_observed_nino34(obs_ds, out_path=f'{base_results_dir}/NXRO_observed_Nino34.png')
 
     def run_linear():
-        base_dir = 'results/linear'
+        base_dir = f'{base_results_dir}/linear'
         ensure_dir(base_dir)
         
         # Load warm-start parameters if provided (only needs linear for variant 1)
@@ -354,24 +463,59 @@ def main():
 
         # Reforecast for skills (deterministic; stochastic optional)
         NXRO_fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device=device)
-        acc_NXRO = calc_forecast_skill(NXRO_fcst, obs_ds, metric='acc', is_mv3=True,
-                                       by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO = calc_forecast_skill(NXRO_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                        by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        # Evaluate on single or multiple datasets
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_fcst, all_eval_datasets, eval_period)
+            # Use ORAS5 for standard plots
+            acc_NXRO = all_results['ORAS5']['acc']
+            rmse_NXRO = all_results['ORAS5']['rmse']
+            # Generate multi-dataset comparison plots
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_linear{fig_suffix}', 'NXRO-Linear')
+        else:
+            acc_NXRO = calc_forecast_skill(NXRO_fcst, obs_ds, metric='acc', is_mv3=True,
+                                           by_month=False, verify_periods=eval_period)
+            rmse_NXRO = calc_forecast_skill(NXRO_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                            by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO, rmse_NXRO, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_linear{fig_suffix}', label='NXRO-Linear')
         if args.stochastic:
-            resid, months = compute_residuals_series(model, train_ds, var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            # Determine noise source and suffix
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(model, train_ds, var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            # Stage 2: Optimize noise parameters with likelihood if requested
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(model, train_ds, var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_fcst_m = nxro_reforecast_stochastic(model, init_ds=obs_ds, n_month=21, var_order=var_order,
                                                      noise_model=noise, n_members=args.members, device=device)
             # Save noise params and forecasts
-            np.savez(f'{base_dir}/nxro_linear_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            np.savez(f'{base_dir}/nxro_linear_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': model.state_dict(), 'var_order': var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_linear_stochastic{extra_tag}.pt')
-            NXRO_fcst_m.to_netcdf(f'{base_dir}/NXRO_linear_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_linear_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_fcst_m.to_netcdf(f'{base_dir}/NXRO_linear_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             # Skills on ensemble mean
             NXRO_fcst_m_mean = NXRO_fcst_m.mean('member')
             acc_lin_stoc = calc_forecast_skill(NXRO_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
@@ -379,20 +523,20 @@ def main():
             rmse_lin_stoc = calc_forecast_skill(NXRO_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                 by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_lin_stoc, rmse_lin_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_linear_stochastic{fig_suffix}', label='NXRO-Linear (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_linear_stochastic{combined_suffix}{fig_suffix}', label='NXRO-Linear (stochastic mean)')
             # Plume plots
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_fcst, NXRO_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_linear_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_fcst, NXRO_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_linear_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
             # Ensemble evaluation
-            evaluate_stochastic_ensemble(NXRO_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_linear_stochastic_eval{extra_tag}')
+            evaluate_stochastic_ensemble(NXRO_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_linear_stochastic{combined_suffix}_eval{extra_tag}')
 
         # Seasonal synchronization via long-run deterministic simulation
         sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_linear_seasonal_synchronization{fig_suffix}.png')
 
     def run_ro():
-        base_dir = 'results/ro'
+        base_dir = f'{base_results_dir}/ro'
         ensure_dir(base_dir)
         
         # Load warm-start parameters if provided (needs linear + RO for variant 2)
@@ -428,39 +572,70 @@ def main():
         print(f"✓ Saved to: {ro_save}")
         # Skills & seasonal sync
         NXRO_ro_fcst = nxro_reforecast(ro_model, init_ds=obs_ds, n_month=21, var_order=ro_var_order, device=device)
-        acc_NXRO_ro = calc_forecast_skill(NXRO_ro_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_ro = calc_forecast_skill(NXRO_ro_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_ro_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_ro = all_results['ORAS5']['acc']
+            rmse_NXRO_ro = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_ro{fig_suffix}', 'NXRO-RO')
+        else:
+            acc_NXRO_ro = calc_forecast_skill(NXRO_ro_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_ro = calc_forecast_skill(NXRO_ro_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_ro, rmse_NXRO_ro, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_ro{fig_suffix}', label='NXRO-RO')
         if args.stochastic:
-            resid, months = compute_residuals_series(ro_model, train_ds, ro_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            # Determine noise source and suffix
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, ro_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(ro_model, train_ds, ro_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(ro_model, train_ds, ro_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_ro_fcst_m = nxro_reforecast_stochastic(ro_model, init_ds=obs_ds, n_month=21, var_order=ro_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_ro_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_ro_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_ro_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_ro_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_ro_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_ro_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': ro_model.state_dict(), 'var_order': ro_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_ro_stochastic{extra_tag}.pt')
-            NXRO_ro_fcst_m.to_netcdf(f'{base_dir}/NXRO_ro_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_ro_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_ro_fcst_m.to_netcdf(f'{base_dir}/NXRO_ro_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_ro_fcst_m_mean = NXRO_ro_fcst_m.mean('member')
             acc_ro_stoc = calc_forecast_skill(NXRO_ro_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_ro_stoc = calc_forecast_skill(NXRO_ro_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_ro_stoc, rmse_ro_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_ro_stochastic{fig_suffix}', label='NXRO-RO (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_ro_stochastic{combined_suffix}{fig_suffix}', label='NXRO-RO (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_ro_fcst, NXRO_ro_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_ro_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_ro_fcst, NXRO_ro_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_ro_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         ro_sim_ds = simulate_nxro_longrun(ro_model, X0_ds=train_ds, var_order=ro_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, ro_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_ro_seasonal_synchronization{fig_suffix}.png')
 
     def run_rodiag():
-        base_dir = 'results/rodiag'
+        base_dir = f'{base_results_dir}/rodiag'
         ensure_dir(base_dir)
         
         # Load warm-start parameters if provided (needs all: L, RO, Diag for variant 3)
@@ -493,39 +668,69 @@ def main():
         print(f"✓ Saved to: {rd_save}")
         # Skills & seasonal sync
         NXRO_rd_fcst = nxro_reforecast(rd_model, init_ds=obs_ds, n_month=21, var_order=rd_var_order, device=device)
-        acc_NXRO_rd = calc_forecast_skill(NXRO_rd_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_rd = calc_forecast_skill(NXRO_rd_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_rd_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_rd = all_results['ORAS5']['acc']
+            rmse_NXRO_rd = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_rodiag{fig_suffix}', 'NXRO-RO+Diag')
+        else:
+            acc_NXRO_rd = calc_forecast_skill(NXRO_rd_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_rd = calc_forecast_skill(NXRO_rd_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_rd, rmse_NXRO_rd, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_rodiag{fig_suffix}', label='NXRO-RO+Diag')
         if args.stochastic:
-            resid, months = compute_residuals_series(rd_model, train_ds, rd_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, rd_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(rd_model, train_ds, rd_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(rd_model, train_ds, rd_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_rd_fcst_m = nxro_reforecast_stochastic(rd_model, init_ds=obs_ds, n_month=21, var_order=rd_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_rd_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_rodiag_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_rodiag_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_rd_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_rodiag_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_rodiag_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': rd_model.state_dict(), 'var_order': rd_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_rodiag_stochastic{extra_tag}.pt')
-            NXRO_rd_fcst_m.to_netcdf(f'{base_dir}/NXRO_rodiag_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_rodiag_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_rd_fcst_m.to_netcdf(f'{base_dir}/NXRO_rodiag_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_rd_fcst_m_mean = NXRO_rd_fcst_m.mean('member')
             acc_rd_stoc = calc_forecast_skill(NXRO_rd_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_rd_stoc = calc_forecast_skill(NXRO_rd_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_rd_stoc, rmse_rd_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_rodiag_stochastic{fig_suffix}', label='NXRO-RO+Diag (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_rodiag_stochastic{combined_suffix}{fig_suffix}', label='NXRO-RO+Diag (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_rd_fcst, NXRO_rd_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_rodiag_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_rd_fcst, NXRO_rd_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_rodiag_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         rd_sim_ds = simulate_nxro_longrun(rd_model, X0_ds=train_ds, var_order=rd_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, rd_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_rodiag_seasonal_synchronization{fig_suffix}.png')
 
     def run_res():
-        base_dir = 'results/res'
+        base_dir = f'{base_results_dir}/res'
         ensure_dir(base_dir)
         
         # Load warm-start parameters if provided (only needs linear for variant 4/4a)
@@ -562,34 +767,64 @@ def main():
         print(f"✓ Saved to: {rs_save}")
         # Skills & seasonal sync
         NXRO_rs_fcst = nxro_reforecast(rs_model, init_ds=obs_ds, n_month=21, var_order=rs_var_order, device=device)
-        acc_NXRO_rs = calc_forecast_skill(NXRO_rs_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_rs = calc_forecast_skill(NXRO_rs_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_rs_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_rs = all_results['ORAS5']['acc']
+            rmse_NXRO_rs = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_res{fig_suffix}', 'NXRO-Res')
+        else:
+            acc_NXRO_rs = calc_forecast_skill(NXRO_rs_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_rs = calc_forecast_skill(NXRO_rs_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_rs, rmse_NXRO_rs, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_res{fig_suffix}', label='NXRO-Res')
         if args.stochastic:
-            resid, months = compute_residuals_series(rs_model, train_ds, rs_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, rs_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(rs_model, train_ds, rs_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(rs_model, train_ds, rs_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_rs_fcst_m = nxro_reforecast_stochastic(rs_model, init_ds=obs_ds, n_month=21, var_order=rs_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_rs_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_res_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_res_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_rs_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_res_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_res_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': rs_model.state_dict(), 'var_order': rs_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_res_stochastic{extra_tag}.pt')
-            NXRO_rs_fcst_m.to_netcdf(f'{base_dir}/NXRO_res_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_res_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_rs_fcst_m.to_netcdf(f'{base_dir}/NXRO_res_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_rs_fcst_m_mean = NXRO_rs_fcst_m.mean('member')
             acc_res_stoc = calc_forecast_skill(NXRO_rs_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_res_stoc = calc_forecast_skill(NXRO_rs_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                 by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_res_stoc, rmse_res_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_res_stochastic{fig_suffix}', label='NXRO-Res (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_res_stochastic{combined_suffix}{fig_suffix}', label='NXRO-Res (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_rs_fcst, NXRO_rs_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_res_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_rs_fcst, NXRO_rs_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_res_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         rs_sim_ds = simulate_nxro_longrun(rs_model, X0_ds=train_ds, var_order=rs_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, rs_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_res_seasonal_synchronization{fig_suffix}.png')
 
@@ -597,7 +832,7 @@ def main():
         """Run variant 4b: Frozen full XRO + trainable residual MLP."""
         assert args.warm_start is not None, "Variant 4b (res_fullxro) requires --warm_start argument!"
         
-        base_dir = 'results/res_fullxro'
+        base_dir = f'{base_results_dir}/res_fullxro'
         ensure_dir(base_dir)
         
         # Load XRO fit and extract ALL components (no renaming to _init suffix)
@@ -632,10 +867,19 @@ def main():
         
         # Forecast skill
         NXRO_rs_fullxro_fcst = nxro_reforecast(rs_fullxro_model, init_ds=obs_ds, n_month=21, var_order=rs_fullxro_var_order, device=device)
-        acc_NXRO_rs_fullxro = calc_forecast_skill(NXRO_rs_fullxro_fcst, obs_ds, metric='acc', is_mv3=True,
-                                                  by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_rs_fullxro = calc_forecast_skill(NXRO_rs_fullxro_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                                   by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_rs_fullxro_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_rs_fullxro = all_results['ORAS5']['acc']
+            rmse_NXRO_rs_fullxro = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_res_fullxro{fig_suffix}', 'NXRO-Res-FullXRO')
+        else:
+            acc_NXRO_rs_fullxro = calc_forecast_skill(NXRO_rs_fullxro_fcst, obs_ds, metric='acc', is_mv3=True,
+                                                      by_month=False, verify_periods=eval_period)
+            rmse_NXRO_rs_fullxro = calc_forecast_skill(NXRO_rs_fullxro_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                                       by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_rs_fullxro, rmse_NXRO_rs_fullxro, sel_var='Nino34', 
                          out_prefix=f'{base_dir}/NXRO_res_fullxro{fig_suffix}', label='NXRO-Res-FullXRO')
         
@@ -647,7 +891,7 @@ def main():
         print(f"✓ Variant 4b (res_fullxro) complete: {rs_fullxro_save}")
 
     def run_neural():
-        base_dir = 'results/neural'
+        base_dir = f'{base_results_dir}/neural'
         ensure_dir(base_dir)
         nn_model, nn_var_order, nn_best_rmse, nn_history = train_nxro_neural(
             nc_path=args.nc_path,
@@ -673,39 +917,69 @@ def main():
         torch.save({'state_dict': nn_model.state_dict(), 'var_order': nn_var_order}, nn_save)
         # Skills & seasonal sync
         NXRO_nn_fcst = nxro_reforecast(nn_model, init_ds=obs_ds, n_month=21, var_order=nn_var_order, device=device)
-        acc_NXRO_nn = calc_forecast_skill(NXRO_nn_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_nn = calc_forecast_skill(NXRO_nn_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_nn_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_nn = all_results['ORAS5']['acc']
+            rmse_NXRO_nn = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_neural{fig_suffix}', 'NXRO-NeuralODE')
+        else:
+            acc_NXRO_nn = calc_forecast_skill(NXRO_nn_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_nn = calc_forecast_skill(NXRO_nn_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_nn, rmse_NXRO_nn, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_neural{fig_suffix}', label='NXRO-NeuralODE')
         if args.stochastic:
-            resid, months = compute_residuals_series(nn_model, train_ds, nn_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, nn_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(nn_model, train_ds, nn_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(nn_model, train_ds, nn_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_nn_fcst_m = nxro_reforecast_stochastic(nn_model, init_ds=obs_ds, n_month=21, var_order=nn_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_nn_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_neural_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_neural_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_nn_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_neural_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_neural_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': nn_model.state_dict(), 'var_order': nn_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_neural_stochastic{extra_tag}.pt')
-            NXRO_nn_fcst_m.to_netcdf(f'{base_dir}/NXRO_neural_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_neural_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_nn_fcst_m.to_netcdf(f'{base_dir}/NXRO_neural_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_nn_fcst_m_mean = NXRO_nn_fcst_m.mean('member')
             acc_nn_stoc = calc_forecast_skill(NXRO_nn_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_nn_stoc = calc_forecast_skill(NXRO_nn_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_nn_stoc, rmse_nn_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_neural_stochastic{fig_suffix}', label='NXRO-NeuralODE (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_neural_stochastic{combined_suffix}{fig_suffix}', label='NXRO-NeuralODE (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_nn_fcst, NXRO_nn_fcst_m, obs_ds, init_dates, fname_prefix='results/NXRO_neural_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_nn_fcst, NXRO_nn_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_neural_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         nn_sim_ds = simulate_nxro_longrun(nn_model, X0_ds=train_ds, var_order=nn_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, nn_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_neural_seasonal_synchronization{extra_tag}.png')
 
     def run_neural_phys():
-        base_dir = 'results/neural_phys'
+        base_dir = f'{base_results_dir}/neural_phys'
         ensure_dir(base_dir)
         np_model, np_var_order, np_best_rmse, np_history = train_nxro_neural_phys(
             nc_path=args.nc_path,
@@ -732,39 +1006,69 @@ def main():
         torch.save({'state_dict': np_model.state_dict(), 'var_order': np_var_order}, np_save)
         # Skills & seasonal sync
         NXRO_np_fcst = nxro_reforecast(np_model, init_ds=obs_ds, n_month=21, var_order=np_var_order, device=device)
-        acc_NXRO_np = calc_forecast_skill(NXRO_np_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_np = calc_forecast_skill(NXRO_np_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_np_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_np = all_results['ORAS5']['acc']
+            rmse_NXRO_np = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_neural_phys{fig_suffix}', 'NXRO-PhysReg')
+        else:
+            acc_NXRO_np = calc_forecast_skill(NXRO_np_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_np = calc_forecast_skill(NXRO_np_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_np, rmse_NXRO_np, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_neural_phys{fig_suffix}', label='NXRO-NeuralODE (PhysReg)')
         np_sim_ds = simulate_nxro_longrun(np_model, X0_ds=train_ds, var_order=np_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, np_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_neural_phys_seasonal_synchronization{extra_tag}.png')
         if args.stochastic:
-            resid, months = compute_residuals_series(np_model, train_ds, np_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, np_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(np_model, train_ds, np_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(np_model, train_ds, np_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_np_fcst_m = nxro_reforecast_stochastic(np_model, init_ds=obs_ds, n_month=21, var_order=np_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_np_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_neural_phys_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_neural_phys_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_np_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_neural_phys_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_neural_phys_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': np_model.state_dict(), 'var_order': np_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_neural_phys_stochastic{extra_tag}.pt')
-            NXRO_np_fcst_m.to_netcdf(f'{base_dir}/NXRO_neural_phys_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_neural_phys_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_np_fcst_m.to_netcdf(f'{base_dir}/NXRO_neural_phys_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_np_fcst_m_mean = NXRO_np_fcst_m.mean('member')
             acc_np_stoc = calc_forecast_skill(NXRO_np_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_np_stoc = calc_forecast_skill(NXRO_np_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_np_stoc, rmse_np_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_neural_phys_stochastic{fig_suffix}', label='NXRO-NeuralODE (PhysReg, stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_neural_phys_stochastic{combined_suffix}{fig_suffix}', label='NXRO-NeuralODE (PhysReg, stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_np_fcst, NXRO_np_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_neural_phys_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_np_fcst, NXRO_np_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_neural_phys_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
 
     def run_resmix():
-        base_dir = 'results/resmix'
+        base_dir = f'{base_results_dir}/resmix'
         ensure_dir(base_dir)
         
         # Load warm-start parameters if provided (needs all: L, RO, Diag for variant 5d)
@@ -799,39 +1103,69 @@ def main():
         print(f"✓ Saved to: {rx_save}")
         # Skills & seasonal sync
         NXRO_rx_fcst = nxro_reforecast(rx_model, init_ds=obs_ds, n_month=21, var_order=rx_var_order, device=device)
-        acc_NXRO_rx = calc_forecast_skill(NXRO_rx_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_rx = calc_forecast_skill(NXRO_rx_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_rx_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_rx = all_results['ORAS5']['acc']
+            rmse_NXRO_rx = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_resmix{fig_suffix}', 'NXRO-ResidualMix')
+        else:
+            acc_NXRO_rx = calc_forecast_skill(NXRO_rx_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_rx = calc_forecast_skill(NXRO_rx_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_rx, rmse_NXRO_rx, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_resmix{fig_suffix}', label='NXRO-ResidualMix')
         rx_sim_ds = simulate_nxro_longrun(rx_model, X0_ds=train_ds, var_order=rx_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, rx_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_resmix_seasonal_synchronization{extra_tag}.png')
         if args.stochastic:
-            resid, months = compute_residuals_series(rx_model, train_ds, rx_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, rx_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(rx_model, train_ds, rx_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(rx_model, train_ds, rx_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_rx_fcst_m = nxro_reforecast_stochastic(rx_model, init_ds=obs_ds, n_month=21, var_order=rx_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_rx_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_resmix_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_resmix_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_rx_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_resmix_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_resmix_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': rx_model.state_dict(), 'var_order': rx_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_resmix_stochastic{extra_tag}.pt')
-            NXRO_rx_fcst_m.to_netcdf(f'{base_dir}/NXRO_resmix_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_resmix_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_rx_fcst_m.to_netcdf(f'{base_dir}/NXRO_resmix_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_rx_fcst_m_mean = NXRO_rx_fcst_m.mean('member')
             acc_rx_stoc = calc_forecast_skill(NXRO_rx_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_rx_stoc = calc_forecast_skill(NXRO_rx_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_rx_stoc, rmse_rx_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_resmix_stochastic{extra_tag}', label='NXRO-ResidualMix (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_resmix_stochastic{combined_suffix}{extra_tag}', label='NXRO-ResidualMix (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_rx_fcst, NXRO_rx_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_resmix_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_rx_fcst, NXRO_rx_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_resmix_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
 
     def run_bilinear():
-        base_dir = 'results/bilinear'
+        base_dir = f'{base_results_dir}/bilinear'
         ensure_dir(base_dir)
         bl_model, bl_var_order, bl_best_rmse, bl_history = train_nxro_bilinear(
             nc_path=args.nc_path,
@@ -857,39 +1191,69 @@ def main():
         torch.save({'state_dict': bl_model.state_dict(), 'var_order': bl_var_order}, bl_save)
         # Skills & seasonal sync
         NXRO_bl_fcst = nxro_reforecast(bl_model, init_ds=obs_ds, n_month=21, var_order=bl_var_order, device=device)
-        acc_NXRO_bl = calc_forecast_skill(NXRO_bl_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_bl = calc_forecast_skill(NXRO_bl_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_bl_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_bl = all_results['ORAS5']['acc']
+            rmse_NXRO_bl = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_bilinear{fig_suffix}', 'NXRO-Bilinear')
+        else:
+            acc_NXRO_bl = calc_forecast_skill(NXRO_bl_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_bl = calc_forecast_skill(NXRO_bl_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_bl, rmse_NXRO_bl, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_bilinear{fig_suffix}', label='NXRO-Bilinear')
         if args.stochastic:
-            resid, months = compute_residuals_series(bl_model, train_ds, bl_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, bl_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(bl_model, train_ds, bl_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(bl_model, train_ds, bl_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_bl_fcst_m = nxro_reforecast_stochastic(bl_model, init_ds=obs_ds, n_month=21, var_order=bl_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_bl_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_bilinear_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_bilinear_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_bl_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_bilinear_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_bilinear_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': bl_model.state_dict(), 'var_order': bl_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_bilinear_stochastic{extra_tag}.pt')
-            NXRO_bl_fcst_m.to_netcdf(f'{base_dir}/NXRO_bilinear_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_bilinear_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_bl_fcst_m.to_netcdf(f'{base_dir}/NXRO_bilinear_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_bl_fcst_m_mean = NXRO_bl_fcst_m.mean('member')
             acc_bl_stoc = calc_forecast_skill(NXRO_bl_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_bl_stoc = calc_forecast_skill(NXRO_bl_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_bl_stoc, rmse_bl_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_bilinear_stochastic{extra_tag}', label='NXRO-Bilinear (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_bilinear_stochastic{combined_suffix}{extra_tag}', label='NXRO-Bilinear (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_bl_fcst, NXRO_bl_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_bilinear_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_bl_fcst, NXRO_bl_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_bilinear_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         bl_sim_ds = simulate_nxro_longrun(bl_model, X0_ds=train_ds, var_order=bl_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, bl_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_bilinear_seasonal_synchronization{extra_tag}.png')
 
     def run_attentive():
-        base_dir = 'results/attentive'
+        base_dir = f'{base_results_dir}/attentive'
         ensure_dir(base_dir)
         
         # Load warm-start parameters if provided (only needs linear for variant 5a)
@@ -926,34 +1290,64 @@ def main():
         print(f"✓ Saved to: {at_save}")
         # Skills & seasonal sync
         NXRO_at_fcst = nxro_reforecast(at_model, init_ds=obs_ds, n_month=21, var_order=at_var_order, device=device)
-        acc_NXRO_at = calc_forecast_skill(NXRO_at_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_at = calc_forecast_skill(NXRO_at_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_at_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_at = all_results['ORAS5']['acc']
+            rmse_NXRO_at = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_attentive{fig_suffix}', 'NXRO-Attentive')
+        else:
+            acc_NXRO_at = calc_forecast_skill(NXRO_at_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_at = calc_forecast_skill(NXRO_at_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_at, rmse_NXRO_at, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_attentive{fig_suffix}', label='NXRO-AttentiveCoupling')
         if args.stochastic:
-            resid, months = compute_residuals_series(at_model, train_ds, at_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, at_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(at_model, train_ds, at_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(at_model, train_ds, at_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_at_fcst_m = nxro_reforecast_stochastic(at_model, init_ds=obs_ds, n_month=21, var_order=at_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_at_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_attentive_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/nxro_attentive_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_at_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_attentive_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_attentive_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': at_model.state_dict(), 'var_order': at_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_attentive_stochastic{extra_tag}.pt')
-            NXRO_at_fcst_m.to_netcdf(f'{base_dir}/NXRO_attentive_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/nxro_attentive_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_at_fcst_m.to_netcdf(f'{base_dir}/NXRO_attentive_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_at_fcst_m_mean = NXRO_at_fcst_m.mean('member')
             acc_at_stoc = calc_forecast_skill(NXRO_at_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_at_stoc = calc_forecast_skill(NXRO_at_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_at_stoc, rmse_at_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_attentive_stochastic{extra_tag}', label='NXRO-AttentiveCoupling (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_attentive_stochastic{combined_suffix}{extra_tag}', label='NXRO-AttentiveCoupling (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_at_fcst, NXRO_at_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_attentive_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_at_fcst, NXRO_at_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_attentive_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         at_sim_ds = simulate_nxro_longrun(at_model, X0_ds=train_ds, var_order=at_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, at_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_attentive_seasonal_synchronization{extra_tag}.png')
 
@@ -985,7 +1379,7 @@ def main():
         graph_mode = "learned" if args.graph_learned else "fixed"
         l1_tag = f"_l1{args.graph_l1}" if args.graph_learned and args.graph_l1 > 0 else ""
         graph_tag = f"_{graph_mode}_{graph_kind}{l1_tag}"
-        base_dir = f"results/graph/{graph_mode}_{graph_kind}{l1_tag}"
+        base_dir = f"{base_results_dir}/graph/{graph_mode}_{graph_kind}{l1_tag}"
         ensure_dir(base_dir)
         # Curves
         fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -1004,34 +1398,64 @@ def main():
         print(f"✓ Saved to: {gr_save}")
         # Skills & seasonal sync
         NXRO_gr_fcst = nxro_reforecast(gr_model, init_ds=obs_ds, n_month=21, var_order=gr_var_order, device=device)
-        acc_NXRO_gr = calc_forecast_skill(NXRO_gr_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_gr = calc_forecast_skill(NXRO_gr_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_gr_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_gr = all_results['ORAS5']['acc']
+            rmse_NXRO_gr = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_graph{graph_tag}{fig_suffix}', 'NXRO-Graph')
+        else:
+            acc_NXRO_gr = calc_forecast_skill(NXRO_gr_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_gr = calc_forecast_skill(NXRO_gr_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_gr, rmse_NXRO_gr, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_graph{graph_tag}{fig_suffix}', label='NXRO-Graph')
         if args.stochastic:
-            resid, months = compute_residuals_series(gr_model, train_ds, gr_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, gr_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(gr_model, train_ds, gr_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(gr_model, train_ds, gr_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_gr_fcst_m = nxro_reforecast_stochastic(gr_model, init_ds=obs_ds, n_month=21, var_order=gr_var_order,
                                                          noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_gr_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_graph{graph_tag}_stochastic_eval{extra_tag}')
-            np.savez(f'{base_dir}/NXRO_graph{graph_tag}_stochastic_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_gr_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_graph{graph_tag}_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/NXRO_graph{graph_tag}_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': gr_model.state_dict(), 'var_order': gr_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/NXRO_graph{graph_tag}_stochastic{extra_tag}.pt')
-            NXRO_gr_fcst_m.to_netcdf(f'{base_dir}/NXRO_graph{graph_tag}_stochastic_forecasts{extra_tag}.nc')
+                       f'{base_dir}/NXRO_graph{graph_tag}_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_gr_fcst_m.to_netcdf(f'{base_dir}/NXRO_graph{graph_tag}_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_gr_fcst_m_mean = NXRO_gr_fcst_m.mean('member')
             acc_gr_stoc = calc_forecast_skill(NXRO_gr_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_gr_stoc = calc_forecast_skill(NXRO_gr_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_gr_stoc, rmse_gr_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_graph{graph_tag}_stochastic{fig_suffix}', label='NXRO-Graph (stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_graph{graph_tag}_stochastic{combined_suffix}{fig_suffix}', label='NXRO-Graph (stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_gr_fcst, NXRO_gr_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_graph{graph_tag}_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_gr_fcst, NXRO_gr_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_graph{graph_tag}_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         gr_sim_ds = simulate_nxro_longrun(gr_model, X0_ds=train_ds, var_order=gr_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, gr_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_graph{graph_tag}_seasonal_synchronization{fig_suffix}.png')
 
@@ -1046,7 +1470,7 @@ def main():
         )
         tag2 = 'gat' if args.gat else 'gcn'
         ktag = f"k{args.top_k}"
-        base_dir = f'results/graphpyg/{tag2}_{ktag}'
+        base_dir = f'{base_results_dir}/graphpyg/{tag2}_{ktag}'
         ensure_dir(base_dir)
         # Curves
         fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -1064,34 +1488,64 @@ def main():
         torch.save({'state_dict': gp_model.state_dict(), 'var_order': gp_var_order}, gp_save)
         # Skills & seasonal sync
         NXRO_gp_fcst = nxro_reforecast(gp_model, init_ds=obs_ds, n_month=21, var_order=gp_var_order, device=device)
-        acc_NXRO_gp = calc_forecast_skill(NXRO_gp_fcst, obs_ds, metric='acc', is_mv3=True,
-                                          by_month=False, verify_periods=slice(args.train_start, args.train_end))
-        rmse_NXRO_gp = calc_forecast_skill(NXRO_gp_fcst, obs_ds, metric='rmse', is_mv3=True,
-                                           by_month=False, verify_periods=slice(args.train_start, args.train_end))
+        
+        if args.eval_all_datasets and all_eval_datasets:
+            print("  Evaluating on all datasets...")
+            all_results = evaluate_on_all_datasets(NXRO_gp_fcst, all_eval_datasets, eval_period)
+            acc_NXRO_gp = all_results['ORAS5']['acc']
+            rmse_NXRO_gp = all_results['ORAS5']['rmse']
+            plot_skill_curves_multi_dataset(all_results, 'Nino34', f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}{fig_suffix}', f'NXRO-GraphPyG ({tag2.upper()})')
+        else:
+            acc_NXRO_gp = calc_forecast_skill(NXRO_gp_fcst, obs_ds, metric='acc', is_mv3=True,
+                                              by_month=False, verify_periods=eval_period)
+            rmse_NXRO_gp = calc_forecast_skill(NXRO_gp_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                               by_month=False, verify_periods=eval_period)
+        
         plot_skill_curves(acc_NXRO_gp, rmse_NXRO_gp, sel_var='Nino34', out_prefix=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}{fig_suffix}', label=f'NXRO-GraphPyG ({tag2.upper()})')
         if args.stochastic:
-            resid, months = compute_residuals_series(gp_model, train_ds, gp_var_order, device=device)
-            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            if args.use_sim_noise:
+                print("  Fitting noise from simulation-observation differences...")
+                from nxro.stochastic import fit_noise_from_simulations
+                import glob
+                sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+                a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, gp_var_order, eval_period)
+                noise_suffix = '_sim_noise'
+            else:
+                resid, months = compute_residuals_series(gp_model, train_ds, gp_var_order, device=device)
+                a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+                noise_suffix = ''
+            
+            stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+            combined_suffix = noise_suffix + stage2_suffix
+            
+            if args.train_noise_stage2:
+                from nxro.stochastic import train_noise_stage2
+                print("  Running Stage 2 noise optimization (likelihood-based)...")
+                a1_np, sigma_np = train_noise_stage2(gp_model, train_ds, gp_var_order, 
+                                                     a1_np, sigma_np, 
+                                                     n_epochs=100, lr=1e-3, 
+                                                     device=device, verbose=True)
+            
             a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
             sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
             noise = SeasonalAR1Noise(a1, sigma)
             NXRO_gp_fcst_m = nxro_reforecast_stochastic(gp_model, init_ds=obs_ds, n_month=21, var_order=gp_var_order,
                                                         noise_model=noise, n_members=args.members, device=device)
-            evaluate_stochastic_ensemble(NXRO_gp_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}{extra_tag}_stochastic_eval')
-            np.savez(f'{base_dir}/nxro_graphpyg_{tag2}_{ktag}{extra_tag}_stochastic_noise.npz', a1=a1_np, sigma=sigma_np)
+            evaluate_stochastic_ensemble(NXRO_gp_fcst_m, obs_ds, var='Nino34', out_prefix=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}_stochastic{combined_suffix}_eval{extra_tag}')
+            np.savez(f'{base_dir}/nxro_graphpyg_{tag2}_{ktag}_stochastic{combined_suffix}_noise{extra_tag}.npz', a1=a1_np, sigma=sigma_np)
             torch.save({'state_dict': gp_model.state_dict(), 'var_order': gp_var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-                       f'{base_dir}/nxro_graphpyg_{tag2}_{ktag}{extra_tag}_stochastic.pt')
-            NXRO_gp_fcst_m.to_netcdf(f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}{extra_tag}_stochastic_forecasts.nc')
+                       f'{base_dir}/nxro_graphpyg_{tag2}_{ktag}_stochastic{combined_suffix}{extra_tag}.pt')
+            NXRO_gp_fcst_m.to_netcdf(f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
             NXRO_gp_fcst_m_mean = NXRO_gp_fcst_m.mean('member')
             acc_gp_stoc = calc_forecast_skill(NXRO_gp_fcst_m_mean, obs_ds, metric='acc', is_mv3=True,
                                               by_month=False, verify_periods=slice(args.train_start, args.train_end))
             rmse_gp_stoc = calc_forecast_skill(NXRO_gp_fcst_m_mean, obs_ds, metric='rmse', is_mv3=True,
                                                by_month=False, verify_periods=slice(args.train_start, args.train_end))
             plot_skill_curves(acc_gp_stoc, rmse_gp_stoc, sel_var='Nino34',
-                              out_prefix=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}{fig_suffix}_stochastic', label=f'NXRO-GraphPyG ({tag2.upper()} stochastic mean)')
+                              out_prefix=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}_stochastic{combined_suffix}{fig_suffix}', label=f'NXRO-GraphPyG ({tag2.upper()} stochastic mean)')
             init_dates = pick_sample_inits(obs_ds, n=3)
             if len(init_dates) > 0:
-                plot_forecast_plume(NXRO_gp_fcst, NXRO_gp_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}_plume', fig_suffix=fig_suffix)
+                plot_forecast_plume(NXRO_gp_fcst, NXRO_gp_fcst_m, obs_ds, init_dates, fname_prefix=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}_stochastic{combined_suffix}_plume', fig_suffix=fig_suffix)
         gp_sim_ds = simulate_nxro_longrun(gp_model, X0_ds=train_ds, var_order=gp_var_order, nyear=100, device=device)
         plot_seasonal_sync(train_ds, gp_sim_ds, sel_var='Nino34', out_path=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}{extra_tag}_seasonal_synchronization.png')
 

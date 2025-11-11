@@ -195,6 +195,54 @@ def get_variant_label(ckpt_path):
     return label
 
 
+def compute_usefulness_metrics(rmse_test, xro_rmse_test):
+    """
+    Compute usefulness metrics that evaluate operational forecast skill.
+    
+    A "useful" model must consistently outperform XRO at short-to-medium range (1-12 months).
+    
+    Args:
+        rmse_test: xarray DataArray with RMSE values indexed by lead time
+        xro_rmse_test: xarray DataArray with XRO's RMSE values indexed by lead time
+    
+    Returns:
+        dict with:
+            - consistency_score: Weighted fraction of leads 1-12 where model beats XRO [0-1]
+            - rmse_improvement_1_12: Weighted average RMSE improvement over XRO for leads 1-12 (°C)
+            - wins_1_7: Number of wins in months 1-7
+            - wins_8_12: Number of wins in months 8-12
+    """
+    # Extract lead times 1-12 (indices 0-11 since lead starts at 1)
+    leads_short = rmse_test['Nino34'].lead.values[:12]
+    rmse_vals = rmse_test['Nino34'].values[:12]
+    xro_vals = xro_rmse_test['Nino34'].values[:12]
+    
+    # Define weights: 1x for months 1-7, 2x for months 8-12
+    weights = np.ones(12)
+    weights[7:12] = 2.0  # Months 8-12 get 2x weight (indices 7-11)
+    
+    # Compute wins (model RMSE < XRO RMSE)
+    wins = (rmse_vals < xro_vals).astype(float)
+    wins_1_7 = int(np.sum(wins[:7]))
+    wins_8_12 = int(np.sum(wins[7:12]))
+    
+    # Weighted consistency score
+    weighted_wins = wins * weights
+    consistency_score = float(np.sum(weighted_wins) / np.sum(weights))
+    
+    # Weighted average RMSE improvement (positive = better than XRO)
+    rmse_diff = xro_vals - rmse_vals  # Positive when model is better
+    weighted_improvement = np.sum(rmse_diff * weights) / np.sum(weights)
+    rmse_improvement_1_12 = float(weighted_improvement)
+    
+    return {
+        'consistency_score': consistency_score,
+        'rmse_improvement_1_12': rmse_improvement_1_12,
+        'wins_1_7': wins_1_7,
+        'wins_8_12': wins_8_12,
+    }
+
+
 def load_and_evaluate_dual(ckpt_path, obs_ds, train_period, test_period):
     """Load checkpoint, forecast, and calculate skill for both train and test periods."""
     model_class, model_kwargs = infer_model_class_and_kwargs(ckpt_path)
@@ -252,8 +300,8 @@ def load_and_evaluate_dual(ckpt_path, obs_ds, train_period, test_period):
 
 def main():
     parser = argparse.ArgumentParser(description='Rank NXRO variants (Out-of-Sample Experiment)')
-    parser.add_argument('--top_n', type=int, default=10, help='Number of top models to display/plot')
-    parser.add_argument('--metric', type=str, choices=['acc', 'rmse', 'combined'], default='combined',
+    parser.add_argument('--top_n', type=int, default=5, help='Number of top models to display/plot')
+    parser.add_argument('--metric', type=str, choices=['acc', 'rmse', 'combined', 'usefulness'], default='rmse',
                        help='Ranking metric (evaluated on out-of-sample period)')
     parser.add_argument('--output_dir', type=str, default='results_out_of_sample/rankings',
                        help='Output directory for ranking results')
@@ -374,17 +422,29 @@ def main():
         # Combine results
         all_results = {**xro_results, **nxro_results}
         
-        # Create ranking dataframe
+        # Get XRO baseline RMSE for usefulness metrics
+        xro_rmse_test = xro_results['XRO']['rmse_test']
+        
+        # Create ranking dataframe with usefulness metrics
         ranking_data = []
         for label, result in all_results.items():
-            ranking_data.append({
+            row = {
                 'Model': label,
                 'Mean_ACC_Train': result['mean_acc_train'],
                 'Mean_RMSE_Train': result['mean_rmse_train'],
                 'Mean_ACC_Test': result['mean_acc_test'],
                 'Mean_RMSE_Test': result['mean_rmse_test'],
                 'Path': result.get('path', 'N/A'),
-            })
+            }
+            
+            # Compute usefulness metrics (compare against XRO)
+            usefulness = compute_usefulness_metrics(result['rmse_test'], xro_rmse_test)
+            row['Consistency_Score'] = usefulness['consistency_score']
+            row['RMSE_Improvement_1_12'] = usefulness['rmse_improvement_1_12']
+            row['Wins_1_7'] = usefulness['wins_1_7']
+            row['Wins_8_12'] = usefulness['wins_8_12']
+            
+            ranking_data.append(row)
         
         df = pd.DataFrame(ranking_data)
         
@@ -394,6 +454,10 @@ def main():
             df['Rank'] = range(1, len(df) + 1)
         elif args.metric == 'rmse':
             df = df.sort_values('Mean_RMSE_Test', ascending=True)
+            df['Rank'] = range(1, len(df) + 1)
+        elif args.metric == 'usefulness':
+            # Rank by consistency score (higher is better), then by RMSE improvement
+            df = df.sort_values(['Consistency_Score', 'RMSE_Improvement_1_12'], ascending=[False, False])
             df['Rank'] = range(1, len(df) + 1)
         else:  # combined
             acc_norm = (df['Mean_ACC_Test'] - df['Mean_ACC_Test'].min()) / (df['Mean_ACC_Test'].max() - df['Mean_ACC_Test'].min())
@@ -411,8 +475,42 @@ def main():
     print(f"TOP {args.top_n} MODELS (Ranked by Out-of-Sample {args.metric.upper()}):")
     print("-"*80)
     top_df = df.head(args.top_n)
-    print(top_df[['Rank', 'Model', 'Mean_ACC_Train', 'Mean_RMSE_Train', 'Mean_ACC_Test', 'Mean_RMSE_Test']].to_string(index=False))
+    
+    # Display columns based on metric
+    if args.metric == 'usefulness':
+        display_cols = ['Rank', 'Model', 'Consistency_Score', 'RMSE_Improvement_1_12', 
+                       'Wins_1_7', 'Wins_8_12', 'Mean_RMSE_Test']
+    else:
+        display_cols = ['Rank', 'Model', 'Mean_ACC_Train', 'Mean_RMSE_Train', 
+                       'Mean_ACC_Test', 'Mean_RMSE_Test']
+    
+    print(top_df[display_cols].to_string(index=False))
     print()
+    
+    # Show usefulness summary for all models
+    if not use_cache:
+        print("="*80)
+        print("USEFULNESS METRICS (Operational Forecast Skill vs XRO at Leads 1-12)")
+        print("="*80)
+        print("Consistency Score: Weighted fraction of leads where model beats XRO")
+        print("                   (1x weight for months 1-7, 2x for months 8-12)")
+        print("RMSE Improvement: Weighted average RMSE advantage over XRO (°C)")
+        print("-"*80)
+        
+        # Show top 10 by usefulness
+        df_useful = df.sort_values('Consistency_Score', ascending=False).head(10)
+        print("\nTop 10 Most Useful Models (by Consistency Score):")
+        print(df_useful[['Model', 'Consistency_Score', 'RMSE_Improvement_1_12', 'Wins_1_7', 'Wins_8_12', 'Mean_RMSE_Test']].to_string(index=False))
+        print()
+        
+        # Identify truly useful models (consistency > 0.5 = win more than lose)
+        useful_models = df[df['Consistency_Score'] > 0.5]
+        print(f"\nModels with Consistency Score > 0.5 (beat XRO more often than not): {len(useful_models)}")
+        if len(useful_models) > 0:
+            print(useful_models[['Model', 'Consistency_Score', 'RMSE_Improvement_1_12', 'Mean_RMSE_Test']].to_string(index=False))
+        print()
+    
+    print("="*80)
     
     # Plot comparative bar charts (in-sample vs out-of-sample)
     print("Generating comparative bar plots...")
@@ -461,136 +559,145 @@ def main():
     
     # Plot top N skill curves (only if we have full results, not from cache)
     if not use_cache and all_results is not None:
-        print(f"Generating skill curve plots for top {args.top_n} + XRO baselines...")
+        print(f"Generating skill curve plots for top {args.top_n} vs XRO baseline...")
         
-        # Ensure XRO baselines are included (always plot them regardless of rank)
-        xro_baseline_labels = ['XRO', 'XRO_ac0', 'Linear XRO']
-        models_to_plot = set(top_df['Model'].values)
-        for xro_label in xro_baseline_labels:
-            if xro_label in all_results:
-                models_to_plot.add(xro_label)
+        # Only include XRO baseline (not XRO_ac0 or Linear XRO)
+        xro_baseline_label = 'XRO'
+        top_models = top_df['Model'].values
         
-        # Get rows for models to plot
-        plot_rows = df[df['Model'].isin(models_to_plot)].sort_values('Rank')
-        
-        # Plot ACC - TRAIN period (in-sample)
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-        
-        for idx, row in plot_rows.iterrows():
-            label = row['Model']
-            if label in all_results:
-                result = all_results[label]
-                acc_vals = result['acc_train']['Nino34'].values
-                lead_vals = result['acc_train']['Nino34'].lead.values
-                
-                # Style XRO baselines differently
-                if label in xro_baseline_labels:
-                    ax.plot(lead_vals, acc_vals, label=f"{row['Rank']}. {label}", 
-                           lw=2.5, linestyle='--', alpha=0.8)
-                else:
-                    ax.plot(lead_vals, acc_vals, label=f"{row['Rank']}. {label}", 
+        # Get XRO data
+        if xro_baseline_label not in all_results:
+            print(f"  Warning: XRO baseline not found, skipping plots")
+        else:
+            xro_result = all_results[xro_baseline_label]
+            
+            # PLOT 1: Top N models + XRO (ACC, out-of-sample)
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            
+            # Plot XRO baseline
+            xro_acc_vals = xro_result['acc_test']['Nino34'].values
+            xro_lead_vals = xro_result['acc_test']['Nino34'].lead.values
+            xro_rank = df[df['Model'] == xro_baseline_label]['Rank'].values[0]
+            ax.plot(xro_lead_vals, xro_acc_vals, label=f"XRO (Rank {xro_rank})", 
+                   lw=3, linestyle='--', color='black', alpha=0.8)
+            
+            # Plot top N models
+            for idx, model_name in enumerate(top_models):
+                if model_name in all_results and model_name != xro_baseline_label:
+                    result = all_results[model_name]
+                    acc_vals = result['acc_test']['Nino34'].values
+                    lead_vals = result['acc_test']['Nino34'].lead.values
+                    rank = df[df['Model'] == model_name]['Rank'].values[0]
+                    ax.plot(lead_vals, acc_vals, label=f"{rank}. {model_name}", 
                            lw=2, marker='o', markersize=3)
-        
-        ax.set_ylabel('Correlation', fontsize=11)
-        ax.set_xlabel('Forecast lead (months)', fontsize=11)
-        ax.set_title(f'Top {args.top_n} + XRO Baselines: ACC (In-Sample)', fontsize=12)
-        ax.set_xlim([0, 21])
-        ax.set_ylim([0.2, 1.0])
-        ax.legend(fontsize=7, ncol=2)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(f'{args.output_dir}/top{args.top_n}_acc_train_out_of_sample.png', dpi=300)
-        plt.close()
-        
-        # Plot ACC - TEST period (out-of-sample)
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-        
-        for idx, row in plot_rows.iterrows():
-            label = row['Model']
-            if label in all_results:
-                result = all_results[label]
-                acc_vals = result['acc_test']['Nino34'].values
-                lead_vals = result['acc_test']['Nino34'].lead.values
-                
-                if label in xro_baseline_labels:
-                    ax.plot(lead_vals, acc_vals, label=f"{row['Rank']}. {label}", 
-                           lw=2.5, linestyle='--', alpha=0.8)
-                else:
-                    ax.plot(lead_vals, acc_vals, label=f"{row['Rank']}. {label}", 
+            
+            ax.set_ylabel('Correlation', fontsize=12)
+            ax.set_xlabel('Forecast Lead (months)', fontsize=12)
+            ax.set_title(f'Top {args.top_n} Models vs XRO: ACC (Out-of-Sample)', fontsize=13, fontweight='bold')
+            ax.set_xlim([0, 21])
+            ax.set_ylim([0.2, 1.0])
+            ax.legend(fontsize=9, loc='best')
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(f'{args.output_dir}/top{args.top_n}_vs_xro_acc_test.png', dpi=300)
+            plt.close()
+            
+            # PLOT 2: Top N models + XRO (RMSE, out-of-sample)
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            
+            # Plot XRO baseline
+            xro_rmse_vals = xro_result['rmse_test']['Nino34'].values
+            xro_lead_vals = xro_result['rmse_test']['Nino34'].lead.values
+            ax.plot(xro_lead_vals, xro_rmse_vals, label=f"XRO (Rank {xro_rank})", 
+                   lw=3, linestyle='--', color='black', alpha=0.8)
+            
+            # Plot top N models
+            for idx, model_name in enumerate(top_models):
+                if model_name in all_results and model_name != xro_baseline_label:
+                    result = all_results[model_name]
+                    rmse_vals = result['rmse_test']['Nino34'].values
+                    lead_vals = result['rmse_test']['Nino34'].lead.values
+                    rank = df[df['Model'] == model_name]['Rank'].values[0]
+                    ax.plot(lead_vals, rmse_vals, label=f"{rank}. {model_name}", 
                            lw=2, marker='o', markersize=3)
-        
-        ax.set_ylabel('Correlation', fontsize=11)
-        ax.set_xlabel('Forecast lead (months)', fontsize=11)
-        ax.set_title(f'Top {args.top_n} + XRO Baselines: ACC (Out-of-Sample)', fontsize=12)
-        ax.set_xlim([0, 21])
-        ax.set_ylim([0.2, 1.0])
-        ax.legend(fontsize=7, ncol=2)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(f'{args.output_dir}/top{args.top_n}_acc_test_out_of_sample.png', dpi=300)
-        plt.close()
-        
-        # Plot RMSE - TRAIN period (in-sample)
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-        
-        for idx, row in plot_rows.iterrows():
-            label = row['Model']
-            if label in all_results:
-                result = all_results[label]
-                rmse_vals = result['rmse_train']['Nino34'].values
-                lead_vals = result['rmse_train']['Nino34'].lead.values
-                
-                if label in xro_baseline_labels:
-                    ax.plot(lead_vals, rmse_vals, label=f"{row['Rank']}. {label}", 
-                           lw=2.5, linestyle='--', alpha=0.8)
-                else:
-                    ax.plot(lead_vals, rmse_vals, label=f"{row['Rank']}. {label}", 
-                           lw=2, marker='o', markersize=3)
-        
-        ax.set_ylabel('RMSE (°C)', fontsize=11)
-        ax.set_xlabel('Forecast lead (months)', fontsize=11)
-        ax.set_title(f'Top {args.top_n} + XRO Baselines: RMSE (In-Sample)', fontsize=12)
-        ax.set_xlim([0, 21])
-        ax.set_ylim([0.0, 1.0])
-        ax.legend(fontsize=7, ncol=2)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(f'{args.output_dir}/top{args.top_n}_rmse_train_out_of_sample.png', dpi=300)
-        plt.close()
-        
-        # Plot RMSE - TEST period (out-of-sample)
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-        
-        for idx, row in plot_rows.iterrows():
-            label = row['Model']
-            if label in all_results:
-                result = all_results[label]
-                rmse_vals = result['rmse_test']['Nino34'].values
-                lead_vals = result['rmse_test']['Nino34'].lead.values
-                
-                if label in xro_baseline_labels:
-                    ax.plot(lead_vals, rmse_vals, label=f"{row['Rank']}. {label}", 
-                           lw=2.5, linestyle='--', alpha=0.8)
-                else:
-                    ax.plot(lead_vals, rmse_vals, label=f"{row['Rank']}. {label}", 
-                           lw=2, marker='o', markersize=3)
-        
-        ax.set_ylabel('RMSE (°C)', fontsize=11)
-        ax.set_xlabel('Forecast lead (months)', fontsize=11)
-        ax.set_title(f'Top {args.top_n} + XRO Baselines: RMSE (Out-of-Sample)', fontsize=12)
-        ax.set_xlim([0, 21])
-        ax.set_ylim([0.0, 1.0])
-        ax.legend(fontsize=7, ncol=2)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(f'{args.output_dir}/top{args.top_n}_rmse_test_out_of_sample.png', dpi=300)
-        plt.close()
-        
-        print(f"  ✓ Saved ACC train plot: {args.output_dir}/top{args.top_n}_acc_train_out_of_sample.png")
-        print(f"  ✓ Saved ACC test plot: {args.output_dir}/top{args.top_n}_acc_test_out_of_sample.png")
-        print(f"  ✓ Saved RMSE train plot: {args.output_dir}/top{args.top_n}_rmse_train_out_of_sample.png")
-        print(f"  ✓ Saved RMSE test plot: {args.output_dir}/top{args.top_n}_rmse_test_out_of_sample.png")
-        print()
+            
+            ax.set_ylabel('RMSE (°C)', fontsize=12)
+            ax.set_xlabel('Forecast Lead (months)', fontsize=12)
+            ax.set_title(f'Top {args.top_n} Models vs XRO: RMSE (Out-of-Sample)', fontsize=13, fontweight='bold')
+            ax.set_xlim([0, 21])
+            ax.set_ylim([0.0, 1.0])
+            ax.legend(fontsize=9, loc='best')
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(f'{args.output_dir}/top{args.top_n}_vs_xro_rmse_test.png', dpi=300)
+            plt.close()
+            
+            print(f"  ✓ Saved combined ACC plot: {args.output_dir}/top{args.top_n}_vs_xro_acc_test.png")
+            print(f"  ✓ Saved combined RMSE plot: {args.output_dir}/top{args.top_n}_vs_xro_rmse_test.png")
+            
+            # PLOTS 3-12: Individual comparison plots (each top model vs XRO)
+            print(f"\n  Generating individual comparison plots...")
+            for idx, model_name in enumerate(top_models, 1):
+                if model_name in all_results and model_name != xro_baseline_label:
+                    result = all_results[model_name]
+                    rank = df[df['Model'] == model_name]['Rank'].values[0]
+                    
+                    # Individual ACC plot
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    
+                    # XRO
+                    ax.plot(xro_lead_vals, xro_acc_vals, label=f"XRO (Rank {xro_rank})", 
+                           lw=3, linestyle='--', color='gray', alpha=0.7)
+                    
+                    # Model
+                    acc_vals = result['acc_test']['Nino34'].values
+                    lead_vals = result['acc_test']['Nino34'].lead.values
+                    ax.plot(lead_vals, acc_vals, label=f"{model_name} (Rank {rank})", 
+                           lw=2.5, marker='o', markersize=4, color='C0')
+                    
+                    ax.set_ylabel('Correlation', fontsize=12)
+                    ax.set_xlabel('Forecast Lead (months)', fontsize=12)
+                    ax.set_title(f'Rank {rank}: {model_name} vs XRO - ACC (Out-of-Sample)', 
+                               fontsize=13, fontweight='bold')
+                    ax.set_xlim([0, 21])
+                    ax.set_ylim([0.2, 1.0])
+                    ax.legend(fontsize=10, loc='best')
+                    ax.grid(True, alpha=0.3)
+                    plt.tight_layout()
+                    
+                    safe_name = model_name.replace(' ', '_').replace('+', 'plus').lower()
+                    plt.savefig(f'{args.output_dir}/rank{rank}_{safe_name}_vs_xro_acc_test.png', dpi=300)
+                    plt.close()
+                    
+                    # Individual RMSE plot
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    
+                    # XRO
+                    ax.plot(xro_lead_vals, xro_rmse_vals, label=f"XRO (Rank {xro_rank})", 
+                           lw=3, linestyle='--', color='gray', alpha=0.7)
+                    
+                    # Model
+                    rmse_vals = result['rmse_test']['Nino34'].values
+                    lead_vals = result['rmse_test']['Nino34'].lead.values
+                    ax.plot(lead_vals, rmse_vals, label=f"{model_name} (Rank {rank})", 
+                           lw=2.5, marker='o', markersize=4, color='C1')
+                    
+                    ax.set_ylabel('RMSE (°C)', fontsize=12)
+                    ax.set_xlabel('Forecast Lead (months)', fontsize=12)
+                    ax.set_title(f'Rank {rank}: {model_name} vs XRO - RMSE (Out-of-Sample)', 
+                               fontsize=13, fontweight='bold')
+                    ax.set_xlim([0, 21])
+                    ax.set_ylim([0.0, 1.0])
+                    ax.legend(fontsize=10, loc='best')
+                    ax.grid(True, alpha=0.3)
+                    plt.tight_layout()
+                    
+                    plt.savefig(f'{args.output_dir}/rank{rank}_{safe_name}_vs_xro_rmse_test.png', dpi=300)
+                    plt.close()
+                    
+                    print(f"    ✓ Saved plots for Rank {rank}: {model_name}")
+            
+            print()
     elif use_cache:
         print("  ⊘ Skipping detailed skill curve plots (using cached data)")
         print("    Run with --force to regenerate with full forecast data")
@@ -624,10 +731,9 @@ def main():
     print(f"  - {output_csv}")
     print(f"  - {bar_plot_path}")
     if not use_cache:
-        print(f"  - {args.output_dir}/top{args.top_n}_acc_train_out_of_sample.png")
-        print(f"  - {args.output_dir}/top{args.top_n}_acc_test_out_of_sample.png")
-        print(f"  - {args.output_dir}/top{args.top_n}_rmse_train_out_of_sample.png")
-        print(f"  - {args.output_dir}/top{args.top_n}_rmse_test_out_of_sample.png")
+        print(f"  - {args.output_dir}/top{args.top_n}_vs_xro_acc_test.png (combined)")
+        print(f"  - {args.output_dir}/top{args.top_n}_vs_xro_rmse_test.png (combined)")
+        print(f"  - {args.output_dir}/rank*_vs_xro_*.png (individual comparisons)")
     print()
 
 

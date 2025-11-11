@@ -201,6 +201,60 @@ def _align_obs_for_lead(obs_var: xr.DataArray, init_times: np.ndarray, lead_val:
     return obs_re
 
 
+def plot_observed_nino34_out_of_sample(obs_ds: xr.Dataset, out_path: str, train_end: str, test_start: str) -> None:
+    """Plot observed Nino3.4 with train/test split marked."""
+    fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+    obs_ds['Nino34'].plot(ax=ax, c='black', label='Observed')
+    
+    train_end_date = pd.to_datetime(train_end)
+    test_start_date = pd.to_datetime(test_start)
+    ax.axvline(train_end_date, color='red', linestyle='--', alpha=0.7, label=f'Train end ({train_end})')
+    ax.axvline(test_start_date, color='blue', linestyle='--', alpha=0.7, label=f'Test start ({test_start})')
+    
+    ax.set_title('Observed Nino3.4 SSTA (Out-of-Sample Setup)')
+    ax.legend()
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+
+
+def plot_skill_curves_dual(acc_train: xr.Dataset, rmse_train: xr.Dataset, 
+                           acc_test: xr.Dataset, rmse_test: xr.Dataset,
+                           sel_var: str, out_prefix: str, label: str) -> None:
+    """Plot ACC and RMSE with both in-sample (train) and out-of-sample (test) periods."""
+    
+    # ACC plot
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    acc_train[sel_var].plot(ax=ax, label=f'{label} (in-sample: train period)', c='green', lw=2.5, marker='o', markersize=4)
+    acc_test[sel_var].plot(ax=ax, label=f'{label} (out-of-sample: test period)', c='orange', lw=2.5, marker='s', markersize=4, linestyle='--')
+    ax.set_ylabel('Correlation', fontsize=11)
+    ax.set_xticks(np.arange(1, 24, step=2))
+    ax.set_ylim([0.2, 1.])
+    ax.set_xlim([1., 21])
+    ax.set_xlabel('Forecast lead (months)', fontsize=11)
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.set_title(f'{label}: ACC (In-Sample vs Out-of-Sample)', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_acc_dual.png', dpi=300)
+    plt.close()
+
+    # RMSE plot
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    rmse_train[sel_var].plot(ax=ax, label=f'{label} (in-sample: train period)', c='green', lw=2.5, marker='o', markersize=4)
+    rmse_test[sel_var].plot(ax=ax, label=f'{label} (out-of-sample: test period)', c='orange', lw=2.5, marker='s', markersize=4, linestyle='--')
+    ax.set_ylabel('RMSE (C)', fontsize=11)
+    ax.set_xticks(np.arange(1, 24, step=2))
+    ax.set_ylim([0., 1.])
+    ax.set_xlim([1., 21])
+    ax.set_xlabel('Forecast lead (months)', fontsize=11)
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.set_title(f'{label}: RMSE (In-Sample vs Out-of-Sample)', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f'{out_prefix}_rmse_dual.png', dpi=300)
+    plt.close()
+
+
 def evaluate_stochastic_ensemble(
     fcst_m: xr.Dataset,
     obs_ds: xr.Dataset,

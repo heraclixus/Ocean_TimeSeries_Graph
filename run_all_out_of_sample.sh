@@ -14,13 +14,15 @@ set -euo pipefail
 #   --device DEVICE      Device to use: cpu, cuda, mps, auto (default: auto)
 #   --skip_base          Skip base variants (random initialization)
 #   --skip_warmstart     Skip warm-start and freezing ablations
+#   --eval_all_datasets  Evaluate on all available datasets (ORAS5, ERA5, GODAS, etc.)
 #
 EPOCHS=1500
 WARMUP_EPOCHS=100
 DEVICE=auto
 SKIP_BASE=false
 SKIP_WARMSTART=false
-XRO_FIT_FILE="results_out_of_sample/xro_fit_warmstart.nc"
+EVAL_ALL_DATASETS=""
+XRO_FIT_FILE="results_out_of_sample/xro_fit_warmstart.nc"  # Will be overridden if eval_all_datasets is set
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,9 +31,15 @@ while [[ $# -gt 0 ]]; do
     --device) DEVICE="$2"; shift 2 ;;
     --skip_base) SKIP_BASE=true; shift ;;
     --skip_warmstart) SKIP_WARMSTART=true; shift ;;
+    --eval_all_datasets) EVAL_ALL_DATASETS="--eval_all_datasets"; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+# Update XRO fit file path if eval_all_datasets is enabled
+if [[ -n "$EVAL_ALL_DATASETS" ]]; then
+    XRO_FIT_FILE="results_all_outsample/xro_fit_warmstart.nc"
+fi
 
 echo "================================================================================"
 echo "           OUT-OF-SAMPLE EXPERIMENT: ALL 32 NXRO VARIANTS"
@@ -44,6 +52,7 @@ echo "  Epochs (warm-start variants): ${WARMUP_EPOCHS}"
 echo "  Device: ${DEVICE}"
 echo "  Skip base: ${SKIP_BASE}"
 echo "  Skip warmstart: ${SKIP_WARMSTART}"
+echo "  Eval all datasets: ${EVAL_ALL_DATASETS:-disabled}"
 echo "  XRO fit file: ${XRO_FIT_FILE}"
 echo ""
 echo "This will train 30 variants (2 FixAll variants use XRO directly)."
@@ -52,8 +61,8 @@ echo "  - 21 warm-start variants: ${WARMUP_EPOCHS} epochs each (good initializat
 echo "================================================================================"
 echo ""
 
-common_base="--epochs ${EPOCHS} --device ${DEVICE}"
-common_warmstart="--epochs ${WARMUP_EPOCHS} --device ${DEVICE}"
+common_base="--epochs ${EPOCHS} --device ${DEVICE} ${EVAL_ALL_DATASETS}"
+common_warmstart="--epochs ${WARMUP_EPOCHS} --device ${DEVICE} ${EVAL_ALL_DATASETS}"
 
 # ============================================================================
 # STEP 0: Fit XRO for Warm-Start (on training period only: 1979-2001)
@@ -75,7 +84,8 @@ xro_model = XRO(ncycle=12, ac_order=2)
 xro_fit = xro_model.fit_matrix(train_ds, maskb=['IOD'], maskNT=['T2', 'TH'])
 
 # Save fit
-os.makedirs('results_out_of_sample', exist_ok=True)
+import os
+os.makedirs(os.path.dirname('${XRO_FIT_FILE}'), exist_ok=True)
 xro_fit.to_netcdf('${XRO_FIT_FILE}')
 print(f'✓ XRO fit saved to ${XRO_FIT_FILE}')
 print(f'  Lcoef shape: {xro_fit[\"Lcoef\"].shape}')

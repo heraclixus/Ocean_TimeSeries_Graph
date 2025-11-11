@@ -22,3 +22,9 @@ data/*.nc
 results-old/
 results/
 results_out_of_sample/
+results_all_insample/
+results_all_outsample/
+!results_all_outsample/rankings/
+!results_out_of_sample/rankings/
+!results_all_insample/rankings/
+!results/rankings/

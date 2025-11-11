@@ -99,6 +99,270 @@ class SeasonalAR1Noise:
         return a * xi_prev + s * eps
 
 
+def ar1_log_likelihood(residuals: torch.Tensor, a1: torch.Tensor, log_sigma: torch.Tensor, 
+                       months: torch.Tensor, dt: float = 1.0/12.0) -> torch.Tensor:
+    """
+    Compute AR(1) log-likelihood for seasonal red noise model.
+    
+    Args:
+        residuals: [T, n_vars] - model residuals
+        a1: [n_vars] - lag-1 autocorrelation per variable
+        log_sigma: [n_vars, 12] - log seasonal std dev (in log space for positivity)
+        months: [T] - month indices (0-11 or 1-12, will be normalized to 0-11)
+        dt: float - time step (default 1/12 for monthly data)
+    
+    Returns:
+        log_likelihood: scalar tensor
+    """
+    T, n_vars = residuals.shape
+    
+    # Ensure month indices are 0-11
+    months_idx = months.long()
+    if months_idx.max() >= 12:
+        months_idx = months_idx - 1  # Convert 1-12 to 0-11
+    
+    # Get sigma (positive)
+    sigma = torch.exp(log_sigma)  # [n_vars, 12]
+    
+    # Get sigma for each timestep
+    sigma_t = sigma[:, months_idx].T  # [T, n_vars]
+    
+    # Compute AR(1) innovations
+    # r_t = r_{t-1} * a1 + innovation
+    r_lag = torch.cat([torch.zeros(1, n_vars, device=residuals.device), 
+                       residuals[:-1]], dim=0)  # [T, n_vars]
+    innovations = residuals - a1[None, :] * r_lag  # [T, n_vars]
+    
+    # AR(1) innovation variance
+    # Var(innovation) = dt^2 * (1 - a1^2) * sigma^2
+    var_innovation = dt**2 * (1 - a1**2)[None, :] * (sigma_t**2)  # [T, n_vars]
+    
+    # Log-likelihood (Gaussian)
+    # log N(innovation; 0, var) = -0.5 * [log(2*pi*var) + innovation^2/var]
+    log_2pi_var = torch.log(2 * torch.pi * var_innovation + 1e-8)  # Stability
+    squared_error = innovations**2 / (var_innovation + 1e-8)
+    
+    log_prob = -0.5 * (log_2pi_var + squared_error)
+    
+    return log_prob.sum()  # Sum over all timesteps and variables
+
+
+def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: List[str], 
+                              train_period: slice) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Fit noise parameters from simulation-observation differences.
+    
+    Uses differences between observations (ORAS5) and simulations (ERA5, GODAS, etc.)
+    to estimate noise distribution independently of model residuals.
+    
+    Args:
+        obs_path: Path to observation NetCDF (ORAS5)
+        sim_paths: List of simulation NetCDF paths (ERA5, GODAS, etc.)
+        var_order: Variable names
+        train_period: Time slice for training period
+    
+    Returns:
+        a1: [12, n_vars] - AR(1) autocorrelation from combined differences
+        sigma: [12, n_vars] - Seasonal std dev from combined differences
+    """
+    import xarray as xr
+    import pandas as pd
+    
+    # Load full observations (don't restrict to train_period yet)
+    obs_ds_full = xr.open_dataset(obs_path)
+    
+    # Get train period times for filtering
+    obs_train = obs_ds_full.sel(time=train_period)
+    train_times = set(obs_train.time.values)
+    
+    print(f"  Observation dataset: {len(obs_ds_full.time)} total timesteps")
+    print(f"  Training period: {train_period} ({len(train_times)} timesteps)")
+    print(f"  Scanning {len(sim_paths)} simulation files for overlaps...")
+    
+    all_diffs = []
+    all_months = []
+    loaded_count = 0
+    
+    for sim_path in sim_paths:
+        try:
+            sim_ds = xr.open_dataset(sim_path)
+            
+            # Convert simulation times to comparable format
+            # Handle cftime objects (non-standard calendars like noleap)
+            def to_comparable_date(time_val):
+                """Convert any time type to (year, month) tuple for comparison."""
+                if hasattr(time_val, 'year') and hasattr(time_val, 'month'):
+                    return (time_val.year, time_val.month)
+                else:
+                    dt = pd.Timestamp(time_val)
+                    return (dt.year, dt.month)
+            
+            # Create year-month tuples for comparison
+            obs_dates = {to_comparable_date(t): t for t in obs_ds_full.time.values}
+            sim_dates = {to_comparable_date(t): t for t in sim_ds.time.values}
+            train_dates = {to_comparable_date(t): t for t in train_times}
+            
+            # Find common year-month pairs
+            common_date_keys = set(obs_dates.keys()) & set(sim_dates.keys()) & set(train_dates.keys())
+            
+            if len(common_date_keys) == 0:
+                continue  # Skip without warning (expected for many files)
+            
+            # Get actual time values for selection
+            obs_times_select = [obs_dates[key] for key in sorted(common_date_keys)]
+            sim_times_select = [sim_dates[key] for key in sorted(common_date_keys)]
+            
+            # Align datasets using actual time coordinates
+            obs_aligned = obs_ds_full.sel(time=obs_times_select)
+            sim_aligned = sim_ds.sel(time=sim_times_select)
+            
+            # Compute difference (obs - sim)
+            diff_array = []
+            for v in var_order:
+                if v in obs_aligned and v in sim_aligned:
+                    diff_vals = obs_aligned[v].values - sim_aligned[v].values
+                    diff_array.append(diff_vals)
+                else:
+                    print(f"  Warning: Variable {v} missing in {sim_path}, skipping file")
+                    break  # Skip this file entirely if any variable is missing
+            
+            if len(diff_array) == len(var_order):
+                diff_array = np.stack(diff_array, axis=-1)  # [T, n_vars]
+                # Extract months from the sorted common date keys
+                months = np.array([key[1] for key in sorted(common_date_keys)], dtype=np.int32)
+                
+                all_diffs.append(diff_array)
+                all_months.append(months)
+                loaded_count += 1
+                if loaded_count == 1:
+                    print(f"  ✓ First successful load: {len(diff_array)} samples from {sim_path}")
+                elif loaded_count <= 5 or loaded_count % 10 == 0:  # Print first 5, then every 10th
+                    print(f"  [{loaded_count}] Loaded {len(diff_array)} samples")
+            
+        except Exception as e:
+            print(f"  Error loading {sim_path}: {e}")
+            continue
+    
+    if len(all_diffs) == 0:
+        print(f"  ERROR: No simulation data overlaps with training period {train_period}")
+        print(f"  Tried {len(sim_paths)} simulation files")
+        print(f"  Training period: {train_period}")
+        print(f"  Available obs times: {len(obs_ds_full.time)} timesteps")
+        raise ValueError("No simulation data could be loaded!")
+    
+    # Concatenate all differences
+    combined_diffs = np.concatenate(all_diffs, axis=0)  # [T_total, n_vars]
+    combined_months = np.concatenate(all_months)
+    
+    print(f"  ✓ Successfully loaded {loaded_count}/{len(sim_paths)} simulation datasets")
+    print(f"  ✓ Total samples from simulations: {len(combined_diffs)}")
+    print(f"  ✓ Skipped {len(sim_paths) - loaded_count} files (no overlap with training period)")
+    
+    # Fit AR(1) from combined simulation-observation differences
+    a1, sigma = fit_seasonal_ar1_from_residuals(combined_diffs, combined_months)
+    
+    return a1, sigma
+
+
+def train_noise_stage2(model, train_ds: xr.Dataset, var_order: List[str],
+                      a1_init: np.ndarray, sigma_init: np.ndarray,
+                      n_epochs: int = 100, lr: float = 1e-3, 
+                      device: str = 'cpu', verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Stage 2 training: Optimize noise parameters using likelihood objective.
+    
+    Given a trained deterministic model, optimize (a1, sigma) to maximize likelihood
+    of observed data under the stochastic model.
+    
+    Args:
+        model: Trained NXRO model (frozen)
+        train_ds: Training dataset
+        var_order: Variable names
+        a1_init: [12, n_vars] - initial lag-1 autocorrelation (from post-hoc fit)
+        sigma_init: [12, n_vars] - initial seasonal std dev (from post-hoc fit)
+        n_epochs: Number of optimization epochs
+        lr: Learning rate
+        device: Device
+        verbose: Print progress
+    
+    Returns:
+        a1_optimized: [12, n_vars] - optimized autocorrelation
+        sigma_optimized: [12, n_vars] - optimized seasonal std dev
+    """
+    # Compute residuals once (model is frozen)
+    if verbose:
+        print("Computing residuals from trained model...")
+    
+    residuals_np, months_np = compute_residuals_series(model, train_ds, var_order, device=device)
+    residuals = torch.from_numpy(residuals_np).to(device)
+    months = torch.from_numpy(months_np - 1).to(device)  # Convert to 0-11
+    
+    # Get month indices for reshaping a1, sigma
+    # Current a1_init, sigma_init are [12, n_vars] from OLS per month
+    # We need [n_vars] for a1 (shared across months) and [n_vars, 12] for sigma
+    
+    # Initialize parameters
+    a1_shared = torch.tensor(a1_init.mean(axis=0), dtype=torch.float32, device=device)
+    a1 = torch.nn.Parameter(a1_shared)  # [n_vars]
+    
+    # Sigma varies by month
+    log_sigma = torch.nn.Parameter(
+        torch.tensor(np.log(sigma_init.T + 1e-6), dtype=torch.float32, device=device)
+    )  # [n_vars, 12]
+    
+    # Optimizer
+    optimizer = torch.optim.Adam([a1, log_sigma], lr=lr)
+    
+    # Training loop
+    if verbose:
+        print(f"Optimizing noise parameters for {n_epochs} epochs...")
+    
+    best_nll = float('inf')
+    best_a1 = None
+    best_log_sigma = None
+    
+    for epoch in range(n_epochs):
+        optimizer.zero_grad()
+        
+        # Compute negative log-likelihood
+        log_likelihood = ar1_log_likelihood(residuals, a1, log_sigma, months)
+        loss = -log_likelihood
+        
+        # Optional: Regularization to keep close to initial values
+        # reg_loss = 0.01 * torch.sum((a1 - a1_shared)**2)
+        # loss = loss + reg_loss
+        
+        loss.backward()
+        optimizer.step()
+        
+        # Constraint: a1 should be in (0, 1)
+        with torch.no_grad():
+            a1.clamp_(0.01, 0.99)
+        
+        # Track best
+        if loss.item() < best_nll:
+            best_nll = loss.item()
+            best_a1 = a1.detach().clone()
+            best_log_sigma = log_sigma.detach().clone()
+        
+        if verbose and (epoch + 1) % 10 == 0:
+            print(f"  Epoch {epoch+1}/{n_epochs}, NLL={loss.item():.4f}")
+    
+    # Return best parameters
+    a1_opt = best_a1.cpu().numpy()  # [n_vars]
+    sigma_opt = torch.exp(best_log_sigma).cpu().numpy()  # [n_vars, 12]
+    
+    # Expand a1 to [12, n_vars] for compatibility with existing code
+    a1_opt_expanded = np.tile(a1_opt[None, :], (12, 1))  # [12, n_vars]
+    
+    if verbose:
+        print(f"Stage 2 training complete. Best NLL: {best_nll:.4f}")
+        print(f"  a1 range: [{a1_opt.min():.3f}, {a1_opt.max():.3f}]")
+        print(f"  sigma range: [{sigma_opt.min():.3f}, {sigma_opt.max():.3f}]")
+    
+    return a1_opt_expanded, sigma_opt.T  # Return as [12, n_vars]
+
+
 @torch.no_grad()
 def nxro_reforecast_stochastic(model, init_ds: xr.Dataset, n_month: int, var_order: list,
                                noise_model: SeasonalAR1Noise, n_members: int = 100, device: str = 'cpu') -> xr.Dataset:

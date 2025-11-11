@@ -1093,6 +1093,80 @@ python XRO_variants.py --test --data_filter base --graph_filter graph
 
 We evaluated all NXRO variants against the baseline XRO model on the held-out test period. Rankings are based on average rank across forecast leads (1-21 months) for Niño3.4 forecasts. Lower rank is better (1 = best).
 
+### Evaluation Metrics
+
+We use three complementary metrics to assess model quality:
+
+#### 1. **Mean RMSE/ACC Across All Leads** (Traditional Metrics)
+- **Mean Test RMSE**: Average root mean squared error across all forecast leads (1-21 months)
+- **Mean Test ACC**: Average anomaly correlation coefficient across all forecast leads
+- **Purpose**: Overall forecast skill averaged over all horizons
+- **Limitation**: Treats all lead times equally; doesn't emphasize operationally important short-to-medium range
+
+#### 2. **Operational Usefulness Score** (NEW - Recommended Primary Metric)
+
+A model is operationally "useful" if it can **consistently outperform the XRO baseline at short-to-medium range** (1-12 months), where forecasts have the most practical value for decision-making.
+
+**Usefulness Metrics:**
+
+**a) Consistency Score** (Primary ranking criterion)
+$$
+\text{Consistency Score} = \frac{\sum_{t=1}^{12} w_t \cdot \mathbb{1}[\text{RMSE}_{\text{model}}(t) < \text{RMSE}_{\text{XRO}}(t)]}{\sum_{t=1}^{12} w_t}
+$$
+
+where:
+- $t$ is the forecast lead time in months
+- $w_t = 1$ for leads 1-7 months (short-range)
+- $w_t = 2$ for leads 8-12 months (medium-range, more challenging)
+- $\mathbb{1}[\cdot]$ is the indicator function (1 if model wins, 0 otherwise)
+- **Range**: [0, 1]
+- **Interpretation**:
+  - 1.0 = Model beats XRO at all leads 1-12
+  - 0.5 = Model wins as often as it loses (weighted)
+  - 0.0 = Model never beats XRO
+- **Threshold for usefulness**: Consistency Score > 0.5 (wins more often than loses)
+
+**b) RMSE Improvement (1-12 months)** (Secondary criterion)
+$$
+\text{RMSE Improvement} = \frac{\sum_{t=1}^{12} w_t \cdot (\text{RMSE}_{\text{XRO}}(t) - \text{RMSE}_{\text{model}}(t))}{\sum_{t=1}^{12} w_t}
+$$
+
+- **Units**: °C
+- **Interpretation**:
+  - Positive value = Model is better than XRO on average
+  - Negative value = Model is worse than XRO on average
+- **Purpose**: Quantifies magnitude of improvement, not just frequency
+
+**c) Win Counts**
+- **Wins_1_7**: Number of leads (1-7 months) where model beats XRO
+- **Wins_8_12**: Number of leads (8-12 months) where model beats XRO
+- **Purpose**: Detailed breakdown of where improvements occur
+
+**Why 2× weight for months 8-12?**
+1. **Spring predictability barrier**: Forecasts crossing the spring season (common at 8-12 month leads) are notoriously difficult
+2. **Greater skill differentiation**: Models that succeed at 8-12 months demonstrate superior physics or representation
+3. **High operational value**: Medium-range forecasts (6-12 months) are critical for planning but harder to achieve
+
+**Usage Example:**
+```bash
+# Rank models by operational usefulness
+python rank_all_variants_out_of_sample.py --metric usefulness
+
+# Still available: traditional rankings
+python rank_all_variants_out_of_sample.py --metric rmse
+python rank_all_variants_out_of_sample.py --metric acc
+```
+
+**Output includes:**
+- Top N models ranked by Consistency Score
+- List of all models with Consistency Score > 0.5 (truly useful models)
+- Detailed win counts for each model at short vs. medium range
+
+#### 3. **Combined Score** (Legacy Metric)
+- Normalized combination of ACC and RMSE across all leads
+- **Limitation**: Less interpretable than usefulness or direct RMSE comparison
+- **Recommendation**: Use "Usefulness Score" or direct RMSE ranking instead
+
 ### RMSE Rankings (Lower is Better)
 
 | Rank | Model | Avg Rank | Description |
