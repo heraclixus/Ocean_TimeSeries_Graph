@@ -404,6 +404,7 @@ For **in-sample experiments** (train: 1979-2022):
 
 ---
 
+
 ## Key Findings
 
 ### 1. Stage 2 Consistently Outperforms XRO
@@ -586,3 +587,31 @@ python visualize_stochastic_comparison.py --results_dir results --compare_stages
 - **Stage 2 likelihood**: `nxro/stochastic.py::ar1_log_likelihood()` (lines 102-147)
 - **Stage 3 implementation**: `nxro/stochastic.py::fit_noise_from_simulations()` (lines 150-245)
 - **CRPS calculation**: `utils/xro_utils.py::evaluate_stochastic_ensemble()` (lines 318-325)
+
+---
+
+## Stochastic Plume Visualizations
+
+In this section we display the stochastic forecasts for certain dates in ENSO. First the empirical plots for ENSO over all the time stamps is: 
+
+![Visualization of ORAS5 measurement of ENSO 1979-2022](results_out_of_sample/NXRO_observed_Nino34_out_of_sample.png)
+
+
+
+![The Stochastic forecast starting January 1971](results_out_of_sample/rankings/stochastic_comparison/plume_comparison_1979_01.png)
+
+
+![The Stochastic forecast starting April of 1988](results_out_of_sample/rankings/stochastic_comparison/plume_comparison_1988_04.png)
+
+
+![Stochastic Forecast starting April of 1997](results_out_of_sample/rankings/stochastic_comparison/plume_comparison_1997_04.png)
+
+
+![The stochastic forecast starting December of 1997](results_out_of_sample/rankings/stochastic_comparison/plume_comparison_1997_12.png)
+
+
+![The stochastic forecast starting January of 2002](results_out_of_sample/rankings/stochastic_comparison/plume_comparison_2002_01.png)
+
+
+![The stochastic forecast starting September of 2022](results_out_of_sample/rankings/stochastic_comparison/plume_comparison_2022_09.png)
+---

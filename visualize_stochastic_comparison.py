@@ -465,6 +465,214 @@ def plot_ensemble_mean_skill(results, out_dir):
     print(f"  [OK] Saved: {out_dir}/stochastic_ensemble_mean_skill.png")
 
 
+def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
+    """Plot detailed forecast plumes for specific initialization dates.
+    
+    Similar to XRO_example.py plot_forecast_plume, showing:
+    - Ensemble mean with ±1 std dev bands
+    - Observations with proper time axis
+    - Multiple models in subplots
+    
+    Args:
+        results: Dictionary of model results
+        base_dir: Base results directory
+        out_dir: Output directory for plots
+        init_dates: List of initialization dates (e.g., ['1997-04', '2022-09'])
+    """
+    import datetime
+    from dateutil.relativedelta import relativedelta
+    import matplotlib.dates as mdates
+    
+    if init_dates is None:
+        init_dates = ['1997-04', '1997-12', '2022-09']
+    
+    # Load observations
+    obs_ds = xr.open_dataset('data/XRO_indices_oras5.nc')
+    
+    # Get top models by CRPS
+    summary = []
+    for model_name, df in results.items():
+        avg_crps = float(np.nanmean(df['crps'].values))
+        summary.append({'Model': model_name, 'Avg_CRPS': avg_crps})
+    
+    summary_df = pd.DataFrame(summary).sort_values('Avg_CRPS')
+    
+    # Select top models (exclude XRO baseline, handle separately)
+    top_nxro_models = summary_df[summary_df['Model'] != 'XRO'].head(3)['Model'].tolist()
+    
+    print(f"\n  Plotting forecast plumes for dates: {init_dates}")
+    print(f"  Models: {top_nxro_models}")
+    
+    for init_date in init_dates:
+        print(f"\n  Processing initialization date: {init_date}")
+        
+        # Create figure with subplots for each model + XRO
+        n_models = len(top_nxro_models) + 1  # +1 for XRO
+        fig, axes = plt.subplots(n_models, 1, figsize=(10, 4*n_models))
+        
+        if n_models == 1:
+            axes = [axes]
+        
+        # Plot XRO first
+        try:
+            xro_path = f'{base_dir}/xro_baseline/xro_stochastic_fcst.nc'
+            if os.path.exists(xro_path):
+                fcst_ds = xr.open_dataset(xro_path)
+                ax = axes[0]
+                
+                # Get forecast data
+                fcst_var = fcst_ds['Nino34'].sel(init=init_date)
+                fcst_mean = fcst_var.mean('member').squeeze()
+                fcst_std = fcst_var.std('member').squeeze()
+                
+                nlead = len(fcst_mean.lead)
+                
+                # Setup time axis
+                xdate_init = datetime.datetime.strptime(init_date + '-01', "%Y-%m-%d").date()
+                xdate_strt = xdate_init + relativedelta(months=-2)
+                xdate_last = xdate_init + relativedelta(months=nlead-1)
+                xtime_fcst = [xdate_init + relativedelta(months=int(i)) for i in range(nlead)]
+                
+                # Plot forecast with uncertainty
+                ax.plot(xtime_fcst, fcst_mean.values, c='red', marker='.', lw=2.5, 
+                       label='XRO Ensemble Mean')
+                ax.fill_between(xtime_fcst, 
+                               fcst_mean.values - fcst_std.values, 
+                               fcst_mean.values + fcst_std.values,
+                               fc='red', alpha=0.3, label='±1 Std Dev')
+                
+                # Plot observations
+                sel_obs = obs_ds['Nino34'].sel(time=slice(xdate_strt, xdate_last))
+                ax.plot(sel_obs.time.values, sel_obs.values, c='black', 
+                       marker='o', markersize=3, lw=2, label='Observed', alpha=0.8)
+                
+                # Formatting
+                ax.axhline(0, c='gray', ls='-', lw=0.5, alpha=0.5)
+                ax.axhline(0.5, c='red', ls='--', lw=1, alpha=0.3)
+                ax.axhline(-0.5, c='blue', ls='--', lw=1, alpha=0.3)
+                
+                ax.xaxis.set_major_locator(mdates.MonthLocator((1, 4, 7, 10)))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+                ax.set_xlim([xdate_strt, xdate_last])
+                ax.set_ylim([-3, 3])
+                ax.set_ylabel('Nino3.4 SSTA (°C)', fontsize=10)
+                ax.set_title(f'XRO Baseline - Init: {init_date}', fontsize=11, fontweight='bold')
+                ax.legend(fontsize=9, loc='upper left')
+                ax.grid(True, alpha=0.3)
+                
+                fcst_ds.close()
+        except Exception as e:
+            print(f"    [!] Error plotting XRO: {str(e)}")
+        
+        # Plot NXRO models
+        for idx, model_name in enumerate(top_nxro_models):
+            ax_idx = idx + 1
+            try:
+                # Determine file path - strip "NXRO-" prefix if present
+                base_model = model_name.replace('NXRO-', '').split()[0]
+                
+                # Determine suffix from stage
+                if '(S2+S3)' in model_name:
+                    suffix = '_sim_noise_stage2'
+                elif '(S2)' in model_name:
+                    suffix = '_stage2'
+                elif '(S3)' in model_name:
+                    suffix = '_sim_noise'
+                else:
+                    suffix = '_stage2'  # Default to stage2 for most recent
+                
+                # Map model names to directories
+                model_dirs = {
+                    'Res': 'res',
+                    'Graph': 'graphpyg/gcn_k3',
+                    'Attentive': 'attentive',
+                    'RO+Diag': 'rodiag',
+                    'Linear': 'linear',
+                }
+                
+                model_dir = model_dirs.get(base_model, base_model.lower())
+                
+                # Construct file path
+                if base_model == 'Graph':
+                    fcst_path = f'{base_dir}/{model_dir}/NXRO_GRAPHPYG_GCN_K3_stochastic{suffix}_forecasts.nc'
+                else:
+                    fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
+                
+                if not os.path.exists(fcst_path):
+                    print(f"    [!] Forecast file not found: {fcst_path}")
+                    continue
+                
+                fcst_ds = xr.open_dataset(fcst_path)
+                ax = axes[ax_idx]
+                
+                # Get forecast data
+                fcst_var = fcst_ds['Nino34'].sel(init=init_date)
+                fcst_mean = fcst_var.mean('member').squeeze()
+                fcst_std = fcst_var.std('member').squeeze()
+                
+                nlead = len(fcst_mean.lead)
+                
+                # Setup time axis
+                xdate_init = datetime.datetime.strptime(init_date + '-01', "%Y-%m-%d").date()
+                xdate_strt = xdate_init + relativedelta(months=-2)
+                xdate_last = xdate_init + relativedelta(months=nlead-1)
+                xtime_fcst = [xdate_init + relativedelta(months=int(i)) for i in range(nlead)]
+                
+                # Determine color
+                colors = {
+                    'Res': '#4CAF50',
+                    'Graph': '#78909C',
+                    'Attentive': '#EC407A',
+                    'RO+Diag': '#FF6F00',
+                    'Linear': '#2196F3',
+                }
+                color = colors.get(base_model, '#666666')
+                
+                # Plot forecast with uncertainty
+                ax.plot(xtime_fcst, fcst_mean.values, c=color, marker='.', lw=2.5,
+                       label=f'{model_name} Ensemble Mean')
+                ax.fill_between(xtime_fcst,
+                               fcst_mean.values - fcst_std.values,
+                               fcst_mean.values + fcst_std.values,
+                               fc=color, alpha=0.3, label='±1 Std Dev')
+                
+                # Plot observations
+                sel_obs = obs_ds['Nino34'].sel(time=slice(xdate_strt, xdate_last))
+                ax.plot(sel_obs.time.values, sel_obs.values, c='black',
+                       marker='o', markersize=3, lw=2, label='Observed', alpha=0.8)
+                
+                # Formatting
+                ax.axhline(0, c='gray', ls='-', lw=0.5, alpha=0.5)
+                ax.axhline(0.5, c='red', ls='--', lw=1, alpha=0.3)
+                ax.axhline(-0.5, c='blue', ls='--', lw=1, alpha=0.3)
+                
+                ax.xaxis.set_major_locator(mdates.MonthLocator((1, 4, 7, 10)))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+                ax.set_xlim([xdate_strt, xdate_last])
+                ax.set_ylim([-3, 3])
+                ax.set_ylabel('Nino3.4 SSTA (°C)', fontsize=10)
+                ax.set_title(f'{model_name} - Init: {init_date}', fontsize=11, fontweight='bold')
+                ax.legend(fontsize=9, loc='upper left')
+                ax.grid(True, alpha=0.3)
+                
+                fcst_ds.close()
+                
+            except Exception as e:
+                import traceback
+                print(f"    [!] Error plotting {model_name}: {str(e)}")
+                traceback.print_exc()
+        
+        plt.tight_layout()
+        safe_date = init_date.replace('-', '_')
+        out_path = f'{out_dir}/plume_comparison_{safe_date}.png'
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"    ✓ Saved: {out_path}")
+    
+    obs_ds.close()
+
+
 def print_summary_table(results, out_dir):
     """Print comprehensive summary table."""
     print("\n" + "="*80)
@@ -549,6 +757,11 @@ def main():
                        help='Results directory')
     parser.add_argument('--compare_stages', action='store_true',
                        help='Compare all stages (post-hoc, S2, S3, S2+S3) instead of just most recent')
+    parser.add_argument('--plot_plumes', action='store_true',
+                       help='Generate detailed forecast plume plots for specific dates')
+    parser.add_argument('--plume_dates', type=str, nargs='+',
+                       default=['1997-04', '1997-12', '2022-09'],
+                       help='Initialization dates for plume plots (format: YYYY-MM)')
     args = parser.parse_args()
     
     print("="*80)
@@ -590,6 +803,11 @@ def main():
     print("\nGenerating forecast visualizations for top models...")
     plot_top_model_forecasts(results, args.results_dir, out_dir, top_n=5)
     
+    # Generate plume plots if requested
+    if args.plot_plumes:
+        print("\nGenerating detailed forecast plume plots...")
+        plot_forecast_plumes(results, args.results_dir, out_dir, init_dates=args.plume_dates)
+    
     # Print summary
     print_summary_table(results, out_dir)
     
@@ -599,6 +817,8 @@ def main():
     print(f"\nOutput files in: {out_dir}/")
     print("  - stochastic_rankings_all_metrics.png (CRPS & RMSE rankings, top 10)")
     print("  - forecast_*.png (forecast visualizations for top 5 models + XRO)")
+    if args.plot_plumes:
+        print("  - plume_comparison_*.png (detailed forecast plumes for specified dates)")
     print("  - stochastic_summary_metrics.csv (complete metrics table)")
     print("\n" + "="*80)
 
