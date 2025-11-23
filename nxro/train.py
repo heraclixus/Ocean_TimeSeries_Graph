@@ -37,11 +37,13 @@ def train_nxro_linear(
     rollout_k: int = 1,
     extra_train_nc_paths=None,
     L_basis_init: Optional[torch.Tensor] = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-Linear model (variants 1, 1a).
     
     Args:
         L_basis_init: If None, random init (variant 1). If provided, warm-start (variant 1a).
+        pretrained_state_dict: Optional state dict to load weights from (e.g. for two-stage training).
     """
     dl_train, dl_test, var_order = get_dataloaders(
         nc_path=nc_path,
@@ -54,6 +56,11 @@ def train_nxro_linear(
 
     n_vars = len(var_order)
     model = NXROLinearModel(n_vars=n_vars, k_max=k_max, L_basis_init=L_basis_init).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -125,12 +132,14 @@ def train_nxro_ro(
     extra_train_nc_paths=None,
     warmstart_init_dict: dict = None,
     freeze_flags: dict = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-RO model (variants 2, 2a, 2a-Fix*).
     
     Args:
         warmstart_init_dict: Dict with 'L_basis_init', 'W_T_init', 'W_H_init' for warm-start
         freeze_flags: Dict with 'freeze_linear', 'freeze_ro' flags
+        pretrained_state_dict: Optional state dict to load weights from.
     """
     dl_train, dl_test, var_order = get_dataloaders(
         nc_path=nc_path,
@@ -151,6 +160,11 @@ def train_nxro_ro(
         model_kwargs.update(freeze_flags)
     
     model = NXROROModel(**model_kwargs).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -221,12 +235,14 @@ def train_nxro_rodiag(
     extra_train_nc_paths=None,
     warmstart_init_dict: dict = None,
     freeze_flags: dict = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-RO+Diag model (variants 3, 3a, 3a-Fix*).
     
     Args:
         warmstart_init_dict: Dict with init parameters for warm-start
         freeze_flags: Dict with 'freeze_linear', 'freeze_ro', 'freeze_diag' flags
+        pretrained_state_dict: Optional state dict to load weights from.
     """
     dl_train, dl_test, var_order = get_dataloaders(
         nc_path=nc_path,
@@ -247,6 +263,11 @@ def train_nxro_rodiag(
         model_kwargs.update(freeze_flags)
     
     model = NXRORODiagModel(**model_kwargs).to(device)
+
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -454,6 +475,7 @@ def train_nxro_graph_pyg(
     device: str = 'cpu',
     rollout_k: int = 1,
     extra_train_nc_paths=None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     # dataloaders for training
     dl_train, dl_test, var_order = get_dataloaders(
@@ -503,6 +525,11 @@ def train_nxro_graph_pyg(
 
     n_vars = len(var_order)
     model = NXROGraphPyGModel(n_vars=n_vars, k_max=k_max, edge_index=edge_index, hidden=hidden, dropout=dropout, use_gat=use_gat).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -578,6 +605,7 @@ def train_nxro_graph(
     extra_train_nc_paths=None,
     warmstart_init_dict: dict = None,
     freeze_flags: dict = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-Graph model (variants 5b, 5b-WS, 5b-FixL)."""
     dl_train, dl_test, var_order = get_dataloaders(
@@ -613,6 +641,11 @@ def train_nxro_graph(
     
     # Build model (fixed vs learned). If learned, initialize with adj_init and regularize with L1.
     model = NXROGraphModel(**model_kwargs).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -691,6 +724,7 @@ def train_nxro_neural(
     device: str = 'cpu',
     rollout_k: int = 1,
     extra_train_nc_paths=None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     dl_train, dl_test, var_order = get_dataloaders(
         nc_path=nc_path,
@@ -704,6 +738,11 @@ def train_nxro_neural(
     n_vars = len(var_order)
     model = NXRONeuralODEModel(n_vars=n_vars, k_max=k_max, hidden=hidden, depth=depth,
                                dropout=dropout, allow_cross=allow_cross, mask_mode=mask_mode).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -777,6 +816,7 @@ def train_nxro_attentive(
     extra_train_nc_paths=None,
     warmstart_init_dict: dict = None,
     freeze_flags: dict = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-Attentive model (variants 5a, 5a-WS, 5a-FixL)."""
     dl_train, dl_test, var_order = get_dataloaders(
@@ -798,6 +838,11 @@ def train_nxro_attentive(
         model_kwargs.update(freeze_flags)
     
     model = NXROAttentiveModel(**model_kwargs).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -951,12 +996,14 @@ def train_nxro_res(
     extra_train_nc_paths=None,
     warmstart_init_dict: dict = None,
     freeze_flags: dict = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-Res model (variants 4, 4a).
     
     Args:
         warmstart_init_dict: Dict with 'L_basis_init' for warm-start
         freeze_flags: Dict with 'freeze_linear' flag
+        pretrained_state_dict: Optional state dict to load weights from.
     """
     dl_train, dl_test, var_order = get_dataloaders(
         nc_path=nc_path,
@@ -977,6 +1024,11 @@ def train_nxro_res(
         model_kwargs.update(freeze_flags)
     
     model = NXROResModel(**model_kwargs).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -1057,6 +1109,7 @@ def train_nxro_resmix(
     extra_train_nc_paths=None,
     warmstart_init_dict: dict = None,
     freeze_flags: dict = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-ResidualMix model (variants 5d, 5d-WS, 5d-Fix*)."""
     dl_train, dl_test, var_order = get_dataloaders(
@@ -1079,6 +1132,11 @@ def train_nxro_resmix(
         model_kwargs.update(freeze_flags)
     
     model = NXROResidualMixModel(**model_kwargs).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -1147,6 +1205,7 @@ def train_nxro_res_fullxro(
     rollout_k: int = 1,
     extra_train_nc_paths=None,
     xro_init_dict: dict = None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     """Train NXRO-Res-FullXRO model (variant 4b): Frozen full XRO + trainable MLP.
     
@@ -1183,6 +1242,10 @@ def train_nxro_res_fullxro(
         C_diag_xro=xro_init_dict['C_diag'],
     ).to(device)
     
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 

@@ -25,6 +25,20 @@ from run_utils import (
     run_graph,
     run_graph_pyg,
 )
+from run_utils_twostage import (
+    run_linear_twostage,
+    run_ro_twostage,
+    run_rodiag_twostage,
+    run_res_twostage,
+    run_res_fullxro_twostage,
+    run_neural_twostage,
+    run_neural_phys_twostage,
+    run_resmix_twostage,
+    run_bilinear_twostage,
+    run_attentive_twostage,
+    run_graph_twostage,
+    run_graph_pyg_twostage,
+)
 
 
 def main():
@@ -77,6 +91,8 @@ def main():
                         help='Path to XRO fit file (NetCDF) for warm-start initialization')
     parser.add_argument('--freeze', type=str, default=None,
                         help='Comma-separated list of components to freeze: linear, ro, diag (e.g., "linear,ro")')
+    parser.add_argument('--two_stage', action='store_true',
+                        help='Enable two-stage training: 1. Synthetic Pre-training, 2. ORAS5 Fine-tuning.')
     args = parser.parse_args()
 
     # Use different results directory based on eval_all_datasets flag
@@ -245,60 +261,116 @@ def main():
 
     # Run selected models
     if args.model in ('linear', 'all'):
-        run_linear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                   base_results_dir, all_eval_datasets, device, 
-                   load_xro_init, variant_suffix, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, 
+                       load_xro_init, variant_suffix, extra_tag, fig_suffix)
+        else:
+            run_linear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, 
+                       load_xro_init, variant_suffix, extra_tag, fig_suffix)
     
     if args.model in ('ro', 'all'):
-        run_ro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-               base_results_dir, all_eval_datasets, device, 
-               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_ro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                   base_results_dir, all_eval_datasets, device, 
+                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        else:
+            run_ro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                   base_results_dir, all_eval_datasets, device, 
+                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
     
     if args.model in ('rodiag', 'all'):
-        run_rodiag(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                   base_results_dir, all_eval_datasets, device, 
-                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_rodiag_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, 
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        else:
+            run_rodiag(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, 
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
     
     if args.model in ('res', 'all'):
-        run_res(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                base_results_dir, all_eval_datasets, device, 
-                load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_res_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                    base_results_dir, all_eval_datasets, device, 
+                    load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        else:
+            run_res(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                    base_results_dir, all_eval_datasets, device, 
+                    load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
     
     if args.model == 'res_fullxro':
-        run_res_fullxro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                        base_results_dir, all_eval_datasets, device, 
-                        load_xro_init, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_res_fullxro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                            base_results_dir, all_eval_datasets, device, 
+                            load_xro_init, extra_tag, fig_suffix)
+        else:
+            run_res_fullxro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                            base_results_dir, all_eval_datasets, device, 
+                            load_xro_init, extra_tag, fig_suffix)
     
     if args.model in ('neural', 'all'):
-        run_neural(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                   base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_neural_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        else:
+            run_neural(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
     
     if args.model in ('neural_phys', 'all'):
-        run_neural_phys(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                        base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_neural_phys_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        else:
+            run_neural_phys(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
     
     if args.model in ('resmix', 'all'):
-        run_resmix(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                   base_results_dir, all_eval_datasets, device, 
-                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_resmix_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, 
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        else:
+            run_resmix(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                       base_results_dir, all_eval_datasets, device, 
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
     
     if args.model in ('bilinear', 'all'):
-        run_bilinear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                     base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_bilinear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                         base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        else:
+            run_bilinear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                         base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
     
     if args.model in ('attentive', 'all'):
-        run_attentive(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+        if args.two_stage:
+            run_attentive_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                          base_results_dir, all_eval_datasets, device, 
+                          load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        else:
+            run_attentive(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                          base_results_dir, all_eval_datasets, device, 
+                          load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+    
+    if args.model in ('graph', 'all'):
+        if args.two_stage:
+            run_graph_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                      base_results_dir, all_eval_datasets, device, 
+                      load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+        else:
+            run_graph(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                       base_results_dir, all_eval_datasets, device, 
                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
     
-    if args.model in ('graph', 'all'):
-        run_graph(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                  base_results_dir, all_eval_datasets, device, 
-                  load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
-    
     if args.model in ('graph_pyg', 'all'):
-        run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                      base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        if args.two_stage:
+            run_graph_pyg_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                          base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        else:
+            run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                          base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
 
     print("\n" + "="*80)
     print("OUT-OF-SAMPLE EXPERIMENT COMPLETE")
