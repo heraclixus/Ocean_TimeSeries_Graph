@@ -19,22 +19,25 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-def load_stochastic_results(base_dir, compare_stages=False):
+def load_stochastic_results(base_dir, compare_stages=False, compare_arp=False):
     """Load stochastic evaluation results for all models.
     
     Args:
         base_dir: Base results directory
         compare_stages: If True, load all stages (post-hoc, stage2, sim_noise, etc.)
-                       If False, only load most recent for each model
+        compare_arp: If True, load different AR(p) variants (AR1, AR2, etc.)
     """
     results = {}
+    import re
     
     # XRO baseline
+    # Note: XRO baseline is AR(1) only in current implementation
     xro_pattern = f'{base_dir}/xro_baseline/*_stochastic_eval_lead_metrics.csv'
     xro_matches = glob.glob(xro_pattern)
     if xro_matches:
-        results['XRO'] = pd.read_csv(xro_matches[0])
-        print(f"  Loaded XRO baseline: {xro_matches[0]}")
+        label = 'XRO (AR1)' if compare_arp else 'XRO'
+        results[label] = pd.read_csv(xro_matches[0])
+        print(f"  Loaded {label}: {xro_matches[0]}")
     
     # NXRO models
     model_dirs = {
@@ -47,14 +50,37 @@ def load_stochastic_results(base_dir, compare_stages=False):
     
     for model_name, model_dir in model_dirs.items():
         # Find stochastic eval CSV (look for _lead_metrics.csv specifically)
-        pattern = f'{model_dir}/**/*_stochastic_*_eval_lead_metrics.csv'
+        # Pattern fixed to match AR1 files without intermediate tag (e.g., NXRO_RES_stochastic_eval_lead_metrics.csv)
+        pattern = f'{model_dir}/**/*stochastic*eval_lead_metrics.csv'
         matches = glob.glob(pattern, recursive=True)
         
         if not matches:
-            print(f"  [!] Not found: {model_name} (searched: {pattern})")
+            # Silent skip if not found (common if looking for specific variants)
             continue
         
-        if compare_stages:
+        if compare_arp:
+            # Load AR(p) variants
+            for match in matches:
+                basename = os.path.basename(match)
+                
+                # Skip sim noise / stage 2 for pure AR comparison
+                if '_sim_noise' in basename or '_stage2' in basename:
+                    continue
+
+                # Extract p from ..._stochastic_arp{p}_eval...
+                arp_match = re.search(r'_arp(\d+)_', basename)
+                
+                if arp_match:
+                    p = arp_match.group(1)
+                    stage_label = f'{model_name} (AR{p})'
+                else:
+                    # Default is AR1 (standard stochastic file without arp tag)
+                    stage_label = f'{model_name} (AR1)'
+                
+                results[stage_label] = pd.read_csv(match)
+                print(f"  Loaded {stage_label}: {match}")
+
+        elif compare_stages:
             # Load ALL stages for this model
             for match in matches:
                 # Determine stage from filename
@@ -65,16 +91,24 @@ def load_stochastic_results(base_dir, compare_stages=False):
                     stage_label = f'{model_name} (S2)'
                 elif '_sim_noise_' in basename:
                     stage_label = f'{model_name} (S3)'
+                elif '_arp' in basename:
+                    continue # Skip AR(p) files when comparing stages
                 else:
                     stage_label = f'{model_name} (Post-hoc)'
                 
                 results[stage_label] = pd.read_csv(match)
                 print(f"  Loaded {stage_label}: {match}")
         else:
-            # Use most recent only
-            eval_file = max(matches, key=os.path.getmtime)
-            results[f'NXRO-{model_name}'] = pd.read_csv(eval_file)
-            print(f"  Loaded NXRO-{model_name}: {eval_file}")
+            # Use most recent only - filter for AR1 baseline (no stage/arp variants)
+            # Filter out ARP, stage, and sim_noise files to get the basic AR1 model
+            standard_matches = [m for m in matches 
+                              if '_arp' not in os.path.basename(m) 
+                              and '_stage' not in os.path.basename(m)
+                              and '_sim_noise' not in os.path.basename(m)]
+            if standard_matches:
+                eval_file = max(standard_matches, key=os.path.getmtime)
+                results[f'NXRO-{model_name}'] = pd.read_csv(eval_file)
+                print(f"  Loaded NXRO-{model_name}: {eval_file}")
     
     return results
 
@@ -99,27 +133,34 @@ def plot_crps_comparison(results, out_dir):
         'S2': '--',
         'S3': '-.',
         'S2+S3': ':',
+        # AR styles
+        'AR1': '-',
+        'AR2': '--',
+        'AR3': '-.',
+        'AR4': ':',
     }
     
     for model_name, df in results.items():
-        # Extract base model name and stage
+        # Extract base model name and stage/AR
         base_model = model_name.split()[0].replace('NXRO-', '')
         
         # Determine color and linestyle
         color = base_colors.get(base_model, None)
-        if '(S2+S3)' in model_name:
-            linestyle = stage_styles['S2+S3']
-        elif '(S2)' in model_name:
-            linestyle = stage_styles['S2']
-        elif '(S3)' in model_name:
-            linestyle = stage_styles['S3']
-        elif '(Post-hoc)' in model_name:
-            linestyle = stage_styles['Post-hoc']
-        else:
-            linestyle = '-'
         
-        marker = 'o' if model_name == 'XRO' else 's'
-        lw = 2.5 if model_name == 'XRO' else 2
+        linestyle = '-'
+        # Check for stages
+        if '(S2+S3)' in model_name: linestyle = stage_styles['S2+S3']
+        elif '(S2)' in model_name: linestyle = stage_styles['S2']
+        elif '(S3)' in model_name: linestyle = stage_styles['S3']
+        elif '(Post-hoc)' in model_name: linestyle = stage_styles['Post-hoc']
+        # Check for AR
+        elif '(AR1)' in model_name: linestyle = stage_styles['AR1']
+        elif '(AR2)' in model_name: linestyle = stage_styles['AR2']
+        elif '(AR3)' in model_name: linestyle = stage_styles['AR3']
+        elif '(AR4)' in model_name: linestyle = stage_styles['AR4']
+        
+        marker = 'o' if 'XRO' in model_name else 's'
+        lw = 2.5 if 'XRO' in model_name else 2
         
         ax.plot(df['lead'], df['crps'], label=model_name, 
                color=color, marker=marker, markersize=3, linewidth=lw, linestyle=linestyle)
@@ -283,9 +324,13 @@ def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
     
     # Always include XRO if present
     top_models = []
-    if 'XRO' in summary_df['Model'].values:
-        top_models.append('XRO')
-        other_models = summary_df[summary_df['Model'] != 'XRO'].head(top_n - 1)
+    # Check if any XRO variant is in the summary
+    xro_variants = [m for m in summary_df['Model'].values if 'XRO' in m and 'NXRO' not in m]
+    
+    if xro_variants:
+        top_models.extend(xro_variants)
+        # Filter out XRO from others
+        other_models = summary_df[~summary_df['Model'].isin(xro_variants)].head(top_n - len(xro_variants))
     else:
         other_models = summary_df.head(top_n)
     
@@ -301,20 +346,28 @@ def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
         print(f"  Processing {model_name}...")
         try:
             # Determine file path based on model name
-            if model_name == 'XRO':
+            if 'XRO' in model_name and 'NXRO' not in model_name:
                 fcst_path = f'{base_dir}/xro_baseline/xro_stochastic_fcst.nc'
-                model_label = 'XRO'
+                model_label = model_name
             else:
                 # Extract base model and stage
                 base_model = model_name.split()[0]
                 
-                # Determine suffix from stage
+                # Determine suffix from stage or AR
                 if '(S2+S3)' in model_name:
                     suffix = '_sim_noise_stage2'
                 elif '(S2)' in model_name:
                     suffix = '_stage2'
                 elif '(S3)' in model_name:
                     suffix = '_sim_noise'
+                elif '(AR' in model_name:
+                    import re
+                    p_match = re.search(r'\(AR(\d+)\)', model_name)
+                    if p_match:
+                        p = int(p_match.group(1))
+                        suffix = f'_arp{p}' if p > 1 else ''
+                    else:
+                        suffix = ''
                 else:
                     suffix = ''
                 
@@ -498,7 +551,10 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
     summary_df = pd.DataFrame(summary).sort_values('Avg_CRPS')
     
     # Select top models (exclude XRO baseline, handle separately)
-    top_nxro_models = summary_df[summary_df['Model'] != 'XRO'].head(3)['Model'].tolist()
+    top_nxro_models = summary_df[~summary_df['Model'].str.contains('XRO') | summary_df['Model'].str.contains('NXRO')].head(3)['Model'].tolist()
+    # Note: The above logic is slightly flawed if XRO is not in the name.
+    # Better: Exclude pure XRO variants
+    top_nxro_models = [m for m in summary_df['Model'].values if 'NXRO' in m or ('XRO' not in m)][:3]
     
     print(f"\n  Plotting forecast plumes for dates: {init_dates}")
     print(f"  Models: {top_nxro_models}")
@@ -513,7 +569,7 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
         if n_models == 1:
             axes = [axes]
         
-        # Plot XRO first
+        # Plot XRO first (baseline)
         try:
             xro_path = f'{base_dir}/xro_baseline/xro_stochastic_fcst.nc'
             if os.path.exists(xro_path):
@@ -535,7 +591,7 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
                 
                 # Plot forecast with uncertainty
                 ax.plot(xtime_fcst, fcst_mean.values, c='red', marker='.', lw=2.5, 
-                       label='XRO Ensemble Mean')
+                       label='XRO (AR1) Ensemble Mean')
                 ax.fill_between(xtime_fcst, 
                                fcst_mean.values - fcst_std.values, 
                                fcst_mean.values + fcst_std.values,
@@ -556,7 +612,7 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
                 ax.set_xlim([xdate_strt, xdate_last])
                 ax.set_ylim([-3, 3])
                 ax.set_ylabel('Nino3.4 SSTA (°C)', fontsize=10)
-                ax.set_title(f'XRO Baseline - Init: {init_date}', fontsize=11, fontweight='bold')
+                ax.set_title(f'XRO (AR1) Baseline - Init: {init_date}', fontsize=11, fontweight='bold')
                 ax.legend(fontsize=9, loc='upper left')
                 ax.grid(True, alpha=0.3)
                 
@@ -571,15 +627,23 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
                 # Determine file path - strip "NXRO-" prefix if present
                 base_model = model_name.replace('NXRO-', '').split()[0]
                 
-                # Determine suffix from stage
+                # Determine suffix from stage or AR
                 if '(S2+S3)' in model_name:
                     suffix = '_sim_noise_stage2'
                 elif '(S2)' in model_name:
                     suffix = '_stage2'
                 elif '(S3)' in model_name:
                     suffix = '_sim_noise'
+                elif '(AR' in model_name:
+                    import re
+                    p_match = re.search(r'\(AR(\d+)\)', model_name)
+                    if p_match:
+                        p = int(p_match.group(1))
+                        suffix = f'_arp{p}' if p > 1 else ''
+                    else:
+                        suffix = ''
                 else:
-                    suffix = '_stage2'  # Default to stage2 for most recent
+                    suffix = '_stage2'  # Default to stage2 for most recent if unclear
                 
                 # Map model names to directories
                 model_dirs = {
@@ -757,6 +821,8 @@ def main():
                        help='Results directory')
     parser.add_argument('--compare_stages', action='store_true',
                        help='Compare all stages (post-hoc, S2, S3, S2+S3) instead of just most recent')
+    parser.add_argument('--compare_arp', action='store_true',
+                       help='Compare different AR(p) noise models (AR1, AR2, etc.)')
     parser.add_argument('--plot_plumes', action='store_true',
                        help='Generate detailed forecast plume plots for specific dates')
     parser.add_argument('--plume_dates', type=str, nargs='+',
@@ -770,13 +836,15 @@ def main():
     print(f"Results directory: {args.results_dir}")
     if args.compare_stages:
         print(f"Mode: COMPARE ALL STAGES (post-hoc, S2, S3, S2+S3)")
+    elif args.compare_arp:
+        print(f"Mode: COMPARE AR(p) VARIANTS (AR1, AR2, etc.)")
     else:
         print(f"Mode: Compare models (most recent run only)")
     print()
     
     # Load results
     print("Loading stochastic evaluation results...")
-    results = load_stochastic_results(args.results_dir, compare_stages=args.compare_stages)
+    results = load_stochastic_results(args.results_dir, compare_stages=args.compare_stages, compare_arp=args.compare_arp)
     
     if len(results) == 0:
         print("[X] No stochastic results found!")
@@ -789,6 +857,8 @@ def main():
     # Create output directory
     if args.compare_stages:
         out_dir = f'{args.results_dir}/rankings/stochastic_stages_comparison'
+    elif args.compare_arp:
+        out_dir = f'{args.results_dir}/rankings/stochastic_arp_comparison'
     else:
         out_dir = f'{args.results_dir}/rankings/stochastic_comparison'
     os.makedirs(out_dir, exist_ok=True)

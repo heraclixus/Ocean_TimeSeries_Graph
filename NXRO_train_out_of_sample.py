@@ -53,6 +53,7 @@ def main():
     parser.add_argument('--device', type=str, default='auto')
     parser.add_argument('--stochastic', action='store_true', help='Enable stochastic reforecast outputs')
     parser.add_argument('--members', type=int, default=100, help='Number of ensemble members if stochastic')
+    parser.add_argument('--ar_p', type=int, default=1, help='AR lag order for stochastic noise (default: 1)')
     parser.add_argument('--train_noise_stage2', action='store_true', 
                         help='Use Stage 2 training (likelihood) instead of post-hoc for noise parameters')
     parser.add_argument('--use_sim_noise', action='store_true',

@@ -39,8 +39,11 @@ from nxro.nxro_utils import (
 from nxro.stochastic import (
     compute_residuals_series,
     fit_seasonal_ar1_from_residuals,
+    fit_seasonal_arp_from_residuals,
     SeasonalAR1Noise,
+    SeasonalARPNoise,
     nxro_reforecast_stochastic,
+    nxro_reforecast_stochastic_arp,
 )
 
 
@@ -82,43 +85,77 @@ def _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir,
     """Helper function to run stochastic ensemble forecasts."""
     print("  Generating stochastic ensemble forecasts...")
     
+    ar_p = getattr(args, 'ar_p', 1)
+    
     # Determine noise source and suffix
     if args.use_sim_noise:
         print("  Fitting noise from simulation-observation differences...")
         from nxro.stochastic import fit_noise_from_simulations
         import glob
         sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+        # Warning: fit_noise_from_simulations currently only supports AR(1)
+        # If p > 1, we probably should warn or fallback
+        if ar_p > 1:
+            print(f"WARNING: Simulation noise fitting currently only supports AR(1). Ignoring ar_p={ar_p}.")
         a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, var_order, train_period)
         noise_suffix = '_sim_noise'
     else:
         resid, months = compute_residuals_series(model, train_ds, var_order, device=device)
-        a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
-        noise_suffix = ''
+        if ar_p > 1:
+            # Fit AR(p)
+            coeffs_np, sigma_np = fit_seasonal_arp_from_residuals(resid, months, p=ar_p)
+            noise_suffix = f'_arp{ar_p}'
+        else:
+            a1_np, sigma_np = fit_seasonal_ar1_from_residuals(resid, months)
+            noise_suffix = ''
     
     # Stage 2: Optimize noise parameters with likelihood if requested
-    stage2_suffix = '_stage2' if args.train_noise_stage2 else ''
+    # Stage 2 currently only implemented for AR(1)
+    if args.train_noise_stage2:
+        if ar_p > 1:
+             print(f"WARNING: Stage 2 optimization only implemented for AR(1). Skipping Stage 2 for AR({ar_p}).")
+             stage2_suffix = ''
+        else:
+            from nxro.stochastic import train_noise_stage2
+            print("  Running Stage 2 noise optimization (likelihood-based)...")
+            stage2_suffix = '_stage2'
+            a1_np, sigma_np = train_noise_stage2(model, train_ds, var_order, 
+                                                 a1_np, sigma_np, 
+                                                 n_epochs=100, lr=1e-3, 
+                                                 device=device, verbose=True)
+    else:
+        stage2_suffix = ''
+
     combined_suffix = noise_suffix + stage2_suffix
     
-    if args.train_noise_stage2:
-        from nxro.stochastic import train_noise_stage2
-        print("  Running Stage 2 noise optimization (likelihood-based)...")
-        a1_np, sigma_np = train_noise_stage2(model, train_ds, var_order, 
-                                             a1_np, sigma_np, 
-                                             n_epochs=100, lr=1e-3, 
-                                             device=device, verbose=True)
-    
-    a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
-    sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
-    noise = SeasonalAR1Noise(a1, sigma)
-    
-    NXRO_fcst_m = nxro_reforecast_stochastic(model, init_ds=obs_ds, n_month=21, var_order=var_order,
-                                             noise_model=noise, n_members=args.members, device=device)
-    
-    # Save stochastic artifacts
-    np.savez(f'{base_dir}/{model_name}_stochastic{combined_suffix}_noise{extra_tag}.npz', 
-             a1=a1_np, sigma=sigma_np)
-    torch.save({'state_dict': model.state_dict(), 'var_order': var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
-              f'{base_dir}/{model_name}_stochastic{combined_suffix}{extra_tag}.pt')
+    if ar_p > 1 and not args.use_sim_noise:
+        coeffs = torch.tensor(coeffs_np, dtype=torch.float32, device=device)
+        sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
+        noise = SeasonalARPNoise(coeffs, sigma)
+        
+        NXRO_fcst_m = nxro_reforecast_stochastic_arp(model, init_ds=obs_ds, n_month=21, var_order=var_order,
+                                                    noise_model=noise, n_members=args.members, device=device)
+        
+        # Save stochastic artifacts for AR(p)
+        np.savez(f'{base_dir}/{model_name}_stochastic{combined_suffix}_noise{extra_tag}.npz', 
+                 coeffs=coeffs_np, sigma=sigma_np)
+        torch.save({'state_dict': model.state_dict(), 'var_order': var_order, 'coeffs': coeffs.cpu(), 'sigma': sigma.cpu()},
+                  f'{base_dir}/{model_name}_stochastic{combined_suffix}{extra_tag}.pt')
+    else:
+        # AR(1) path (default)
+        a1 = torch.tensor(a1_np, dtype=torch.float32, device=device)
+        sigma = torch.tensor(sigma_np, dtype=torch.float32, device=device)
+        noise = SeasonalAR1Noise(a1, sigma)
+        
+        NXRO_fcst_m = nxro_reforecast_stochastic(model, init_ds=obs_ds, n_month=21, var_order=var_order,
+                                                 noise_model=noise, n_members=args.members, device=device)
+        
+        # Save stochastic artifacts
+        np.savez(f'{base_dir}/{model_name}_stochastic{combined_suffix}_noise{extra_tag}.npz', 
+                 a1=a1_np, sigma=sigma_np)
+        torch.save({'state_dict': model.state_dict(), 'var_order': var_order, 'a1': a1.cpu(), 'sigma': sigma.cpu()},
+                  f'{base_dir}/{model_name}_stochastic{combined_suffix}{extra_tag}.pt')
+                  
     NXRO_fcst_m.to_netcdf(f'{base_dir}/{model_name.upper()}_stochastic{combined_suffix}_forecasts{extra_tag}.nc')
     
     # Ensemble evaluation
@@ -805,4 +842,3 @@ def run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period,
                       model_label=f'NXRO-GraphPyG ({tag2.upper()})')
     
     print(f"✓ NXRO-GraphPyG complete (out-of-sample)")
-

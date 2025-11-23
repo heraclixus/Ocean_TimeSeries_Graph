@@ -72,6 +72,90 @@ def fit_seasonal_ar1_from_residuals(residuals: np.ndarray, months: np.ndarray, a
     return a1, sigma
 
 
+def fit_seasonal_arp_from_residuals(residuals: np.ndarray, months: np.ndarray, p: int = 1, a_clip: float = 0.95) -> Tuple[np.ndarray, np.ndarray]:
+    """Fit month-wise AR(p) parameters per variable via OLS.
+    
+    e_t = a_1(m) e_{t-1} + ... + a_p(m) e_{t-p} + eps
+    
+    Args:
+        residuals: [T-1, V]
+        months: [T-1] with values 1..12 corresponding to residual at time t
+        p: lag order
+        a_clip: clamp coeffs (applied to sum of abs or similar? For now just used if needed, simple OLS usually stable enough for small p)
+    Returns:
+        coeffs: [12, V, p] - AR coefficients [a_1, ..., a_p] for each month and variable
+        sigma: [12, V] - residual std dev
+    """
+    if p == 1:
+        # Fallback to AR(1) optimized impl but reshape output
+        a1, sigma = fit_seasonal_ar1_from_residuals(residuals, months, a_clip)
+        return a1[..., None], sigma
+
+    Tm1, V = residuals.shape
+    coeffs = np.zeros((12, V, p), dtype=np.float32)
+    sigma = np.zeros((12, V), dtype=np.float32)
+    eps = 1e-8
+    
+    # Pre-compute lag matrices for all t to avoid re-doing it per month
+    # We can just do it per month by indexing
+    
+    for m in range(1, 13):
+        idx = np.where(months == m)[0]
+        # We need p previous residuals
+        idx = idx[idx >= p]
+        if idx.size == 0:
+            continue
+            
+        # Construct Y and X
+        # Y: [N, V] -> E_curr
+        Y = residuals[idx] # [N, V]
+        N = Y.shape[0]
+        
+        # X: [N, V, p] -> lags
+        # We need to solve for each variable v: y_v = X_v @ a_v
+        # y_v: [N]
+        # X_v: [N, p]
+        
+        # Gather lags
+        X_lags = []
+        for lag in range(1, p + 1):
+            X_lags.append(residuals[idx - lag]) # [N, V]
+        
+        # Iterate over variables to solve OLS per variable
+        for v in range(V):
+            y_v = Y[:, v] # [N]
+            # Stack lags for this variable: [N, p]
+            X_v = np.stack([lag_arr[:, v] for lag_arr in X_lags], axis=1) 
+            
+            # OLS: (X'X)^-1 X'y
+            # Add regularization?
+            XtX = X_v.T @ X_v # [p, p]
+            Xty = X_v.T @ y_v # [p]
+            
+            # Add small ridge for stability
+            XtX = XtX + np.eye(p) * eps
+            
+            try:
+                a_v = np.linalg.solve(XtX, Xty) # [p]
+            except np.linalg.LinAlgError:
+                # Fallback to zeros or similar if singular
+                a_v = np.zeros(p)
+            
+            # Optional clipping? For p>1 simpler clipping is hard.
+            # Let's trust OLS for now, or just clip values individually (naive)
+            # a_v = np.clip(a_v, -a_clip, a_clip) 
+            
+            coeffs[m-1, v, :] = a_v.astype(np.float32)
+            
+            # Compute residuals of AR fit
+            y_pred = X_v @ a_v
+            resid = y_v - y_pred
+            s = np.sqrt(np.maximum((resid * resid).mean(), 0.0))
+            sigma[m-1, v] = s.astype(np.float32)
+            
+    return coeffs, sigma
+
+
 class SeasonalAR1Noise:
     """Seasonal AR(1) noise with month-wise parameters per variable.
 
@@ -97,6 +181,41 @@ class SeasonalAR1Noise:
         s = self.sigma[m]
         eps = torch.randn_like(xi_prev)
         return a * xi_prev + s * eps
+
+
+class SeasonalARPNoise:
+    """Seasonal AR(p) noise with month-wise parameters per variable.
+    
+    coeffs: [12, V, p]
+    sigma: [12, V]
+    """
+    
+    def __init__(self, coeffs: torch.Tensor, sigma: torch.Tensor):
+        self.coeffs = coeffs # [12, V, p]
+        self.sigma = sigma   # [12, V]
+        self.p = coeffs.shape[2]
+        
+    def step(self, xi_history: torch.Tensor, month_idx: int) -> torch.Tensor:
+        """Advance noise one step.
+        
+        Args:
+            xi_history: [V, p] tensor where column 0 is lag-1, col 1 is lag-2, ...
+            month_idx: int in [1..12]
+        Returns:
+            xi_new: [V]
+        """
+        m = month_idx - 1
+        # Get coeffs for this month: [V, p]
+        ac = self.coeffs[m] 
+        s = self.sigma[m]
+        
+        # AR prediction: sum_k a_k * xi_{t-k}
+        # xi_history[:, k] is xi_{t-(k+1)}
+        # element-wise dot product along p dim
+        pred = (ac * xi_history).sum(dim=1) # [V]
+        
+        eps = torch.randn_like(pred)
+        return pred + s * eps
 
 
 def ar1_log_likelihood(residuals: torch.Tensor, a1: torch.Tensor, log_sigma: torch.Tensor, 
@@ -408,4 +527,61 @@ def nxro_reforecast_stochastic(model, init_ds: xr.Dataset, n_month: int, var_ord
     ds = xr.Dataset({var: da.sel(ranky=k + 1).drop('ranky') for k, var in enumerate(var_order)})
     return ds
 
+@torch.no_grad()
+def nxro_reforecast_stochastic_arp(model, init_ds: xr.Dataset, n_month: int, var_order: list,
+                                  noise_model: SeasonalARPNoise, n_members: int = 100, device: str = 'cpu') -> xr.Dataset:
+    """Stochastic reforecast with seasonal AR(p) noise."""
+    ncycle = 12
+    dt = 1.0 / ncycle
+    n_vars = len(var_order)
+    n_init = len(init_ds.time)
+    p = noise_model.p
 
+    # [V, L, I, M]
+    out = np.zeros((n_vars, n_month, n_init, n_members), dtype=np.float32)
+
+    model.eval()
+    for i in range(n_init):
+        X0 = np.stack([init_ds[v].isel(time=i).item() for v in var_order], axis=-1).astype(np.float32)
+        base_date = pd.to_datetime(str(init_ds.time.values[i]))
+        for m_ens in range(n_members):
+            x = torch.from_numpy(X0[None, :]).to(device)
+            
+            # xi history: [V, p]. Init with zeros (mean of noise)
+            xi_history = torch.zeros(n_vars, p, dtype=torch.float32, device=device)
+            
+            out[:, 0, i, m_ens] = x.squeeze(0).cpu().numpy()
+            for t_step in range(1, n_month):
+                current_dt = base_date + pd.DateOffset(months=t_step - 1)
+                month_idx = int(current_dt.month)
+                t_year = torch.tensor([float(current_dt.year + (current_dt.month - 1) / 12.0)],
+                                      dtype=torch.float32, device=device)
+                
+                dxdt = model(x, t_year)
+                
+                # Get new noise
+                xi_new = noise_model.step(xi_history, month_idx) # [V]
+                
+                # Update history: shift right, put new at 0
+                # BUT: step expects xi_history where col 0 is lag 1.
+                # So we shift: old lag 1 becomes lag 2.
+                # [lag1, lag2, ...] -> [new, lag1, ...]
+                if p > 1:
+                    xi_history = torch.cat([xi_new.unsqueeze(1), xi_history[:, :-1]], dim=1)
+                else:
+                    xi_history = xi_new.unsqueeze(1)
+                
+                x = x + dxdt * dt + xi_new.unsqueeze(0)
+                out[:, t_step, i, m_ens] = x.squeeze(0).cpu().numpy()
+
+    coords = {
+        'ranky': np.arange(1, n_vars + 1),
+        'lead': np.arange(0, n_month),
+        'init': ('init', init_ds.time.values),
+        'member': np.arange(1, n_members + 1),
+    }
+    da = xr.DataArray(out, dims=['ranky', 'lead', 'init', 'member'], coords=coords)
+    da['lead'].attrs['units'] = 'months'
+    da['lead'].attrs['long_name'] = 'Lead'
+    ds = xr.Dataset({var: da.sel(ranky=k + 1).drop('ranky') for k, var in enumerate(var_order)})
+    return ds
