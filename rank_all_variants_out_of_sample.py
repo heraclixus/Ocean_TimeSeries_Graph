@@ -68,12 +68,32 @@ def discover_all_checkpoints(search_dirs=None, ckpt_suffix=''):
     for base_dir in search_dirs:
         if not os.path.exists(base_dir):
             continue
-        pattern = f'{base_dir}/**/nxro_*_best{ckpt_suffix}*.pt'
+        # If ckpt_suffix is provided (e.g. "real_finetuned"), search for that specifically
+        # otherwise use the standard pattern but potentially exclude "stage1" or "finetuned" if we are doing normal ranking
+        
+        if ckpt_suffix:
+            pattern = f'{base_dir}/**/nxro_*_{ckpt_suffix}*.pt'
+        else:
+            pattern = f'{base_dir}/**/nxro_*_best*.pt'
+            
         matches = glob.glob(pattern, recursive=True)
+        
+        # Filter out two-stage models if we are doing normal ranking (suffix='')
+        if not ckpt_suffix:
+            matches = [m for m in matches if 'real_finetuned' not in m and 'synthetic_pretrained' not in m]
+            
         all_checkpoints.extend(matches)
     
-    root_pattern = f'results_out_of_sample/nxro_*_best{ckpt_suffix}*.pt'
-    all_checkpoints.extend(glob.glob(root_pattern))
+    if ckpt_suffix:
+        root_pattern = f'results_out_of_sample/nxro_*_{ckpt_suffix}*.pt'
+    else:
+        root_pattern = f'results_out_of_sample/nxro_*_best*.pt'
+        
+    matches = glob.glob(root_pattern)
+    if not ckpt_suffix:
+        matches = [m for m in matches if 'real_finetuned' not in m and 'synthetic_pretrained' not in m]
+        
+    all_checkpoints.extend(matches)
     
     all_checkpoints = list(set(all_checkpoints))
     
@@ -182,6 +202,7 @@ def get_variant_label(ckpt_path):
     """Extract a human-readable label from checkpoint path."""
     basename = os.path.basename(ckpt_path)
     label = basename.replace('.pt', '').replace('nxro_', '').replace('_best_test', '').replace('_best', '')
+    label = label.replace('_real_finetuned', ' (Two-Stage)').replace('_synthetic_pretrained', ' (Stage 1)')
     
     for tag in ['_extra_data', '_sim100', '_sim50']:
         label = label.split(tag)[0]
@@ -306,6 +327,7 @@ def main():
     parser.add_argument('--output_dir', type=str, default='results_out_of_sample/rankings',
                        help='Output directory for ranking results')
     parser.add_argument('--force', action='store_true', help='Force recomputation even if CSV exists')
+    parser.add_argument('--two_stage', action='store_true', help='Rank two-stage models (trained on synthetic then fine-tuned)')
     args = parser.parse_args()
     
     # Out-of-sample setup
@@ -328,7 +350,8 @@ def main():
     print()
     
     # Check if cached results exist
-    output_csv = f'{args.output_dir}/all_variants_ranked_{args.metric}_out_of_sample.csv'
+    two_stage_suffix = '_two_stage' if args.two_stage else ''
+    output_csv = f'{args.output_dir}/all_variants_ranked_{args.metric}_out_of_sample{two_stage_suffix}.csv'
     
     use_cache = os.path.exists(output_csv) and not args.force
     
@@ -397,7 +420,13 @@ def main():
         
         # Discover NXRO checkpoints
         print("Discovering NXRO variant checkpoints...")
-        all_checkpoints = discover_all_checkpoints(ckpt_suffix='')
+        if args.two_stage:
+            # For two-stage, look for "real_finetuned" specifically
+            all_checkpoints = discover_all_checkpoints(ckpt_suffix='real_finetuned')
+        else:
+            # For standard, look for "best" and filter out two-stage ones
+            all_checkpoints = discover_all_checkpoints(ckpt_suffix='')
+            
         print(f"  Found {len(all_checkpoints)} checkpoint files")
         print()
         
@@ -550,7 +579,8 @@ def main():
     axes[1].grid(True, axis='y', alpha=0.3)
     
     plt.tight_layout()
-    bar_plot_path = f'{args.output_dir}/all_variants_comparison_{args.metric}_out_of_sample.png'
+    two_stage_suffix = '_two_stage' if args.two_stage else ''
+    bar_plot_path = f'{args.output_dir}/all_variants_comparison_{args.metric}_out_of_sample{two_stage_suffix}.png'
     plt.savefig(bar_plot_path, dpi=300)
     plt.close()
     
@@ -599,7 +629,7 @@ def main():
             ax.legend(fontsize=9, loc='best')
             ax.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig(f'{args.output_dir}/top{args.top_n}_vs_xro_acc_test.png', dpi=300)
+            plt.savefig(f'{args.output_dir}/top{args.top_n}_vs_xro_acc_test{two_stage_suffix}.png', dpi=300)
             plt.close()
             
             # PLOT 2: Top N models + XRO (RMSE, out-of-sample)
@@ -629,11 +659,11 @@ def main():
             ax.legend(fontsize=9, loc='best')
             ax.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig(f'{args.output_dir}/top{args.top_n}_vs_xro_rmse_test.png', dpi=300)
+            plt.savefig(f'{args.output_dir}/top{args.top_n}_vs_xro_rmse_test{two_stage_suffix}.png', dpi=300)
             plt.close()
             
-            print(f"  ✓ Saved combined ACC plot: {args.output_dir}/top{args.top_n}_vs_xro_acc_test.png")
-            print(f"  ✓ Saved combined RMSE plot: {args.output_dir}/top{args.top_n}_vs_xro_rmse_test.png")
+            print(f"  ✓ Saved combined ACC plot: {args.output_dir}/top{args.top_n}_vs_xro_acc_test{two_stage_suffix}.png")
+            print(f"  ✓ Saved combined RMSE plot: {args.output_dir}/top{args.top_n}_vs_xro_rmse_test{two_stage_suffix}.png")
             
             # PLOTS 3-12: Individual comparison plots (each top model vs XRO)
             print(f"\n  Generating individual comparison plots...")
@@ -665,8 +695,8 @@ def main():
                     ax.grid(True, alpha=0.3)
                     plt.tight_layout()
                     
-                    safe_name = model_name.replace(' ', '_').replace('+', 'plus').lower()
-                    plt.savefig(f'{args.output_dir}/rank{rank}_{safe_name}_vs_xro_acc_test.png', dpi=300)
+                    safe_name = model_name.replace(' ', '_').replace('+', 'plus').lower().replace('(', '').replace(')', '')
+                    plt.savefig(f'{args.output_dir}/rank{rank}_{safe_name}_vs_xro_acc_test{two_stage_suffix}.png', dpi=300)
                     plt.close()
                     
                     # Individual RMSE plot
@@ -692,7 +722,7 @@ def main():
                     ax.grid(True, alpha=0.3)
                     plt.tight_layout()
                     
-                    plt.savefig(f'{args.output_dir}/rank{rank}_{safe_name}_vs_xro_rmse_test.png', dpi=300)
+                    plt.savefig(f'{args.output_dir}/rank{rank}_{safe_name}_vs_xro_rmse_test{two_stage_suffix}.png', dpi=300)
                     plt.close()
                     
                     print(f"    ✓ Saved plots for Rank {rank}: {model_name}")
@@ -731,8 +761,8 @@ def main():
     print(f"  - {output_csv}")
     print(f"  - {bar_plot_path}")
     if not use_cache:
-        print(f"  - {args.output_dir}/top{args.top_n}_vs_xro_acc_test.png (combined)")
-        print(f"  - {args.output_dir}/top{args.top_n}_vs_xro_rmse_test.png (combined)")
+        print(f"  - {args.output_dir}/top{args.top_n}_vs_xro_acc_test{two_stage_suffix}.png (combined)")
+        print(f"  - {args.output_dir}/top{args.top_n}_vs_xro_rmse_test{two_stage_suffix}.png (combined)")
         print(f"  - {args.output_dir}/rank*_vs_xro_*.png (individual comparisons)")
     print()
 

@@ -131,6 +131,24 @@ python NXRO_train_out_of_sample.py --model neural_phys ${common_args} --jac_reg 
 echo ""
 
 # ============================================================================
+# RANKING (Two-Stage)
+# ============================================================================
+echo ""
+echo "Ranking all two-stage models (out-of-sample)..."
+python rank_all_variants_out_of_sample.py \
+    --top_n 12 \
+    --metric combined \
+    --two_stage \
+    --force
+
+# ============================================================================
+# COMPARISON
+# ============================================================================
+echo ""
+echo "Generating comparison between Single-Stage and Two-Stage models..."
+python compare_single_vs_two_stage.py --metric combined
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 echo "================================================================================"
@@ -138,4 +156,3 @@ echo "                    ✓ TWO-STAGE EXPERIMENT COMPLETE!"
 echo "================================================================================"
 echo "Results saved to: results_out_of_sample/ (or results_all_outsample/)"
 echo ""
-
