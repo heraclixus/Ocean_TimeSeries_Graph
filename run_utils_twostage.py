@@ -21,6 +21,7 @@ from nxro.train import (
     train_nxro_graph_pyg,
     train_nxro_neural_phys,
     train_nxro_resmix,
+    train_nxro_transformer,
 )
 from utils.xro_utils import (
     calc_forecast_skill,
@@ -1061,3 +1062,81 @@ def run_graph_pyg_twostage(args, obs_ds, train_ds, test_ds, train_period, test_p
                       out_path=f'{base_dir}/NXRO_graphpyg_{tag2}_{ktag}{fig_suffix}_seasonal_synchronization.png',
                       model_label=f'NXRO-GraphPyG ({tag2.upper()})')
     print(f"✓ NXRO-GraphPyG complete (Two-Stage)")
+
+
+def run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                              base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+    """Train and evaluate NXRO-Transformer model (Two-Stage)."""
+    base_dir = f'{base_results_dir}/transformer'
+    ensure_dir(base_dir)
+
+    if not args.extra_train_nc:
+        raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
+    
+    # --- Stage 1 ---
+    print("\n" + "="*40)
+    print("STAGE 1: Synthetic Pre-training")
+    print("="*40)
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    model_s1, _, _, _ = train_nxro_transformer(
+        nc_path=stage1_nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
+        d_model=64, nhead=4, num_layers=2, dim_feedforward=256, dropout=0.1,
+        device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=stage1_extra
+    )
+    s1_path = f'{base_dir}/nxro_transformer_synthetic_pretrained.pt'
+    torch.save(model_s1.state_dict(), s1_path)
+    print(f"✓ Saved Stage 1 model to: {s1_path}")
+    stage1_weights = model_s1.state_dict()
+    
+    # --- Stage 2 ---
+    print("\n" + "="*40)
+    print("STAGE 2: Fine-tuning on ORAS5")
+    print("="*40)
+    
+    tf_model, tf_var_order, tf_best_rmse, tf_history = train_nxro_transformer(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
+        d_model=64, nhead=4, num_layers=2, dim_feedforward=256, dropout=0.1,
+        device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=None,
+        pretrained_state_dict=stage1_weights
+    )
+    
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(tf_history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(tf_history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('NXRO-Transformer training (Out-of-Sample, Two-Stage)')
+    ax.legend()
+    plt.savefig(f'{base_dir}/NXRO_transformer_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+    
+    tf_save = f'{base_dir}/nxro_transformer_real_finetuned.pt'
+    torch.save({'state_dict': tf_model.state_dict(), 'var_order': tf_var_order}, tf_save)
+    print(f"✓ Saved to: {tf_save}")
+    
+    NXRO_tf_fcst = nxro_reforecast(tf_model, init_ds=obs_ds, n_month=21, var_order=tf_var_order, device=device)
+    _evaluate_and_plot(NXRO_tf_fcst, obs_ds, train_period, test_period, 
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/NXRO_transformer', fig_suffix, 'Nino34', 'NXRO-Transformer (Two-Stage)')
+    
+    if args.stochastic:
+        _run_stochastic_forecast(tf_model, tf_var_order, train_ds, obs_ds, args, base_dir, 
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device, 
+                                'nxro_transformer', NXRO_tf_fcst)
+    
+    tf_sim_ds = simulate_nxro_longrun(tf_model, X0_ds=train_ds, var_order=tf_var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, tf_sim_ds, sel_var='Nino34', 
+                      out_path=f'{base_dir}/NXRO_transformer_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NXRO-Transformer')
+    print(f"✓ NXRO-Transformer complete (Two-Stage)")

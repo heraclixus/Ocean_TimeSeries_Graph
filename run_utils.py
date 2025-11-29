@@ -21,6 +21,7 @@ from nxro.train import (
     train_nxro_graph_pyg,
     train_nxro_neural_phys,
     train_nxro_resmix,
+    train_nxro_transformer,
 )
 from utils.xro_utils import (
     calc_forecast_skill,
@@ -842,3 +843,53 @@ def run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period,
                       model_label=f'NXRO-GraphPyG ({tag2.upper()})')
     
     print(f"✓ NXRO-GraphPyG complete (out-of-sample)")
+
+
+def run_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                     base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+    """Train and evaluate NXRO-Transformer model."""
+    base_dir = f'{base_results_dir}/transformer'
+    ensure_dir(base_dir)
+    
+    tf_model, tf_var_order, tf_best_rmse, tf_history = train_nxro_transformer(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
+        d_model=64, nhead=4, num_layers=2, dim_feedforward=256, dropout=0.1,
+        device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc
+    )
+    
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(tf_history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(tf_history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('NXRO-Transformer training (Out-of-Sample)')
+    ax.legend()
+    plt.savefig(f'{base_dir}/NXRO_transformer_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+    
+    tf_save = f'{base_dir}/nxro_transformer_best{extra_tag}.pt'
+    torch.save({'state_dict': tf_model.state_dict(), 'var_order': tf_var_order}, tf_save)
+    print(f"✓ Saved to: {tf_save}")
+    
+    NXRO_tf_fcst = nxro_reforecast(tf_model, init_ds=obs_ds, n_month=21, var_order=tf_var_order, device=device)
+    _evaluate_and_plot(NXRO_tf_fcst, obs_ds, train_period, test_period, 
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/NXRO_transformer', fig_suffix, 'Nino34', 'NXRO-Transformer')
+    
+    # Stochastic ensemble forecasts (optional)
+    if args.stochastic:
+        _run_stochastic_forecast(tf_model, tf_var_order, train_ds, obs_ds, args, base_dir, 
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device, 
+                                'nxro_transformer', NXRO_tf_fcst)
+    
+    tf_sim_ds = simulate_nxro_longrun(tf_model, X0_ds=train_ds, var_order=tf_var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, tf_sim_ds, sel_var='Nino34', 
+                      out_path=f'{base_dir}/NXRO_transformer_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NXRO-Transformer')
+    
+    print(f"✓ NXRO-Transformer complete (out-of-sample)")

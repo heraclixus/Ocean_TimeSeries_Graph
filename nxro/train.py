@@ -16,6 +16,7 @@ from .models import (
     NXROAttentiveModel,
     NXROGraphModel,
     NXROGraphPyGModel,
+    NXROTransformerModel,
     build_edge_index_from_corr,
 )
 from .data import get_dataloaders
@@ -1307,6 +1308,132 @@ def train_nxro_res_fullxro(
             best_rmse = test_rmse
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         print(f"[Res-FullXRO] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    return model, var_order, best_rmse, history
+
+
+def train_nxro_transformer(
+    nc_path: str = 'data/XRO_indices_oras5.nc',
+    train_start: str = '1979-01',
+    train_end: str = '2022-12',
+    test_start: str = '2023-01',
+    test_end: Optional[str] = None,
+    n_epochs: int = 30,
+    batch_size: int = 128,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    k_max: int = 2,
+    d_model: int = 64,
+    nhead: int = 4,
+    num_layers: int = 2,
+    dim_feedforward: int = 256,
+    dropout: float = 0.1,
+    device: str = 'cpu',
+    rollout_k: int = 1,
+    extra_train_nc_paths=None,
+    pretrained_state_dict: Optional[dict] = None,
+):
+    """Train NXRO-Transformer model.
+    
+    Args:
+        nc_path: Path to NetCDF data file
+        train_start, train_end: Training period
+        test_start, test_end: Test period
+        n_epochs: Number of training epochs
+        batch_size: Batch size
+        lr: Learning rate
+        weight_decay: L2 regularization
+        k_max: Maximum harmonic order for seasonal features
+        d_model: Transformer embedding dimension
+        nhead: Number of attention heads
+        num_layers: Number of transformer encoder layers
+        dim_feedforward: Dimension of feedforward network
+        dropout: Dropout rate
+        device: Device to train on
+        rollout_k: K-step rollout for training
+        extra_train_nc_paths: Additional training data paths
+        pretrained_state_dict: Optional state dict to load weights from (for two-stage training)
+    
+    Returns:
+        model: Trained model
+        var_order: Variable order
+        best_rmse: Best test RMSE achieved
+        history: Training history dict
+    """
+    dl_train, dl_test, var_order = get_dataloaders(
+        nc_path=nc_path,
+        train_slice=(train_start, train_end),
+        test_slice=(test_start, test_end),
+        batch_size=batch_size,
+        rollout_k=rollout_k,
+        extra_train_nc_paths=extra_train_nc_paths,
+    )
+
+    n_vars = len(var_order)
+    model = NXROTransformerModel(
+        n_vars=n_vars, 
+        k_max=k_max, 
+        d_model=d_model,
+        nhead=nhead,
+        num_layers=num_layers,
+        dim_feedforward=dim_feedforward,
+        dropout=dropout
+    ).to(device)
+    
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
+    opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    loss_fn = nn.MSELoss()
+
+    def run_epoch(dl, train: bool):
+        model.train(train)
+        total, count = 0.0, 0
+        for batch in tqdm(dl, disable=not train):
+            if rollout_k > 1:
+                x_t, t_y, x_next, x_seq = batch
+                x_seq = x_seq.to(device)
+            else:
+                x_t, t_y, x_next = batch
+            x_t = x_t.to(device)
+            x_next = x_next.to(device)
+            t_y = t_y.to(device)
+            dt = 1.0 / 12.0
+            dxdt = model(x_t, t_y)
+            x_hat = x_t + dxdt * dt
+            loss = loss_fn(x_hat, x_next)
+            if rollout_k > 1:
+                x_roll = x_hat
+                for k in range(1, rollout_k):
+                    t_next = t_y + k / 12.0
+                    dxdt_k = model(x_roll, t_next)
+                    x_roll = x_roll + dxdt_k * dt
+                    loss = loss + loss_fn(x_roll, x_seq[:, k])
+            if train:
+                opt.zero_grad(set_to_none=True)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
+            total += loss.item() * x_t.size(0)
+            count += x_t.size(0)
+        return (total / max(count, 1)) ** 0.5
+
+    best_rmse = float('inf')
+    best_state = None
+    train_hist, test_hist = [], []
+    for epoch in range(1, n_epochs + 1):
+        train_rmse = run_epoch(dl_train, train=True)
+        test_rmse = run_epoch(dl_test, train=False)
+        train_hist.append(float(train_rmse))
+        test_hist.append(float(test_rmse))
+        if test_rmse < best_rmse:
+            best_rmse = test_rmse
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        print(f"[Transformer] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)

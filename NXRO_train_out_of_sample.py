@@ -24,6 +24,7 @@ from run_utils import (
     run_attentive,
     run_graph,
     run_graph_pyg,
+    run_transformer,
 )
 from run_utils_twostage import (
     run_linear_twostage,
@@ -38,12 +39,13 @@ from run_utils_twostage import (
     run_attentive_twostage,
     run_graph_twostage,
     run_graph_pyg_twostage,
+    run_transformer_twostage,
 )
 
 
 def main():
     parser = argparse.ArgumentParser(description='Train NXRO models (Out-of-Sample Experiment)')
-    parser.add_argument('--model', type=str, default='linear', choices=['linear', 'ro', 'rodiag', 'res', 'res_fullxro', 'neural', 'neural_phys', 'resmix', 'bilinear', 'attentive', 'graph', 'graph_pyg', 'all'])
+    parser.add_argument('--model', type=str, default='linear', choices=['linear', 'ro', 'rodiag', 'res', 'res_fullxro', 'neural', 'neural_phys', 'resmix', 'bilinear', 'attentive', 'graph', 'graph_pyg', 'transformer', 'all'])
     parser.add_argument('--top_k', type=int, default=3)
     parser.add_argument('--gat', action='store_true')
     parser.add_argument('--res_reg', type=float, default=1e-4)
@@ -371,6 +373,14 @@ def main():
         else:
             run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                           base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+    
+    if args.model in ('transformer', 'all'):
+        if args.two_stage:
+            run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+        else:
+            run_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
 
     print("\n" + "="*80)
     print("OUT-OF-SAMPLE EXPERIMENT COMPLETE")
