@@ -3,7 +3,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from typing import Optional
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 
 def fourier_time_embedding(t: torch.Tensor, k_max: int = 2) -> torch.Tensor:
@@ -868,3 +868,72 @@ class NXROGraphPyGModel(nn.Module):
         return dxdt + alpha * graph_out
 
 
+class NXROTransformerModel(nn.Module):
+    """NXRO-Transformer: Pure Transformer Encoder Drift (Variables as Tokens).
+    
+    dX/dt = Transformer(X, t)
+    
+    Architecture:
+    1. Embed scalars x_i -> d_model
+    2. Add Positional Encoding (Variable ID) and Time Embedding (Seasonality)
+    3. Transformer Encoder Layers
+    4. Project d_model -> 1 (scalar drift dx_i/dt)
+    
+    No explicit linear operator unless requested (pure data-driven).
+    """
+    
+    def __init__(self, n_vars: int, k_max: int = 2, d_model: int = 32, nhead: int = 4, 
+                 num_layers: int = 2, dim_feedforward: int = 64, dropout: float = 0.1):
+        super().__init__()
+        self.n_vars = n_vars
+        self.k_max = k_max
+        self.n_basis = 1 + 2 * k_max
+        self.d_model = d_model
+        
+        # Input projection: scalar -> d_model
+        self.in_proj = nn.Linear(1, d_model)
+        
+        # Variable Positional Embedding (Learnable)
+        self.var_emb = nn.Parameter(torch.randn(1, n_vars, d_model))
+        
+        # Time Embedding Projection: n_basis -> d_model
+        self.time_proj = nn.Linear(self.n_basis, d_model)
+        
+        # Transformer Encoder
+        encoder_layer = TransformerEncoderLayer(d_model=d_model, nhead=nhead, 
+                                                dim_feedforward=dim_feedforward, 
+                                                dropout=dropout, batch_first=True)
+        self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers=num_layers)
+        
+        # Output projection: d_model -> 1
+        self.out_proj = nn.Linear(d_model, 1)
+        
+    def forward(self, x: torch.Tensor, t_years: torch.Tensor) -> torch.Tensor:
+        """Compute dX/dt.
+        x: [B, n_vars]
+        t_years: [B]
+        """
+        B, V = x.shape
+        
+        # 1. Embed variables
+        # x: [B, V] -> [B, V, 1] -> [B, V, d_model]
+        h = self.in_proj(x.unsqueeze(-1))
+        
+        # 2. Add Variable Embedding
+        h = h + self.var_emb
+        
+        # 3. Add Time Embedding (Seasonality)
+        # emb: [B, n_basis] -> [B, 1, d_model] (broadcast over V)
+        time_emb = fourier_time_embedding(t_years, self.k_max)
+        time_emb = self.time_proj(time_emb).unsqueeze(1)
+        h = h + time_emb
+        
+        # 4. Transformer Encoder
+        # h: [B, V, d_model]
+        h = self.transformer_encoder(h)
+        
+        # 5. Output Projection
+        # h: [B, V, d_model] -> [B, V, 1] -> [B, V]
+        dxdt = self.out_proj(h).squeeze(-1)
+        
+        return dxdt

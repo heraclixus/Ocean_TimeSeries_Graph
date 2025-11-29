@@ -102,6 +102,98 @@ def plot_comparison(merged_df, metric, output_dir):
     plt.close()
     print(f"  ✓ Saved plot: {out_path}")
 
+def plot_overall_ranking(df_single, df_two, output_dir):
+    """Plot overall ranking of top 5 models + XRO (mixed single and two-stage)."""
+    
+    # 1. Prepare combined dataframe
+    cols = ['Model', 'Mean_ACC_Test', 'Mean_RMSE_Test']
+    
+    # Ensure columns exist
+    for df in [df_single, df_two]:
+        for col in cols:
+            if col not in df.columns:
+                print(f"Warning: Column {col} not found. Skipping overall ranking plot.")
+                return
+
+    df_combined = pd.concat([df_single[cols], df_two[cols]], ignore_index=True)
+    
+    # 2. Add XRO Baseline
+    # Values from results_out_of_sample.md or known baseline
+    xro_row = pd.DataFrame([{
+        'Model': 'XRO (Baseline)',
+        'Mean_ACC_Test': 0.596,
+        'Mean_RMSE_Test': 0.605
+    }])
+    
+    df_combined = pd.concat([df_combined, xro_row], ignore_index=True)
+    
+    # 3. Generate plots for RMSE and ACC
+    for metric in ['RMSE', 'ACC']:
+        col_name = f'Mean_{metric}_Test'
+        
+        # Sort
+        if metric == 'RMSE':
+            # Lower is better
+            df_sorted = df_combined.sort_values(col_name, ascending=True)
+        else:
+            # Higher is better
+            df_sorted = df_combined.sort_values(col_name, ascending=False)
+            
+        # Get top 5 models
+        top_5 = df_sorted.head(5).copy()
+        
+        # Check if XRO is in top 5
+        xro_in_top5 = 'XRO (Baseline)' in top_5['Model'].values
+        
+        # If XRO not in top 5, append it for comparison
+        if not xro_in_top5:
+            xro_entry = df_combined[df_combined['Model'] == 'XRO (Baseline)']
+            plot_df = pd.concat([top_5, xro_entry], ignore_index=True)
+        else:
+            plot_df = top_5
+            
+        # Plot
+        plt.figure(figsize=(10, 6))
+        
+        # Colors: Highlight XRO, distinguish others
+        colors = []
+        for model in plot_df['Model']:
+            if 'XRO (Baseline)' in model:
+                colors.append('black')
+            elif '(Two-Stage)' in model:
+                colors.append('tab:green') # Two-stage
+            else:
+                colors.append('tab:blue') # Single-stage
+                
+        bars = plt.bar(plot_df['Model'], plot_df[col_name], color=colors, alpha=0.7)
+        
+        # Add values on top
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.3f}',
+                    ha='center', va='bottom', fontsize=9)
+            
+        plt.title(f'Top Models vs XRO Baseline ({metric})', fontsize=14)
+        plt.ylabel(f'Test {metric}' + (' (°C)' if metric == 'RMSE' else ''))
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(True, axis='y', alpha=0.3)
+        
+        # Legend
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='tab:blue', alpha=0.7, label='Single-Stage'),
+            Patch(facecolor='tab:green', alpha=0.7, label='Two-Stage'),
+            Patch(facecolor='black', alpha=0.7, label='XRO (Baseline)')
+        ]
+        plt.legend(handles=legend_elements)
+        
+        plt.tight_layout()
+        out_path = f'{output_dir}/overall_ranking_top5_vs_xro_{metric.lower()}.png'
+        plt.savefig(out_path, dpi=300)
+        plt.close()
+        print(f"  ✓ Saved overall ranking plot: {out_path}")
+
 def main():
     parser = argparse.ArgumentParser(description='Compare Single vs Two-Stage NXRO Models')
     parser.add_argument('--metric', type=str, default='combined', help='Metric suffix used in filenames (e.g., combined, rmse)')
@@ -163,6 +255,9 @@ def main():
     # Generate Plots
     plot_comparison(merged, 'RMSE', args.results_dir)
     plot_comparison(merged, 'ACC', args.results_dir)
+    
+    # Generate Overall Ranking Plot (Top 5 + XRO)
+    plot_overall_ranking(df_single, df_two, args.results_dir)
     
     # Overall stats
     better_rmse = (merged['Delta_RMSE'] < 0).sum()

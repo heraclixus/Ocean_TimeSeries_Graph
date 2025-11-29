@@ -34,9 +34,68 @@
 
 ---
 
+## Two-Stage Training Analysis
+
+We investigated whether **transfer learning** from large-scale climate simulations could improve out-of-sample performance.
+
+### Methodology
+
+**Stage 1 (Pre-training):**
+- **Dataset:** Large ensemble of synthetic climate data (CMIP6-derived indices, `XRO_indices_*_preproc.nc`).
+- **Goal:** Learn general climate dynamics and physical constraints from abundant data.
+- **Training:** 1500 epochs on synthetic datasets.
+
+**Stage 2 (Fine-tuning):**
+- **Dataset:** Observational data (ORAS5) restricted to the 1979-2001 training period.
+- **Goal:** Adapt the pre-trained weights to the specific statistics of the real-world system.
+- **Training:** 1500 epochs, initialized with Stage 1 weights.
+
+### Stage 1 vs. Stage 2 Performance
+
+We compared the performance of models trained only on ORAS5 (Single-Stage) vs. those pre-trained on synthetic data and fine-tuned (Two-Stage).
+
+![Single vs Two-Stage RMSE](results_out_of_sample/rankings/comparison_single_vs_two_stage_rmse.png)
+*Comparison of Test RMSE. Negative delta (green) indicates Two-Stage is better.*
+
+![Single vs Two-Stage ACC](results_out_of_sample/rankings/comparison_single_vs_two_stage_acc.png)
+*Comparison of Test ACC. Positive delta (green) indicates Two-Stage is better.*
+
+**Key Findings:**
+1.  **NXRO-RO+Diag (Two-Stage) - Massive Improvement**: The single-stage training for this complex physics-based model was unstable (infinite RMSE). Two-stage training stabilized the parameters, resulting in a competitive model (RMSE ~0.63 C).
+2.  **NXRO-Neural (Two-Stage) - The New Winner**: The pure Neural ODE model improved slightly but significantly in consistency, becoming the top overall performer.
+3.  **NXRO-Res (Two-Stage) - Degradation**: The Residual model, which was the single-stage champion, performed worse after pre-training. This suggests its residual MLP might have overfitted to synthetic data biases that were hard to unlearn during fine-tuning.
+
+### Overall Ranking (Single & Two-Stage Combined)
+
+When comparing all variants (Single-Stage, Two-Stage, and XRO Baseline), we see an interesting split between model architectures.
+
+![Overall Ranking RMSE](results_out_of_sample/rankings/overall_ranking_top5_vs_xro_rmse.png)
+
+**Best Performing Models:**
+
+1.  **NXRO-Res (Single-Stage)**
+    *   **Rank:** #1 Overall
+    *   **Equation:** $\frac{d\mathbf{X}}{dt} = \mathbf{L}_\theta(t)\mathbf{X} + \text{MLP}_\theta(\mathbf{X}, t)$
+    *   **Performance:** Test RMSE 0.568 °C.
+    *   **Insight:** The simplest hybrid structure (Linear + Residual MLP) trained directly on observations remains the champion. Pre-training (two-stage) actually hurt its performance (Test RMSE rose to 0.619 °C), likely because the residual component overfitted to biases in the synthetic data that were hard to unlearn.
+
+2.  **NXRO-Neural (Two-Stage)**
+    *   **Rank:** #2 Overall (Top among Two-Stage models)
+    *   **Equation:** $\frac{d\mathbf{X}}{dt} = \text{MLP}_\theta(\mathbf{X}, t)$
+    *   **Performance:** Test RMSE 0.576 °C (improved from 0.584 °C single-stage).
+    *   **Insight:** Unlike the Res model, the pure Neural ODE benefited from pre-training. The high-capacity MLP learned robust general dynamics from the large synthetic dataset in Stage 1, providing a better initialization than random noise.
+
+3.  **NXRO-RO+Diag (Two-Stage)**
+    *   **Rank:** Competitive Physics Model
+    *   **Equation:** $\frac{d\mathbf{X}}{dt} = \mathbf{L}_\theta(t)\mathbf{X} + \text{RO}(T,H) + \text{Diag}(\mathbf{X})$
+    *   **Performance:** Test RMSE 0.631 °C (vs Inf in single-stage).
+    *   **Insight:** Pre-training was absolutely critical here. Single-stage training was unstable (infinite RMSE), but two-stage training stabilized the parameters, making this complex physics-based model viable.
+
+---
+
 ## Detailed Model Descriptions
 
-### 1. NXRO-Res (Rank 1)
+### 1. NXRO-Res (Rank 1 in Single-Stage)
 
 **Equation**:
 $$
@@ -474,7 +533,7 @@ Based on standard setup (train 1979-2022, evaluate on same period):
 
 **Key observations**:
 - **NXRO-Res** maintains highest correlation at all leads
-- All models lose skill rapidly after 12 months (ENSO spring barrier)
+- **All models lose skill rapidly after 12 months (ENSO spring barrier)**
 - Top models cluster together at short leads (1-6 months)
 - Differentiation emerges at longer leads (12-21 months)
 
@@ -656,4 +715,3 @@ python XRO_variants.py --eval_all_datasets
 - **XRO baseline**: Zhao et al. (2024), *Nature*. https://doi.org/10.1038/s41586-024-07534-6
 - **Model variants**: See README.md for detailed mathematical formulations
 - **Implementation**: `nxro/` module (models.py, train.py, eval.py)
-

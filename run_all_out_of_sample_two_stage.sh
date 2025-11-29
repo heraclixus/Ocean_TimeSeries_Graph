@@ -82,57 +82,59 @@ fi
 # RUN 12 MODELS (Two-Stage)
 # ============================================================================
 
-echo "[1/12] NXRO-Res (Rank 1)"
-python NXRO_train_out_of_sample.py --model res ${common_args}
-echo ""
+# echo "[1/12] NXRO-Res (Rank 1)"
+# python NXRO_train_out_of_sample.py --model res ${common_args}
+# echo ""
 
-echo "[2/12] NXRO-Graph (Fixed XRO) (Rank 2)"
-python NXRO_train_out_of_sample.py --model graph ${common_args}
-echo ""
+# echo "[2/12] NXRO-Graph (Fixed XRO) (Rank 2)"
+# python NXRO_train_out_of_sample.py --model graph ${common_args}
+# echo ""
 
-echo "[3/12] NXRO-Attentive (Rank 3)"
-python NXRO_train_out_of_sample.py --model attentive ${common_args}
-echo ""
+# echo "[3/12] NXRO-Attentive (Rank 3)"
+# python NXRO_train_out_of_sample.py --model attentive ${common_args}
+# echo ""
 
-echo "[4/12] NXRO-RO+Diag (Rank 4)"
-python NXRO_train_out_of_sample.py --model rodiag ${common_args}
-echo ""
+# echo "[4/12] NXRO-RO+Diag (Rank 4)"
+# python NXRO_train_out_of_sample.py --model rodiag ${common_args}
+# echo ""
 
-echo "[5/12] NXRO-Linear (Rank 5)"
-python NXRO_train_out_of_sample.py --model linear ${common_args}
-echo ""
+# echo "[5/12] NXRO-Linear (Rank 5)"
+# python NXRO_train_out_of_sample.py --model linear ${common_args}
+# echo ""
 
-echo "[6/12] NXRO-NeuralODE (Rank 6)"
-python NXRO_train_out_of_sample.py --model neural ${common_args}
-echo ""
+# echo "[6/12] NXRO-NeuralODE (Rank 6)"
+# python NXRO_train_out_of_sample.py --model neural ${common_args}
+# echo ""
 
-echo "[7/12] NXRO-RO+Diag-FixNL (Rank 8)"
-python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro,diag
-echo ""
+# echo "[7/12] NXRO-RO+Diag-FixNL (Rank 8)"
+# python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro,diag
+# echo ""
 
-echo "[8/12] NXRO-RO+Diag-FixRO (Rank 9)"
-python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
-echo ""
+# echo "[8/12] NXRO-RO+Diag-FixRO (Rank 9)"
+# python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
+# echo ""
 
-echo "[9/12] NXRO-ResidualMix-FixRO (Rank 10)"
-python NXRO_train_out_of_sample.py --model resmix ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
-echo ""
+# echo "[9/12] NXRO-ResidualMix-FixRO (Rank 10)"
+# python NXRO_train_out_of_sample.py --model resmix ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
+# echo ""
 
-echo "[10/12] NXRO-Graph (Learned Adjacency)"
-python NXRO_train_out_of_sample.py --model graph ${common_args} --graph_learned --graph_l1 0.01
-echo ""
+# echo "[10/12] NXRO-Graph (Learned Adjacency)"
+# python NXRO_train_out_of_sample.py --model graph ${common_args} --graph_learned --graph_l1 0.01
+# echo ""
 
-echo "[11/12] NXRO-GraphPyG (GAT)"
-python NXRO_train_out_of_sample.py --model graph_pyg ${common_args} --gat
-echo ""
+# echo "[11/12] NXRO-GraphPyG (GAT)"
+# python NXRO_train_out_of_sample.py --model graph_pyg ${common_args} --gat
+# echo ""
 
-echo "[12/12] NXRO-PhysReg (NeuralODE + Physics Reg)"
-python NXRO_train_out_of_sample.py --model neural_phys ${common_args} --jac_reg 1e-4
-echo ""
+# echo "[12/12] NXRO-PhysReg (NeuralODE + Physics Reg)"
+# python NXRO_train_out_of_sample.py --model neural_phys ${common_args} --jac_reg 1e-4
+# echo ""
 
 # ============================================================================
 # RANKING (Two-Stage)
 # ============================================================================
+python rank_all_variants_out_of_sample.py --top_n 12 --metric combined --force
+
 echo ""
 echo "Ranking all two-stage models (out-of-sample)..."
 python rank_all_variants_out_of_sample.py \
@@ -146,7 +148,22 @@ python rank_all_variants_out_of_sample.py \
 # ============================================================================
 echo ""
 echo "Generating comparison between Single-Stage and Two-Stage models..."
-python compare_single_vs_two_stage.py --metric combined
+
+# Check if single-stage ranking exists
+SINGLE_STAGE_CSV="results_out_of_sample/rankings/all_variants_ranked_combined_out_of_sample.csv"
+if [[ -f "$SINGLE_STAGE_CSV" ]]; then
+    python compare_single_vs_two_stage.py --metric combined
+else
+    echo "⚠ Single-stage ranking not found at: $SINGLE_STAGE_CSV"
+    echo "  To generate comparison, first run the single-stage experiment:"
+    echo "    bash run_all_out_of_sample.sh"
+    echo "  Then run the ranking:"
+    echo "    python rank_all_variants_out_of_sample.py --top_n 12 --metric combined --force"
+    echo "  Finally, re-run this comparison:"
+    echo "    python compare_single_vs_two_stage.py --metric combined"
+    echo ""
+    echo "  Skipping comparison for now..."
+fi
 
 # ============================================================================
 # SUMMARY

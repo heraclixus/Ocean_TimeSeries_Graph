@@ -380,6 +380,7 @@ def train_nxro_neural_phys(
     device: str = 'cpu',
     rollout_k: int = 1,
     extra_train_nc_paths=None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     dl_train, dl_test, var_order = get_dataloaders(
         nc_path=nc_path,
@@ -393,6 +394,9 @@ def train_nxro_neural_phys(
     n_vars = len(var_order)
     model = NXRONeuralODEModel(n_vars=n_vars, k_max=k_max, hidden=hidden, depth=depth,
                                dropout=dropout, allow_cross=allow_cross, mask_mode=mask_mode).to(device)
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict for neural_phys model.")
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
@@ -913,6 +917,7 @@ def train_nxro_bilinear(
     device: str = 'cpu',
     rollout_k: int = 1,
     extra_train_nc_paths=None,
+    pretrained_state_dict: Optional[dict] = None,
 ):
     dl_train, dl_test, var_order = get_dataloaders(
         nc_path=nc_path,
@@ -925,6 +930,9 @@ def train_nxro_bilinear(
 
     n_vars = len(var_order)
     model = NXROBilinearModel(n_vars=n_vars, k_max=k_max, n_channels=n_channels, rank=rank).to(device)
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict for bilinear model.")
     opt = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     loss_fn = nn.MSELoss()
 
