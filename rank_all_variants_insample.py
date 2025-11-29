@@ -35,6 +35,7 @@ from nxro.models import (
     NXROGraphPyGModel,
     NXRONeuralODEModel,
     NXROBilinearModel,
+    NXROTransformerModel,
 )
 from utils.xro_utils import calc_forecast_skill, nxro_reforecast
 from graph_construction import get_or_build_xro_graph, get_or_build_stat_knn_graph
@@ -60,6 +61,7 @@ def discover_all_checkpoints(search_dirs=None, ckpt_suffix=''):
             'results_all_insample/resmix',
             'results_all_insample/graph',
             'results_all_insample/graphpyg',
+            'results_all_insample/transformer',
         ]
     
     all_checkpoints = []
@@ -152,6 +154,11 @@ def infer_model_class_and_kwargs(ckpt_path):
     
     elif 'bilinear' in basename:
         return NXROBilinearModel, {'n_vars': n_vars, 'k_max': 2, 'n_channels': 2, 'rank': 2}
+    
+    elif 'transformer' in basename:
+        return NXROTransformerModel, {'n_vars': n_vars, 'k_max': 2, 'd_model': 64, 
+                                      'nhead': 4, 'num_layers': 2, 
+                                      'dim_feedforward': 256, 'dropout': 0.1}
     
     elif 'fullxro' in basename:
         return None, None
