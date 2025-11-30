@@ -1089,7 +1089,7 @@ def run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=stage1_extra
     )
-    s1_path = f'{base_dir}/nxro_transformer_synthetic_pretrained.pt'
+    s1_path = f'{base_dir}/nxro_transformer_best{extra_tag}_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
     stage1_weights = model_s1.state_dict()
@@ -1120,7 +1120,7 @@ def run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test
     plt.savefig(f'{base_dir}/NXRO_transformer_training_curves{fig_suffix}.png', dpi=300)
     plt.close()
     
-    tf_save = f'{base_dir}/nxro_transformer_real_finetuned.pt'
+    tf_save = f'{base_dir}/nxro_transformer_best{extra_tag}_real_finetuned.pt'
     torch.save({'state_dict': tf_model.state_dict(), 'var_order': tf_var_order}, tf_save)
     print(f"✓ Saved to: {tf_save}")
     

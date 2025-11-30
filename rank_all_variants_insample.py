@@ -185,12 +185,21 @@ def infer_model_class_and_kwargs(ckpt_path):
 def get_variant_label(ckpt_path):
     """Extract a human-readable label from checkpoint path."""
     basename = os.path.basename(ckpt_path)
+    
+    # Remove file extension and prefix
     label = basename.replace('.pt', '').replace('nxro_', '').replace('_best_test', '').replace('_best', '')
     
+    # Remove extra data tags BEFORE processing two-stage markers
     for tag in ['_extra_data', '_sim100', '_sim50']:
-        label = label.split(tag)[0]
+        label = label.replace(tag, '')
     
+    # Mark two-stage models
+    label = label.replace('_real_finetuned', ' (Two-Stage)').replace('_synthetic_pretrained', ' (Stage 1)')
+    
+    # Convert to title case
     label = label.replace('_', ' ').title()
+    
+    # Fix specific capitalizations
     label = label.replace('Ws', 'WS').replace('Fixl', 'FixL').replace('Fixro', 'FixRO')
     label = label.replace('Fixdiag', 'FixDiag').replace('Fixnl', 'FixNL')
     label = label.replace('Fixphysics', 'FixPhysics')

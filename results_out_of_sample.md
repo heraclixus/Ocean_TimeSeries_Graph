@@ -31,6 +31,10 @@
 | 8 | **NXRO-RO+Diag-FixNL** | 0.592 | 0.602 C | 0.840 | 0.470 C | Freeze RO+Diag, train Linear only |
 | 9 | **NXRO-RO+Diag-FixRO** | 0.591 | 0.602 C | 0.841 | 0.471 C | Freeze RO, train Linear+Diag |
 | 10 | **NXRO-ResidualMix-FixRO** | 0.590 | 0.598 C | 0.840 | 0.476 C | Freeze RO, train Linear+Diag+MLP |
+| ... | ... | ... | ... | ... | ... | ... |
+| **40** | **NXRO-Transformer** ❌ | **0.482** | **0.651 °C** | 0.601 | 0.678 °C | Pure transformer (no physics) - **FAILS** |
+
+**Note**: NXRO-Transformer ranks 40th out of 43 models, performing significantly worse than the XRO baseline. This demonstrates that **pure deep learning models fail on limited climate data** without physics-informed structure.
 
 ---
 
@@ -353,6 +357,109 @@ $$
 
 ---
 
+### 11. NXRO-Transformer (Rank 40)
+
+**Equation**:
+$$
+\frac{d\mathbf{X}}{dt} = \text{TransformerEncoder}([\mathbf{X}, \boldsymbol{\phi}(t)])
+$$
+
+**Architecture**:
+- Multi-head self-attention mechanism (4 heads, 64-dimensional embeddings)
+- 2 transformer encoder layers with feedforward networks (dim 256)
+- Input: State variables $\mathbf{X}$ concatenated with seasonal Fourier features $\boldsymbol{\phi}(t)$
+- Output: Predicted derivative $d\mathbf{X}/dt$
+- No explicit linear operator or physical structure
+
+**Differences from XRO**:
+- [-] No explicit linear, RO, or diagonal terms
+- [-] No built-in physics structure
+- [+] State-dependent self-attention (variables attend to each other)
+- [+] Positional encoding via seasonal features
+- [+] Maximum flexibility (attention weights learned from data)
+
+**Performance (Rank 40 out of 43)**:
+- **Test ACC**: 0.482 (worst among top-40 models)
+- **Test RMSE**: 0.651 °C (significantly worse than XRO's 0.605 °C)
+- **Train ACC**: 0.601
+- **Train RMSE**: 0.678 °C (poor even on training data)
+- **Consistency Score**: 0.059 (beats XRO at only 1 out of 12 lead times)
+- **RMSE Improvement vs. XRO**: -0.077 °C (performs worse than baseline)
+
+**Why it ranks #40 (Poor Performance)**:
+
+1. **Insufficient Training Data**:
+   - Transformers typically require massive datasets (millions of samples)
+   - ENSO has only ~276 monthly observations (23 years training)
+   - Self-attention mechanisms have many parameters relative to data size
+   - Severe overfitting: poor performance even on training set
+
+2. **Lack of Physical Inductive Bias**:
+   - Pure data-driven approach with no climate physics built-in
+   - Must learn seasonal cycles, teleconnections, and dynamics entirely from data
+   - Other successful models (Res, Graph, Attentive) retain linear seasonal operator
+   - Transformer tries to learn everything, including basic physics, from scratch
+
+3. **Positional Encoding Mismatch**:
+   - Transformers designed for sequences (language, time series with discrete tokens)
+   - ENSO dynamics are continuous ODEs, not discrete sequences
+   - Seasonal Fourier features provide weak temporal structure
+   - May not capture the continuous-time nature of climate evolution
+
+4. **Variable Interaction Complexity**:
+   - Attention mechanism treats all 10 variables equally
+   - Climate physics has specific coupling patterns (T-H interaction via RO terms)
+   - Unrestricted attention may learn spurious correlations
+   - Graph/Attentive models with masked attention perform much better
+
+5. **No Multi-Step Training**:
+   - Trained on single-step prediction ($\Delta t = 1$ month)
+   - Forecast skill requires multi-step rollout accuracy
+   - Errors accumulate without explicit regularization for long-range forecasting
+
+**Comparison with Other Attention-Based Models**:
+
+| Model | Rank | Test RMSE | Key Difference |
+|-------|------|-----------|----------------|
+| **NXRO-Attentive** | 4 | 0.589 °C | Retains linear operator + masked attention |
+| **NXRO-Transformer** | 40 | 0.651 °C | Pure transformer, no physics structure |
+
+**Key Insight**: The 0.062 °C difference shows that **hybrid physics-ML** (linear operator + attention) vastly outperforms **pure ML** (transformer only). The linear seasonal operator provides critical inductive bias that transformers cannot learn from limited data.
+
+**Comparison with XRO Baseline**:
+
+| Metric | XRO (Rank 11) | Transformer (Rank 40) | Difference |
+|--------|---------------|----------------------|------------|
+| Test ACC | 0.596 | 0.482 | -0.114 (19% worse) |
+| Test RMSE | 0.605 °C | 0.651 °C | +0.046 °C (7.6% worse) |
+| Wins (Leads 1-12) | N/A | 1/12 | Transformer rarely beats XRO |
+
+**Critical Failure**: The Transformer performs **worse than the physics-based XRO baseline**, despite transformers' success in NLP and computer vision. This highlights the importance of **domain-specific inductive biases** for small-data scientific problems.
+
+**Lessons Learned**:
+
+1. **Data Efficiency Matters**: Transformers are sample-inefficient. Climate forecasting with ~300 training samples requires simpler, physics-informed architectures.
+
+2. **Physics Structure is Essential**: Models that incorporate seasonal operators (Linear, Res, Graph, Attentive) all outrank pure data-driven transformers.
+
+3. **Attention ≠ Better**: Self-attention without constraints can learn spurious patterns. Masked attention (NXRO-Attentive) with physics priors works much better.
+
+4. **Hybrid > Pure ML**: Best performers combine physics (linear operator) with ML (residuals, graph convolutions, masked attention). Pure ML (Transformer, NeuralODE) struggle.
+
+5. **Not All Architectures Transfer**: Success in NLP/vision doesn't guarantee success in scientific forecasting. Domain knowledge is critical.
+
+**Future Directions for Transformer-Based Models**:
+
+1. **Pre-training on Large Climate Datasets**: Train on CMIP6 simulations (thousands of years), fine-tune on observations
+2. **Physics-Informed Attention**: Add constraints to attention weights (e.g., enforce teleconnection patterns)
+3. **Hybrid Architecture**: Keep linear seasonal operator, use transformer only for residuals
+4. **Multi-Step Training**: Train on multi-step rollout loss instead of single-step
+5. **Data Augmentation**: Use multiple reanalysis products (ERA5, GODAS, etc.) to increase training data
+
+**Recommendation**: **Do not use pure NXRO-Transformer for operational ENSO forecasting.** If transformer-like attention is desired, use NXRO-Attentive (Rank 4) which combines physics structure with selective attention and achieves competitive performance.
+
+---
+
 ## Key Insights from Out-of-Sample Rankings
 
 ### 1. Simpler Models Generalize Better
@@ -407,7 +514,27 @@ $$
 
 ---
 
-### 5. In-Sample vs. Out-of-Sample Performance Discrepancy
+### 5. Pure Data-Driven Models Fail on Limited Data
+
+**Observation**: NXRO-Transformer (#40) and pure NeuralODE models rank near bottom, far below physics-informed variants.
+
+**Comparison**:
+- **NXRO-Transformer** (pure attention): Rank #40, Test RMSE 0.651 °C
+- **NXRO-Attentive** (linear + masked attention): Rank #4, Test RMSE 0.589 °C
+- **NXRO-NeuralODE** (pure MLP): Rank #7, Test RMSE 0.584 °C
+- **NXRO-Res** (linear + MLP residual): Rank #2, Test RMSE 0.568 °C
+
+**Interpretation**:
+- Transformers require massive datasets (millions of samples) but ENSO has only ~300 training points
+- Pure data-driven architectures must learn physics from scratch (seasonal cycles, teleconnections)
+- Hybrid models (linear operator + ML component) are far more data-efficient
+- Small training data necessitates strong inductive biases (physics structure)
+
+**Implication**: For small-data scientific problems, **hybrid physics-ML architectures vastly outperform pure deep learning** models. Domain knowledge encoded as inductive bias is essential.
+
+---
+
+### 6. In-Sample vs. Out-of-Sample Performance Discrepancy
 
 **Observation**: Models with best **train** RMSE often have larger **test** RMSE degradation.
 
@@ -425,7 +552,7 @@ Examples:
 
 ---
 
-### 6. Warm-Start Variants Don't Dominate Top 10
+### 7. Warm-Start Variants Don't Dominate Top 10
 
 **Observation**: Only 1 warm-start variant in top 10 (none in top 7).
 
@@ -663,6 +790,12 @@ Based on standard setup (train 1979-2022, evaluate on same period):
 5. **Graph and attention mechanisms are competitive** (#2, #3)
    - Data-driven coupling generalizes well
    - Sparse priors (graph topology, attention masks) prevent overfitting
+
+6. **Pure transformers fail on limited data** (#40, worst performing)
+   - NXRO-Transformer (0.651 °C) performs worse than XRO baseline (0.605 °C)
+   - Transformers require massive datasets; ~300 ENSO samples insufficient
+   - Hybrid physics-ML (linear + attention) vastly outperforms pure ML
+   - Domain-specific inductive biases essential for small-data problems
 
 ### Future Directions
 

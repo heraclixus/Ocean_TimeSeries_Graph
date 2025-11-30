@@ -34,6 +34,7 @@ from nxro.models import (
     NXROGraphPyGModel,
     NXRONeuralODEModel,
     NXROBilinearModel,
+    NXROTransformerModel,
 )
 from utils.xro_utils import calc_forecast_skill, nxro_reforecast
 from graph_construction import get_or_build_xro_graph, get_or_build_stat_knn_graph
@@ -59,6 +60,7 @@ def discover_all_checkpoints(search_dirs=None, ckpt_suffix=''):
             'results_all_outsample/resmix',
             'results_all_outsample/graph',
             'results_all_outsample/graphpyg',
+            'results_all_outsample/transformer',
         ]
     
     all_checkpoints = []
@@ -152,6 +154,11 @@ def infer_model_class_and_kwargs(ckpt_path):
     elif 'bilinear' in basename:
         return NXROBilinearModel, {'n_vars': n_vars, 'k_max': 2, 'n_channels': 2, 'rank': 2}
     
+    elif 'transformer' in basename:
+        return NXROTransformerModel, {'n_vars': n_vars, 'k_max': 2, 'd_model': 64, 
+                                      'nhead': 4, 'num_layers': 2, 
+                                      'dim_feedforward': 256, 'dropout': 0.1}
+    
     elif 'fullxro' in basename:
         return None, None
     
@@ -177,12 +184,21 @@ def infer_model_class_and_kwargs(ckpt_path):
 def get_variant_label(ckpt_path):
     """Extract a human-readable label from checkpoint path."""
     basename = os.path.basename(ckpt_path)
+    
+    # Remove file extension and prefix
     label = basename.replace('.pt', '').replace('nxro_', '').replace('_best_test', '').replace('_best', '')
     
+    # Remove extra data tags BEFORE processing two-stage markers
     for tag in ['_extra_data', '_sim100', '_sim50']:
-        label = label.split(tag)[0]
+        label = label.replace(tag, '')
     
+    # Mark two-stage models
+    label = label.replace('_real_finetuned', ' (Two-Stage)').replace('_synthetic_pretrained', ' (Stage 1)')
+    
+    # Convert to title case
     label = label.replace('_', ' ').title()
+    
+    # Fix specific capitalizations
     label = label.replace('Ws', 'WS').replace('Fixl', 'FixL').replace('Fixro', 'FixRO')
     label = label.replace('Fixdiag', 'FixDiag').replace('Fixnl', 'FixNL')
     label = label.replace('Fixphysics', 'FixPhysics')
