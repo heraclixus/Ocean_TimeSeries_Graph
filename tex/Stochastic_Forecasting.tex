@@ -1,0 +1,233 @@
+\section{Probabilistic Forecasting with Stochastic Dynamics}
+\label{sec:stochastic}
+
+Deterministic forecasts, while useful for point predictions, provide no quantification of uncertainty. For decision-making in applications such as agriculture, water resource management, and disaster preparedness, probabilistic forecasts that characterize the range of possible outcomes are essential~\cite{gneiting2014probabilistic}. The challenge of representing forecast uncertainty has motivated extensive research in stochastic parameterization~\cite{berner2017stochastic,palmer2009stochastic}, where random perturbations are introduced to represent model error. For ENSO specifically, stochastic forcing from atmospheric noise plays a fundamental role in the irregularity of the oscillation~\cite{kleeman2008stochastic}, making probabilistic approaches particularly natural. In this section, we extend the NXRO framework to generate ensemble forecasts and develop a principled approach to calibrating the stochastic forcing that drives ensemble spread.
+
+\subsection{Probabilistic Evaluation Metrics}
+
+Evaluating probabilistic forecasts requires metrics that assess both the accuracy of the ensemble mean and the reliability of the uncertainty estimates. We employ the Continuous Ranked Probability Score (CRPS)~\cite{hersbach2000}, a proper scoring rule~\cite{gneiting2007} that generalizes mean absolute error to probabilistic forecasts.
+
+The CRPS measures the integrated squared difference between the forecast cumulative distribution function $F(x)$ and the step function at the observation $y$:
+\begin{equation}
+    \text{CRPS}(F, y) = \int_{-\infty}^{\infty} \left| F(x) - \1\{y \leq x\} \right|^2 dx
+    \label{eq:crps}
+\end{equation}
+where $\1\{y \leq x\}$ is the indicator function that equals one when $y \leq x$ and zero otherwise. The CRPS equals zero for a perfect forecast (a delta function at the observation) and increases as the forecast distribution deviates from the observation either in location or spread.
+
+As a proper scoring rule~\cite{gneiting2014probabilistic}, CRPS rewards honest uncertainty quantification: forecasts that are overconfident (too narrow) are penalized when observations fall in the tails, while forecasts that are underconfident (too wide) are penalized for lacking sharpness. The score is expressed in the same units as the forecast variable (degrees Celsius for temperature), facilitating interpretation.
+
+For ensemble forecasts with $M$ members $\{x_1, \ldots, x_M\}$, we employ the fair CRPS estimator that corrects for finite ensemble size:
+\begin{equation}
+    \text{CRPS} = \frac{1}{M}\sum_{m=1}^{M} |x_m - y| - \frac{1}{2M^2}\sum_{m=1}^{M}\sum_{n=1}^{M} |x_m - x_n|
+    \label{eq:crps_fair}
+\end{equation}
+The first term measures the average absolute error across ensemble members, while the second term (the ensemble spread) provides a correction that prevents CRPS from being artificially inflated when the ensemble is small. This estimator is unbiased for the true CRPS under the assumption that ensemble members are exchangeable draws from the forecast distribution.
+
+We also assess ensemble calibration~\cite{raftery2005using} through the spread-to-RMSE ratio. A well-calibrated ensemble should have spread (ensemble standard deviation) approximately equal to the RMSE of the ensemble mean, yielding a ratio near 1.0. Ratios below 1.0 indicate overconfidence (the ensemble is too narrow), while ratios above 1.0 indicate underconfidence (the ensemble is too wide).
+
+\subsection{Stochastic Model Formulation}
+
+A key question in probabilistic forecasting is how to represent the stochastic component that drives ensemble spread. Traditional approaches in numerical weather prediction use stochastically perturbed parameterization tendencies (SPPT)~\cite{buizza1999stochastic}, which multiply physical tendencies by random numbers to represent model uncertainty. For reduced-complexity climate models like XRO~\cite{zhao2024xro}, the standard approach models stochastic forcing as colored noise---typically an AR(1) process with seasonally-varying amplitude---fitted post-hoc from model residuals. We adopt this general framework but introduce a likelihood-based optimization procedure that improves upon post-hoc fitting.
+
+We generate ensemble forecasts by adding stochastic forcing to the deterministic NXRO dynamics. The discrete-time stochastic model takes the form:
+\begin{equation}
+    \bX_{t+1} = \bX_t + \Delta t \cdot f_\theta(\bX_t, t) + \epsilon_t
+    \label{eq:stochastic_model}
+\end{equation}
+where $f_\theta$ is the deterministic drift (either the full NXRO model or the XRO baseline), $\Delta t = 1/12$ years is the monthly time step, and $\epsilon_t$ is a stochastic perturbation.
+
+The perturbation follows a seasonal AR(1) process that captures the temporal correlation and seasonal amplitude modulation observed in forecast residuals:
+\begin{equation}
+    \epsilon_{j,t} = a_{1,j} \cdot \epsilon_{j,t-1} + \eta_{j,t}, \quad \eta_{j,t} \sim \mathcal{N}(0, (1 - a_{1,j}^2) \cdot \sigma_j(m)^2 \cdot \Delta t^2)
+    \label{eq:ar1_noise}
+\end{equation}
+Here $a_{1,j} \in [0, 1)$ is the AR(1) persistence coefficient for variable $j$, controlling how quickly perturbations decay, and $\sigma_j(m)$ is the noise standard deviation for calendar month $m \in \{1, \ldots, 12\}$, allowing the noise amplitude to vary seasonally. The factor $(1 - a_{1,j}^2)$ ensures that the marginal variance of $\epsilon_{j,t}$ equals $\sigma_j(m)^2 \cdot \Delta t^2$ at stationarity.
+
+This noise model has $n + 12n$ parameters per model: one persistence coefficient per variable and twelve seasonal standard deviations per variable. The challenge is estimating these parameters in a way that produces well-calibrated ensembles.
+
+\subsection{Noise Parameter Estimation}
+
+The quality of probabilistic forecasts depends critically on how noise parameters are estimated. Poor calibration---ensembles that are too narrow or too wide---undermines the utility of uncertainty estimates for decision-making~\cite{vannitsem2021statistical}. The XRO model~\cite{zhao2024xro} estimates noise parameters post-hoc by fitting AR(1) models to one-step prediction residuals, an approach that is computationally simple but does not optimize for multi-step forecast calibration. We investigate four approaches to estimating the noise parameters, ranging from the XRO-style post-hoc fitting to likelihood-based optimization and external calibration from climate model ensembles.
+
+\subsubsection{Post-hoc Fitting from Residuals}
+
+The baseline approach, used by XRO~\cite{zhao2024xro} and common in stochastic climate modeling~\cite{penland1996enso}, fits noise parameters from the residuals of the deterministic model. The underlying assumption is that residuals capture the unmodeled stochastic forcing that should drive ensemble spread. Given a trained model with parameters $\theta$, we compute one-step prediction residuals over the training period:
+\begin{equation}
+    r_t = \bX_{t+1}^{\text{obs}} - \bX_t^{\text{obs}} - \Delta t \cdot f_\theta(\bX_t^{\text{obs}}, t)
+\end{equation}
+The AR(1) coefficient $a_{1,j}$ is then estimated by regressing $r_{j,t}$ on $r_{j,t-1}$ via ordinary least squares. The seasonal standard deviations $\sigma_j(m)$ are computed from the regression residuals, grouping by calendar month.
+
+This approach is computationally simple and provides reasonable initial estimates. However, it treats the persistence and amplitude parameters independently, ignoring their joint effect on ensemble calibration. It also optimizes for one-step residual statistics rather than multi-step forecast calibration.
+
+\subsubsection{Likelihood-Based Optimization (Stage 2)}
+
+While post-hoc fitting is computationally convenient, it treats the persistence ($a_1$) and amplitude ($\sigma$) parameters independently, ignoring their joint effect on the stationary distribution. This can lead to suboptimal calibration. Our proposed approach---which we call Stage 2 training---optimizes noise parameters via maximum likelihood while holding the dynamics model fixed. This two-stage procedure separates the learning of deterministic dynamics from stochastic parameters, similar in spirit to approaches in neural stochastic differential equations~\cite{li2020scalable,kidger2021neural}. Given residuals $\{r_t\}_{t=1}^{T}$ computed from the frozen model, the conditional log-likelihood under the AR(1) model is:
+\begin{equation}
+    \ell(a_1, \sigma) = \sum_{t=2}^{T} \log p(r_t | r_{t-1}; a_1, \sigma_{m_t})
+\end{equation}
+where $m_t$ denotes the calendar month at time $t$ and $p(r_t | r_{t-1}; a_1, \sigma)$ is the Gaussian density implied by Equation~\ref{eq:ar1_noise}.
+
+We maximize this likelihood using gradient ascent, initializing from the post-hoc estimates. The optimization runs for 100 epochs using Adam with learning rate $10^{-3}$. The persistence coefficients are constrained to $[0.01, 0.99]$ via projection after each update to ensure valid AR(1) dynamics.
+
+This likelihood-based approach jointly optimizes all noise parameters for consistency with the observed residual distribution. Unlike post-hoc fitting, it accounts for the interaction between persistence and amplitude: higher persistence requires lower innovation variance to maintain the same marginal variance. The gradient-based optimization can also escape suboptimal configurations that the closed-form OLS estimator might find.
+
+We refer to this as ``Stage 2'' training because it occurs after the dynamics model has been trained (Stage 1 being the deterministic training described in Section~\ref{sec:neural_ode}).
+
+\subsubsection{Climate Model Ensemble Calibration (Stage 3)}
+
+An alternative philosophy, motivated by the success of ensemble post-processing methods in numerical weather prediction~\cite{rasp2018neural,vannitsem2021statistical}, derives noise parameters from external sources rather than model residuals. The intuition is that a well-fitted model may have small residuals that underestimate true forecast uncertainty, which arises from structural model limitations not captured in training-period errors. Climate modeling centers produce large ensembles of simulations that span a range of initial conditions and model physics, capturing structural uncertainty about the climate system. If these simulations accurately represent the space of possible climate trajectories, the observation-simulation differences should characterize the uncertainty that forecasts should express.
+
+Following this logic, we compute differences between observations and 100 CMIP6~\cite{eyring2016cmip6} climate model simulations:
+\begin{equation}
+    d_t^{(k)} = \bX_t^{\text{obs}} - \bX_t^{\text{sim}(k)}, \quad k = 1, \ldots, 100
+\end{equation}
+We then fit AR(1) parameters to these differences, treating them as samples of the forecast error distribution.
+
+The rationale for this approach is that it captures uncertainty arising from model structural errors that would not appear in the residuals of a well-fitted model. A model that fits the training data perfectly has zero residuals, but this does not mean its forecasts have zero uncertainty---structural limitations ensure that forecasts will deviate from observations.
+
+We also consider a hybrid approach (Stage 2+3) that initializes with Stage 3 parameters and then optimizes via the Stage 2 likelihood procedure.
+
+\subsection{Experimental Setup}
+
+We evaluate stochastic forecasting under two protocols. The out-of-sample protocol trains dynamics models on 1979--2001, fits noise parameters on the same period, and evaluates ensemble forecasts initialized from 2002--2022. This mimics operational conditions where future observations are unavailable. The in-sample protocol trains on the full 1979--2022 period and evaluates on the same period, providing an upper bound on achievable skill.
+
+All ensembles comprise 100 members generated by integrating the stochastic model forward from each initialization time with independent noise realizations. We evaluate CRPS at lead times from 1 to 21 months and report the average across leads. Ensemble calibration is assessed via the spread-to-RMSE ratio computed over all forecasts.
+
+\subsection{Results}
+
+\subsubsection{Out-of-Sample Performance}
+
+Table~\ref{tab:stochastic_outsample} presents the stochastic forecast performance for the out-of-sample evaluation. The results reveal striking differences between the noise estimation approaches.
+
+\begin{table}[htbp]
+\centering
+\caption{Stochastic ensemble forecast performance (out-of-sample: train 1979--2001, test 2002--2022). S2 denotes Stage 2 (likelihood optimization); S2+S3 denotes Stage 3 initialization with Stage 2 refinement.}
+\label{tab:stochastic_outsample}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{CRPS} & \textbf{Ensemble RMSE} & \textbf{Spread/RMSE} & \textbf{vs XRO} \\
+\midrule
+NXRO-Graph (S2) & 0.488 & 0.899°C & 0.654 & $-$13.0\% \\
+NXRO-Attentive (S2) & 0.513 & 0.901°C & 0.634 & $-$8.6\% \\
+NXRO-Linear (S2) & 0.519 & 0.918°C & 0.628 & $-$7.5\% \\
+NXRO-Res (S2) & 0.548 & 0.963°C & 0.625 & $-$2.4\% \\
+XRO (baseline) & 0.561 & 0.970°C & 0.527 & --- \\
+\midrule
+NXRO-Attentive (S2+S3) & 0.935 & 0.951°C & 3.667 & $+$66.6\% \\
+NXRO-Linear (S2+S3) & 0.985 & 1.010°C & 3.661 & $+$75.5\% \\
+NXRO-Graph (S2+S3) & 1.006 & 1.116°C & 3.362 & $+$79.2\% \\
+NXRO-Res (S2+S3) & 1.045 & 1.024°C & 3.975 & $+$86.2\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All NXRO variants with Stage 2 noise optimization outperform the XRO baseline, with improvements ranging from 2.4\% (residual model) to 13.0\% (graph model) in CRPS. The graph-based model achieves the best probabilistic forecast skill with CRPS of 0.488, followed closely by the attention-based model at 0.513. These improvements are substantial: a 13\% reduction in CRPS represents a meaningful advance for operational forecasting.
+
+The calibration metrics reveal why Stage 2 succeeds. The XRO baseline achieves a spread-to-RMSE ratio of only 0.527, indicating that its ensembles are overconfident---the spread is roughly half what it should be for well-calibrated forecasts. Stage 2 optimization increases this ratio to 0.625--0.654 across NXRO variants, moving closer to the ideal of 1.0. Better calibration means that users can more reliably interpret the ensemble spread as representing forecast uncertainty.
+
+In stark contrast, the Stage 3 approach (using climate model differences for noise calibration) produces severely degraded forecasts. CRPS values exceed 0.9 for all variants, representing 66--86\% degradation compared to XRO. The spread-to-RMSE ratios of 3.4--4.0 indicate extreme overconfidence in the opposite direction: the ensembles are nearly four times wider than appropriate.
+
+\subsubsection{Understanding Stage 3 Failure}
+
+The failure of Stage 3 noise calibration warrants detailed analysis, as the approach has intuitive appeal and relates to established practices in operational forecasting. In numerical weather prediction, ensemble spread from perturbed-physics or multi-model ensembles often serves as a proxy for forecast uncertainty~\cite{berner2017stochastic}. Why does this approach fail for neural forecast models?
+
+The root cause is a mismatch between the uncertainty captured by climate model differences and the uncertainty appropriate for a well-tuned neural forecast model. The 100 CMIP6 simulations represent the spread across different modeling centers, each with distinct numerical schemes, parameterizations, and structural assumptions. The observation-simulation differences thus capture systematic model biases, parameterization uncertainties, and structural errors that are largely shared across all simulations from a given model but differ across modeling centers.
+
+A well-fitted NXRO model, by contrast, has already been optimized to match observations. Its residuals are much smaller than the observation-simulation differences because the optimization has removed systematic biases. Using climate model spread to calibrate NXRO noise injects uncertainty that is inappropriate for the fitted model---uncertainty about which climate model is correct, rather than uncertainty about the forecast given that the model is correct.
+
+Quantitatively, the Stage 3 noise standard deviations are approximately four times larger than the Stage 2 values, explaining the four-fold inflation of ensemble spread relative to RMSE. The Stage 2+3 hybrid cannot recover because gradient-based optimization, while it can refine parameters, cannot compress the noise amplitude by a factor of four within the 100-epoch optimization window.
+
+This finding has important implications for practitioners seeking to transfer uncertainty quantification methods from climate modeling to machine learning~\cite{christensen2022machine}. Methods designed for physics-based models with known structural limitations---where ensemble spread represents genuine model uncertainty---do not directly apply to data-driven models that have been optimized to minimize prediction error. The optimization process fundamentally changes the relationship between model error and forecast uncertainty.
+
+\subsubsection{In-Sample Comparison}
+
+Table~\ref{tab:stochastic_insample} presents in-sample results for comparison. The patterns mirror the out-of-sample findings, though with smaller margins.
+
+\begin{table}[htbp]
+\centering
+\caption{Stochastic ensemble forecast performance (in-sample: train and evaluate on 1979--2022).}
+\label{tab:stochastic_insample}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{CRPS} & \textbf{Ensemble RMSE} & \textbf{Spread/RMSE} & \textbf{vs XRO} \\
+\midrule
+NXRO-Attentive (S2) & 0.503 & 0.894°C & 0.671 & $-$5.0\% \\
+NXRO-Graph (S2) & 0.510 & 0.923°C & 0.677 & $-$3.7\% \\
+NXRO-Linear (S2) & 0.521 & 0.927°C & 0.657 & $-$1.5\% \\
+NXRO-Res (S2) & 0.524 & 0.909°C & 0.664 & $-$1.0\% \\
+XRO (baseline) & 0.529 & 0.922°C & 0.580 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In-sample, the attention-based model achieves the best CRPS (0.503), slightly ahead of the graph model (0.510). The improvements over XRO are smaller (1--5\% versus 2--13\% out-of-sample), consistent with the general pattern that simpler models show larger relative gains in the more challenging out-of-sample setting.
+
+The ranking differences between in-sample and out-of-sample evaluation (Graph first out-of-sample, Attentive first in-sample) suggest that the optimal model for probabilistic forecasting depends on the evaluation regime. However, both models consistently outperform XRO and the residual model, and both employ structured sparsity (graph connectivity or attention masking) that regularizes the nonlinear component.
+
+\subsubsection{Calibration Analysis}
+
+Table~\ref{tab:calibration} summarizes the calibration performance across noise estimation methods and evaluation regimes.
+
+\begin{table}[htbp]
+\centering
+\caption{Ensemble calibration measured by spread-to-RMSE ratio. Values near 1.0 indicate well-calibrated forecasts.}
+\label{tab:calibration}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Method} & \textbf{Out-of-Sample} & \textbf{In-Sample} \\
+\midrule
+XRO (post-hoc) & 0.527 & 0.580 \\
+NXRO + Stage 2 & 0.625--0.654 & 0.657--0.677 \\
+NXRO + Stage 3 & 3.4--4.0 & 3.5--4.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Stage 2 optimization consistently improves calibration compared to post-hoc fitting, increasing the spread-to-RMSE ratio by approximately 0.1 in both evaluation regimes. While the resulting ensembles remain somewhat overconfident (ratios below 1.0), the improvement is meaningful for applications that depend on reliable uncertainty bounds.
+
+The Stage 3 approach produces severely miscalibrated ensembles in both regimes, confirming that the failure is fundamental rather than regime-dependent. The consistency of the miscalibration (ratios near 3.7 across models and regimes) suggests a systematic scale mismatch between climate model spread and neural model uncertainty.
+
+\subsection{Forecast Visualization}
+
+Figure~\ref{fig:forecast_samples_outsample} illustrates the difference between XRO and Stage 2 NXRO forecasts through example ensemble plumes. The XRO ensemble (left panel) exhibits narrow spread that fails to encompass many observations, reflecting its overconfident calibration. The NXRO-Graph ensemble (right panel) shows appropriately wider spread that better represents forecast uncertainty while maintaining a more accurate ensemble mean.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.48\textwidth]{forecast_XRO_outsample.png}
+    \hfill
+    \includegraphics[width=0.48\textwidth]{forecast_Graph_S2_outsample.png}
+    \caption{Ensemble forecast comparison. Left: XRO baseline with post-hoc noise. Right: NXRO-Graph with Stage 2 noise optimization. Shaded regions show 10--90\% quantile ranges; solid lines show ensemble median; dots show observations. The Stage 2 model exhibits wider, better-calibrated spread.}
+    \label{fig:forecast_samples_outsample}
+\end{figure}
+
+Figure~\ref{fig:observed_nino34} displays the observed Ni\~no3.4 time series for context, highlighting major ENSO events during the study period. The 1997--98 El Ni\~no, the strongest on record~\cite{landsea2000springbarrier}, presents a particularly challenging forecast target due to its unprecedented amplitude.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\textwidth]{NXRO_observed_Nino34_out_of_sample.png}
+    \caption{Observed Ni\~no3.4 index from ORAS5 reanalysis~\cite{zuo2019oras5} (1979--2022). Major events include the 1982--83 and 1997--98 El Ni\~nos, the 2015--16 event, and extended La Ni\~na periods in 1998--2001 and 2020--2022.}
+    \label{fig:observed_nino34}
+\end{figure}
+
+Figure~\ref{fig:plume_examples} presents forecast plumes for key ENSO events, comparing multiple NXRO variants against the XRO baseline. The forecasts initialized in April 1997 (before the major El Ni\~no) show all models predicting warming, though with varying amplitude and uncertainty. By December 1997 (peak of the event), the models show the transition toward La Ni\~na conditions that materialized in 1998.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.48\textwidth]{plume_comparison_1997_04.png}
+    \hfill
+    \includegraphics[width=0.48\textwidth]{plume_comparison_1997_12.png}
+    \caption{Ensemble forecasts for the 1997--98 El Ni\~no. Left: Initialized April 1997, before the major warming. Right: Initialized December 1997, at peak El Ni\~no. Shaded regions show 10--90\% quantiles for each model.}
+    \label{fig:plume_examples}
+\end{figure}
+
+\subsection{Summary}
+
+Our stochastic forecasting experiments yield several conclusions relevant for probabilistic ENSO prediction, with implications for the broader challenge of uncertainty quantification in hybrid physics-ML models.
+
+Likelihood-based noise optimization (Stage 2) consistently outperforms both the post-hoc fitting approach used by XRO~\cite{zhao2024xro} and climate model-derived noise. The key insight is that jointly optimizing AR(1) persistence and amplitude parameters via maximum likelihood produces better-calibrated ensembles than fitting each parameter independently. The 13\% CRPS improvement of the best model (NXRO-Graph) over XRO translates to meaningful gains for operational forecasting, and the improved calibration (spread-to-RMSE ratios of 0.63--0.68 versus 0.53 for XRO) provides more reliable uncertainty quantification.
+
+The graph-based model achieves the best probabilistic forecast skill in the out-of-sample evaluation, with CRPS of 0.488 representing a 13\% improvement over XRO. This differs from the deterministic ranking where the residual model excelled, suggesting that the structured sparsity of the graph model provides particular benefits for uncertainty quantification.
+
+Perhaps most importantly, our results demonstrate that climate model ensemble spread is not appropriate for calibrating neural forecast uncertainty---a cautionary finding for practitioners who might assume that established methods from numerical weather prediction~\cite{berner2017stochastic} transfer directly to machine learning settings. The structural biases captured by observation-simulation differences are irrelevant for well-optimized neural models, leading to severely over-dispersed ensembles. When a forecast model has been optimized to match observations, practitioners should calibrate uncertainty from model residuals rather than external sources.
+
+These findings suggest a general principle: uncertainty quantification methods must be matched to the properties of the prediction model. Approaches designed for physics-based models with known structural limitations require adaptation when applied to flexible machine learning models that minimize prediction error through optimization. This insight aligns with recent work on time-aware neural ODEs~\cite{zhang2023timeaware} and hybrid dynamical systems~\cite{oh2024dualdynamics}, which demonstrate that effective uncertainty quantification requires careful consideration of the model's data-fitting capacity.

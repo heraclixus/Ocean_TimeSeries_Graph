@@ -1,0 +1,134 @@
+\section{Neural Residual Dynamics}
+\label{sec:neural_ode}
+
+The limitations of XRO identified in Section~\ref{sec:background}---rigid polynomial nonlinearities, variable-by-variable fitting, and lack of end-to-end optimization---motivate a neural extension that preserves the model's physical interpretability while adding flexibility to capture unmodeled dynamics. In this section, we develop the Neural Residual ODE (NXRO) framework, focusing on a principled decomposition of the dynamics into a physics-based linear component and a learned residual correction.
+
+\subsection{Motivation: Physics-Informed Residual Learning}
+
+The central insight of our approach is that the XRO linear operator $\bL(t)$ captures the dominant, well-understood physics of ENSO: the recharge-discharge mechanism, seasonal modulation of coupling strengths, and teleconnections among climate modes. These linear dynamics are identifiable from limited data and generalize robustly across climate regimes. In contrast, the polynomial nonlinearities in XRO---while physically motivated---impose strong assumptions about functional form that may not match the true dynamics and can lead to overfitting when the polynomial basis captures noise rather than signal.
+
+Rather than specifying the nonlinear dynamics a priori, we propose to \emph{learn} them from data through a neural network that captures the residual between the linear physics model and observations. This approach---learning the discrepancy between a physics-based model and data---differs fundamentally from skip connections in deep networks~\cite{he2016deep} and has roots in Bayesian model calibration~\cite{kennedy2001bayesian}. Recent work has demonstrated the effectiveness of this paradigm across scientific machine learning~\cite{karniadakis2021physics,willard2022integrating}, including learning corrections to fluid simulations~\cite{um2020solver,list2022learned}, augmenting physical models for complex dynamics forecasting~\cite{yin2021augmenting}, and discovering missing physics in partial differential equations~\cite{raissi2019pinn}. Universal Differential Equations~\cite{rackauckas2020universal} provide a formal framework for embedding neural networks within differential equation systems to capture unmodeled dynamics. The key is to let the physics-based component handle what it does well (linear dynamics, seasonal structure) while delegating the remainder to a flexible function approximator that can adapt to the specific dataset.
+
+This explicit linear-plus-nonlinear decomposition offers several advantages. First, the linear operator provides strong inductive bias that reduces the effective hypothesis space, enabling learning from limited data---a critical consideration when training samples number in the hundreds rather than millions~\cite{bronstein2021geometric}. This approach shares conceptual connections with Koopman operator theory~\cite{brunton2022modern,lusch2018deep}, which seeks linear representations of nonlinear dynamics, though we learn corrections to a known linear model rather than discovering the linear embedding. Second, the neural residual need only capture the \emph{difference} between true dynamics and the linear approximation, a smaller signal that is easier to learn than the full dynamics. Third, the approach naturally interpolates between pure physics ($\text{residual} = 0$) and pure machine learning ($\text{linear} = 0$), allowing the data to determine the appropriate balance.
+
+\subsection{Model Formulation}
+
+We model the evolution of the climate state vector $\bX(t) \in \R^n$ as a continuous-time dynamical system, inspired by neural ODE methods~\cite{chen2018neuralode}:
+\begin{equation}
+    \frac{d\bX}{dt} = \bL_\theta(t) \cdot \bX + R_\phi([\bX, \bphi(t)])
+    \label{eq:nxro_main}
+\end{equation}
+where $\bL_\theta(t) \in \R^{n \times n}$ is a seasonally-modulated linear operator with learnable parameters $\theta$, $R_\phi: \R^{n+5} \to \R^n$ is a neural network residual with parameters $\phi$, and $\bphi(t) \in \R^5$ encodes seasonal context through Fourier features.
+
+\subsubsection{Seasonal Linear Operator}
+
+The linear operator inherits the Fourier structure from XRO, expanded to the second harmonic to capture semi-annual variations:
+\begin{equation}
+    \bL_\theta(t) = \sum_{k=0}^{2} \left[ \bL_k^c \cos(k\omega t) + \bL_k^s \sin(k\omega t) \right]
+    \label{eq:linear_op}
+\end{equation}
+where $\omega = 2\pi/12$ for monthly data and $\bL_k^c, \bL_k^s \in \R^{n \times n}$ are learnable coefficient matrices comprising the parameters $\theta$. This parameterization ensures that the linear dynamics vary smoothly with season, capturing the well-documented seasonal dependence of ENSO growth rates and teleconnection strengths.
+
+The linear operator can be initialized randomly or warm-started from XRO's closed-form fit. In our experiments, we find that random initialization often leads to better generalization, as it allows the joint optimization to find coefficient configurations that XRO's variable-by-variable fitting cannot reach.
+
+\subsubsection{Seasonal Context Features}
+
+To provide the residual network with information about the current season, we construct Fourier features encoding the annual cycle:
+\begin{equation}
+    \bphi(t) = [1, \cos(\omega t), \sin(\omega t), \cos(2\omega t), \sin(2\omega t)]^\top \in \R^5
+\end{equation}
+These features allow the residual to learn seasonally-varying corrections without requiring separate parameters for each calendar month. The constant term enables the network to learn season-independent corrections, while the harmonic terms capture annual and semi-annual modulation.
+
+\subsubsection{Neural Residual Network}
+
+The residual function $R_\phi$ is parameterized as a multilayer perceptron (MLP) that takes the concatenation of the state vector and seasonal features as input:
+\begin{equation}
+    R_\phi([\bX, \bphi(t)]) = W_3 \cdot \sigma(W_2 \cdot \sigma(W_1 \cdot [\bX; \bphi(t)] + b_1) + b_2) + b_3
+\end{equation}
+where $\sigma$ denotes the ReLU activation function~\cite{nair2010rectified}, $W_1 \in \R^{h \times (n+5)}$, $W_2 \in \R^{h \times h}$, $W_3 \in \R^{n \times h}$ are weight matrices, and $b_1, b_2, b_3$ are bias vectors. We use a hidden dimension of $h = 64$ throughout, yielding a network with approximately 10,000 parameters---small by deep learning standards but appropriate for our limited training data.
+
+The MLP architecture is deliberately simple. More expressive architectures such as transformers or deep residual networks would increase capacity but also increase the risk of overfitting. The universal approximation property of MLPs~\cite{hornik1989multilayer,cybenko1989approximation} ensures that our residual can represent any continuous correction function given sufficient hidden units, while the modest hidden dimension acts as implicit regularization.
+
+\subsubsection{Numerical Integration}
+
+Given an initial condition $\bX(t_0)$ at time $t_0$, we generate forecasts by numerically integrating Equation~\ref{eq:nxro_main} forward in time. We employ an explicit Euler scheme with sub-stepping for stability:
+\begin{equation}
+    \bX_{k+1} = \bX_k + \Delta t \cdot \left[ \bL_\theta(t_k) \cdot \bX_k + R_\phi([\bX_k, \bphi(t_k)]) \right]
+\end{equation}
+where $\Delta t = 1/(12 \cdot N_{\text{step}})$ years and $N_{\text{step}}$ sub-steps are taken within each month. We typically use $N_{\text{step}} = 10$, yielding an effective time step of approximately 3 days. The forecast at lead $\ell$ months is obtained by accumulating $\ell \cdot N_{\text{step}}$ integration steps, with the monthly average reported as the forecast value.
+
+\subsection{Training Procedure}
+
+We train the model end-to-end by minimizing the mean squared forecast error across multiple lead times. Let $\{(\bX_i^{\text{obs}}, t_i)\}_{i=1}^N$ denote the training observations, where $\bX_i^{\text{obs}}$ is the observed state at time $t_i$. For each initialization time $t_i$, we integrate the model forward to generate forecasts $\hat{\bX}_i(t_i + \ell)$ at leads $\ell = 1, \ldots, L_{\max}$ months. The training objective is:
+\begin{equation}
+    \mathcal{L}(\theta, \phi) = \frac{1}{N \cdot L_{\max}} \sum_{i=1}^{N} \sum_{\ell=1}^{L_{\max}} \left\| \hat{\bX}_i(t_i + \ell) - \bX_i^{\text{obs}}(t_i + \ell) \right\|^2
+    \label{eq:loss}
+\end{equation}
+where $L_{\max} = 21$ months in our experiments, covering the operationally-relevant forecast horizon for ENSO.
+
+This multi-step loss differs fundamentally from XRO's fitting procedure, which minimizes one-step prediction error for each variable independently. By optimizing over extended forecast trajectories, our approach penalizes error accumulation and rewards coefficient configurations that maintain accuracy over long integration periods. The gradients $\partial \mathcal{L} / \partial \theta$ and $\partial \mathcal{L} / \partial \phi$ are computed via backpropagation~\cite{rumelhart1986learning} through the numerical integration, treating the Euler steps as a computation graph.
+
+We optimize using Adam~\cite{kingma2015adam} with learning rate $10^{-3}$, training for 1500 epochs with early stopping~\cite{prechelt1998early} based on validation loss. The validation set consists of forecasts initialized from a held-out portion of the training period. Weight decay of $10^{-4}$ provides additional regularization.
+
+\subsection{Alternative Nonlinear Components}
+\label{sec:ablations}
+
+While the MLP residual represents our primary model, we also investigate alternative parameterizations of the nonlinear component to understand which architectural choices are essential for performance. These alternatives share the same linear operator structure but differ in how they model the correction term.
+
+\subsubsection{Graph-Based Corrections}
+
+Climate dynamics exhibit structured interactions among variables---for instance, the Ni\~no3.4 index is strongly coupled to warm water volume but only weakly coupled to the Indian Ocean Dipole. A graph neural network~\cite{kipf2017gcn,wu2020comprehensive} can encode these interaction patterns explicitly through a sparse adjacency matrix. Recent work on multivariate time series forecasting with graph neural ODEs~\cite{jin2022multivariate} has demonstrated the effectiveness of combining continuous-time dynamics with structured variable interactions. We consider a graph-based residual of the form:
+\begin{equation}
+    R_{\text{graph}}(\bX, t) = \alpha(t) \cdot \tanh\left((\hat{\mathbf{A}} \bX) \mathbf{W}_g\right)
+\end{equation}
+where $\hat{\mathbf{A}} \in \R^{n \times n}$ is a normalized adjacency matrix derived from the XRO linear operator (retaining only strong coupling entries), $\mathbf{W}_g \in \R^{n \times n}$ is a learnable projection, and $\alpha(t)$ is a seasonally-varying gating coefficient. The graph structure provides a physics-informed sparsity pattern that prevents the model from learning spurious correlations.
+
+\subsubsection{Attention-Based Corrections}
+
+Attention mechanisms~\cite{vaswani2017attention} offer an alternative approach to modeling variable interactions, where the coupling strength depends on the current state. We implement a masked self-attention residual:
+\begin{equation}
+    R_{\text{attn}}(\bX, t) = \alpha(t) \cdot \mathbf{W}_o \cdot \text{softmax}\left(\frac{\mathbf{M} \odot (Q K^\top)}{\sqrt{d}}\right) V
+\end{equation}
+where $Q = \bX W_Q$, $K = \bX W_K$, $V = \bX W_V$ are query, key, and value projections, $\mathbf{M}$ is a mask that restricts which variables can attend to which, and $\alpha(t)$ again provides seasonal gating. The mask encodes prior knowledge about which interactions are physically plausible---for example, allowing the core ENSO variables to attend to all modes while restricting the principal components to attend only within their group.
+
+\subsubsection{Physics-Structured Corrections}
+
+At the opposite extreme from fully-learned residuals, we consider models that retain XRO's polynomial structure but optimize the coefficients via gradient descent. This variant uses:
+\begin{equation}
+    R_{\text{physics}}(\bX, t) = \mathcal{N}_{\text{RO}}(T, H, t) + \mathcal{N}_{\text{Diag}}(\bX, t)
+\end{equation}
+where $\mathcal{N}_{\text{RO}}$ and $\mathcal{N}_{\text{Diag}}$ are exactly as defined in Section~\ref{sec:background}, but with all coefficients treated as learnable parameters optimized jointly via the loss in Equation~\ref{eq:loss}. This allows us to isolate the contribution of end-to-end optimization from the choice of nonlinear basis.
+
+\subsubsection{Pure Linear and Pure Neural Baselines}
+
+To establish the necessity of both components, we include two limiting cases. The pure linear model sets $R_\phi \equiv 0$, retaining only the seasonal linear operator trained via gradient descent. This isolates the value of end-to-end linear optimization versus XRO's closed-form fit. The pure neural model sets $\bL_\theta \equiv 0$, using only an MLP to represent the full dynamics without explicit linear structure. This tests whether the linear operator provides meaningful inductive bias or whether sufficient data would allow a neural network to learn equivalent dynamics.
+
+We also evaluate a transformer-based architecture where the drift function is parameterized entirely by a transformer encoder, representing the extreme of applying modern deep learning without physics constraints.
+
+\subsection{Two-Stage Training via Transfer Learning}
+
+A natural question is whether pre-training on related datasets can improve generalization~\cite{pan2010transfer,weiss2016survey}. Climate science offers a unique opportunity for transfer learning: while observational records are short, climate models produce thousands of years of simulated data with realistic dynamics. We investigate a two-stage training procedure inspired by this observation.
+
+In the first stage, we train the model on synthetic climate indices derived from CMIP6~\cite{eyring2016cmip6} climate model simulations. These simulations span 500+ years per model across 100+ models, providing abundant data with realistic (though not identical) ENSO dynamics. The goal is to learn general features of climate variability---seasonal cycles, teleconnection patterns, amplitude-dependent behavior---that transfer to the real system.
+
+In the second stage, we fine-tune the pre-trained model on the observational training period (1979--2001 in our out-of-sample experiments). The pre-trained weights provide an initialization that may be closer to good solutions than random initialization, potentially enabling faster convergence and better generalization.
+
+The effectiveness of two-stage training depends on the similarity between synthetic and real dynamics. If the climate models have systematic biases that differ from reality, the pre-trained features may be counterproductive. We investigate this tradeoff empirically in Section~\ref{sec:deterministic}.
+
+\subsection{Selective Component Freezing}
+
+An intermediate approach between training from scratch and full transfer learning is to freeze certain model components at physics-informed values while training others. This strategy is motivated by the observation that some aspects of ENSO dynamics are well-characterized by XRO's closed-form fit while others may benefit from gradient-based refinement.
+
+We consider several freezing configurations. One approach freezes the RO nonlinear coefficients at their XRO-fitted values while training the linear operator via gradient descent, testing whether XRO's core physics is already optimal. Another freezes both the RO and diagonal terms while training only the linear operator, providing maximum regularization. A third adds a learnable MLP residual to the frozen physics components, allowing the network to capture dynamics beyond XRO's polynomial basis while preserving the fitted physics.
+
+These ablations help disentangle which XRO components are robust enough to freeze versus which benefit from joint optimization. The results, presented in Section~\ref{sec:deterministic}, reveal that XRO's RO coupling coefficients can often be frozen without performance loss, suggesting they capture fundamental physics, while the linear operator benefits from end-to-end refinement.
+
+\subsection{Model Complexity and Regularization}
+
+The tension between model capacity and generalization is acute in our setting. With only 276 monthly observations in the training period (1979--2001), even modest neural networks risk overfitting. We employ several regularization strategies beyond the implicit regularization of small network size.
+
+Weight decay~\cite{krogh1992simple} penalizes large parameter values, encouraging simpler functions. Early stopping terminates training when validation loss stops improving, preventing the model from memorizing training trajectories. The multi-step loss itself provides regularization by requiring the model to produce accurate forecasts at multiple horizons---a model that overfits to one-step dynamics will accumulate errors over longer integrations.
+
+The linear operator structure provides the strongest regularization. By factoring the dynamics into a well-understood linear component, we reduce the burden on the neural residual from learning the full dynamics to learning only the corrections. This factorization is only beneficial if the linear approximation is reasonable; in domains where dynamics are fundamentally nonlinear from the outset, a pure neural approach might be preferable.
+
+In Section~\ref{sec:deterministic}, we present a systematic comparison of all model variants, revealing how the interplay of architecture choice, regularization, and training procedure determines out-of-sample forecast skill.

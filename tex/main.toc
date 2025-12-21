@@ -1,0 +1,87 @@
+\contentsline {section}{\numberline {1}Introduction}{4}{section.1}%
+\contentsline {section}{\numberline {2}Background: ENSO Dynamics and the Extended Recharge Oscillator}{5}{section.2}%
+\contentsline {subsection}{\numberline {2.1}El Ni\~no-Southern Oscillation}{5}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Climate Modes and State Variables}{6}{subsection.2.2}%
+\contentsline {paragraph}{Ni\~no3.4 Index ($T$)}{6}{section*.2}%
+\contentsline {paragraph}{Warm Water Volume ($H$)}{6}{section*.3}%
+\contentsline {paragraph}{Ni\~no3 Index}{6}{section*.4}%
+\contentsline {paragraph}{Indian Ocean Dipole (IOD)}{6}{section*.5}%
+\contentsline {paragraph}{Principal Components (PC1--PC6)}{6}{section*.6}%
+\contentsline {subsection}{\numberline {2.3}The Recharge Oscillator Model}{6}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}The Extended Recharge Oscillator (XRO) Model}{7}{subsection.2.4}%
+\contentsline {subsubsection}{\numberline {2.4.1}Seasonal Linear Operator}{7}{subsubsection.2.4.1}%
+\contentsline {subsubsection}{\numberline {2.4.2}Recharge Oscillator Nonlinearities}{7}{subsubsection.2.4.2}%
+\contentsline {subsubsection}{\numberline {2.4.3}Diagonal Nonlinearities}{8}{subsubsection.2.4.3}%
+\contentsline {subsubsection}{\numberline {2.4.4}Stochastic Forcing}{8}{subsubsection.2.4.4}%
+\contentsline {subsection}{\numberline {2.5}XRO Fitting Procedure}{8}{subsection.2.5}%
+\contentsline {subsection}{\numberline {2.6}Limitations Motivating Neural Extensions}{9}{subsection.2.6}%
+\contentsline {section}{\numberline {3}Neural Residual Dynamics}{9}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Motivation: Physics-Informed Residual Learning}{9}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Model Formulation}{10}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Seasonal Linear Operator}{10}{subsubsection.3.2.1}%
+\contentsline {subsubsection}{\numberline {3.2.2}Seasonal Context Features}{10}{subsubsection.3.2.2}%
+\contentsline {subsubsection}{\numberline {3.2.3}Neural Residual Network}{10}{subsubsection.3.2.3}%
+\contentsline {subsubsection}{\numberline {3.2.4}Numerical Integration}{11}{subsubsection.3.2.4}%
+\contentsline {subsection}{\numberline {3.3}Training Procedure}{11}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Alternative Nonlinear Components}{11}{subsection.3.4}%
+\contentsline {subsubsection}{\numberline {3.4.1}Graph-Based Corrections}{12}{subsubsection.3.4.1}%
+\contentsline {subsubsection}{\numberline {3.4.2}Attention-Based Corrections}{12}{subsubsection.3.4.2}%
+\contentsline {subsubsection}{\numberline {3.4.3}Physics-Structured Corrections}{12}{subsubsection.3.4.3}%
+\contentsline {subsubsection}{\numberline {3.4.4}Pure Linear and Pure Neural Baselines}{12}{subsubsection.3.4.4}%
+\contentsline {subsection}{\numberline {3.5}Two-Stage Training via Transfer Learning}{13}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Selective Component Freezing}{13}{subsection.3.6}%
+\contentsline {subsection}{\numberline {3.7}Model Complexity and Regularization}{13}{subsection.3.7}%
+\contentsline {section}{\numberline {4}Experimental Evaluation: Deterministic Forecasting}{14}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Experimental Protocol}{14}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Overall Performance Comparison}{14}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Analysis of Alternative Architectures}{16}{subsection.4.3}%
+\contentsline {subsubsection}{\numberline {4.3.1}Graph-Based Models}{16}{subsubsection.4.3.1}%
+\contentsline {subsubsection}{\numberline {4.3.2}Attention-Based Models}{16}{subsubsection.4.3.2}%
+\contentsline {subsubsection}{\numberline {4.3.3}Physics-Structured Models}{16}{subsubsection.4.3.3}%
+\contentsline {subsubsection}{\numberline {4.3.4}Pure Linear Models}{17}{subsubsection.4.3.4}%
+\contentsline {subsubsection}{\numberline {4.3.5}Pure Neural Models}{17}{subsubsection.4.3.5}%
+\contentsline {subsubsection}{\numberline {4.3.6}Transformer Models}{17}{subsubsection.4.3.6}%
+\contentsline {subsection}{\numberline {4.4}The Generalization Gap}{18}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Transfer Learning Analysis}{18}{subsection.4.5}%
+\contentsline {subsection}{\numberline {4.6}Selective Freezing Experiments}{19}{subsection.4.6}%
+\contentsline {subsection}{\numberline {4.7}Comparison Across Evaluation Regimes}{20}{subsection.4.7}%
+\contentsline {subsection}{\numberline {4.8}Forecast Skill Across Lead Times}{20}{subsection.4.8}%
+\contentsline {subsection}{\numberline {4.9}Summary and Recommendations}{20}{subsection.4.9}%
+\contentsline {section}{\numberline {5}Stochastic Ensemble Forecasting}{21}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Continuous Ranked Probability Score (CRPS)}{22}{subsection.5.1}%
+\contentsline {subsubsection}{\numberline {5.1.1}Fair Ensemble CRPS Estimator}{22}{subsubsection.5.1.1}%
+\contentsline {subsection}{\numberline {5.2}Stochastic Model Formulation}{22}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Noise Training Methods}{22}{subsection.5.3}%
+\contentsline {subsubsection}{\numberline {5.3.1}Post-hoc Fitting (Baseline)}{23}{subsubsection.5.3.1}%
+\contentsline {subsubsection}{\numberline {5.3.2}Stage 2: Likelihood Optimization}{23}{subsubsection.5.3.2}%
+\contentsline {subsubsection}{\numberline {5.3.3}Stage 3: Simulation-Based Noise}{23}{subsubsection.5.3.3}%
+\contentsline {subsubsection}{\numberline {5.3.4}Stage 2+3: Combined}{23}{subsubsection.5.3.4}%
+\contentsline {subsection}{\numberline {5.4}Experimental Setup}{24}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Results: Out-of-Sample}{24}{subsection.5.5}%
+\contentsline {subsection}{\numberline {5.6}Results: In-Sample}{24}{subsection.5.6}%
+\contentsline {subsection}{\numberline {5.7}Comparison: In-Sample vs Out-of-Sample}{26}{subsection.5.7}%
+\contentsline {subsection}{\numberline {5.8}Why Stage 3 Fails}{26}{subsection.5.8}%
+\contentsline {subsection}{\numberline {5.9}Calibration Analysis}{26}{subsection.5.9}%
+\contentsline {subsection}{\numberline {5.10}Sample Forecast Plumes}{27}{subsection.5.10}%
+\contentsline {subsection}{\numberline {5.11}Historical ENSO Plume Visualizations}{27}{subsection.5.11}%
+\contentsline {subsection}{\numberline {5.12}Best Practices for Stochastic NXRO}{27}{subsection.5.12}%
+\contentsline {section}{\numberline {6}Conclusion}{30}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Main Findings}{30}{subsection.6.1}%
+\contentsline {subsubsection}{\numberline {6.1.1}Deterministic Forecasting}{30}{subsubsection.6.1.1}%
+\contentsline {subsubsection}{\numberline {6.1.2}Stochastic Forecasting}{30}{subsubsection.6.1.2}%
+\contentsline {subsection}{\numberline {6.2}Implications}{31}{subsection.6.2}%
+\contentsline {subsubsection}{\numberline {6.2.1}For Climate Forecasting}{31}{subsubsection.6.2.1}%
+\contentsline {subsubsection}{\numberline {6.2.2}For Machine Learning in Science}{31}{subsubsection.6.2.2}%
+\contentsline {subsection}{\numberline {6.3}Recommended Models}{31}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Future Work}{31}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Extended Training and Evaluation}{32}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Ensemble Methods}{32}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Architecture Improvements}{32}{subsection.7.3}%
+\contentsline {subsubsection}{\numberline {7.3.1}For Transformers}{32}{subsubsection.7.3.1}%
+\contentsline {subsubsection}{\numberline {7.3.2}For Graph Models}{32}{subsubsection.7.3.2}%
+\contentsline {subsection}{\numberline {7.4}Stochastic Modeling}{32}{subsection.7.4}%
+\contentsline {subsubsection}{\numberline {7.4.1}Understanding Stage 3 Failure}{32}{subsubsection.7.4.1}%
+\contentsline {subsubsection}{\numberline {7.4.2}Alternative Noise Models}{33}{subsubsection.7.4.2}%
+\contentsline {subsection}{\numberline {7.5}Interpretability and Physics Discovery}{33}{subsection.7.5}%
+\contentsline {subsection}{\numberline {7.6}Operational Deployment}{33}{subsection.7.6}%
+\contentsline {subsection}{\numberline {7.7}Broader Applications}{33}{subsection.7.7}%

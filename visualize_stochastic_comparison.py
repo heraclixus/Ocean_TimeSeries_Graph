@@ -19,13 +19,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-def load_stochastic_results(base_dir, compare_stages=False, compare_arp=False):
+def load_stochastic_results(base_dir, compare_stages=False, compare_arp=False, include_two_stage=False):
     """Load stochastic evaluation results for all models.
     
     Args:
         base_dir: Base results directory
         compare_stages: If True, load all stages (post-hoc, stage2, sim_noise, etc.)
         compare_arp: If True, load different AR(p) variants (AR1, AR2, etc.)
+        include_two_stage: If True, load both single-stage and two-stage trained models
     """
     results = {}
     import re
@@ -46,6 +47,7 @@ def load_stochastic_results(base_dir, compare_stages=False, compare_arp=False):
         'Attentive': f'{base_dir}/attentive',
         'RO+Diag': f'{base_dir}/rodiag',
         'Linear': f'{base_dir}/linear',
+        'Neural': f'{base_dir}/neural',
     }
     
     for model_name, model_dir in model_dirs.items():
@@ -105,10 +107,32 @@ def load_stochastic_results(base_dir, compare_stages=False, compare_arp=False):
                               if '_arp' not in os.path.basename(m) 
                               and '_stage' not in os.path.basename(m)
                               and '_sim_noise' not in os.path.basename(m)]
-            if standard_matches:
-                eval_file = max(standard_matches, key=os.path.getmtime)
-                results[f'NXRO-{model_name}'] = pd.read_csv(eval_file)
-                print(f"  Loaded NXRO-{model_name}: {eval_file}")
+            
+            if include_two_stage:
+                # Separate single-stage and two-stage models
+                # Two-stage models have '_extra_data' in their path or specific naming
+                single_stage_matches = [m for m in standard_matches 
+                                       if '_extra_data' not in m and 'finetuned' not in m]
+                two_stage_matches = [m for m in standard_matches 
+                                    if '_extra_data' in m or 'finetuned' in m]
+                
+                # Load single-stage if available
+                if single_stage_matches:
+                    eval_file = max(single_stage_matches, key=os.path.getmtime)
+                    results[f'NXRO-{model_name}'] = pd.read_csv(eval_file)
+                    print(f"  Loaded NXRO-{model_name}: {eval_file}")
+                
+                # Load two-stage if available
+                if two_stage_matches:
+                    eval_file = max(two_stage_matches, key=os.path.getmtime)
+                    results[f'NXRO-{model_name} (Two-Stage)'] = pd.read_csv(eval_file)
+                    print(f"  Loaded NXRO-{model_name} (Two-Stage): {eval_file}")
+            else:
+                # Original behavior: load most recent only
+                if standard_matches:
+                    eval_file = max(standard_matches, key=os.path.getmtime)
+                    results[f'NXRO-{model_name}'] = pd.read_csv(eval_file)
+                    print(f"  Loaded NXRO-{model_name}: {eval_file}")
     
     return results
 
@@ -125,6 +149,7 @@ def plot_crps_comparison(results, out_dir):
         'Attentive': '#EC407A',
         'RO+Diag': '#FF6F00',
         'Linear': '#2196F3',
+        'Neural': '#9C27B0',
     }
     
     # Linestyles for stages
@@ -193,6 +218,7 @@ def plot_spread_skill_comparison(results, out_dir):
         'NXRO-Attentive': '#EC407A',
         'NXRO-RO+Diag': '#FF6F00',
         'NXRO-Linear': '#2196F3',
+        'NXRO-Neural': '#9C27B0',
     }
     
     for model_name, df in results.items():
@@ -228,6 +254,7 @@ def plot_calibration_ratio(results, out_dir):
         'NXRO-Attentive': '#EC407A',
         'NXRO-RO+Diag': '#FF6F00',
         'NXRO-Linear': '#2196F3',
+        'NXRO-Neural': '#9C27B0',
     }
     
     for model_name, df in results.items():
@@ -378,6 +405,7 @@ def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
                     'Attentive': 'attentive',
                     'RO+Diag': 'rodiag',
                     'Linear': 'linear',
+                    'Neural': 'neural',
                 }
                 
                 model_dir = model_dirs.get(base_model, base_model.lower())
@@ -385,6 +413,12 @@ def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
                 # Handle graph special case
                 if base_model == 'Graph':
                     fcst_path = f'{base_dir}/{model_dir}/NXRO_GRAPHPYG_GCN_K3_stochastic{suffix}_forecasts.nc'
+                elif base_model == 'Neural' and 'Two-Stage' in model_name:
+                    # Two-stage models may have _extra_data suffix
+                    fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic_extra_data_forecasts.nc'
+                    # Fallback if not found
+                    if not os.path.exists(fcst_path):
+                        fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
                 else:
                     fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
                 
@@ -469,6 +503,7 @@ def plot_ensemble_mean_skill(results, out_dir):
         'NXRO-Attentive': '#EC407A',
         'NXRO-RO+Diag': '#FF6F00',
         'NXRO-Linear': '#2196F3',
+        'NXRO-Neural': '#9C27B0',
     }
     
     # Plot RMSE
@@ -652,6 +687,7 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
                     'Attentive': 'attentive',
                     'RO+Diag': 'rodiag',
                     'Linear': 'linear',
+                    'Neural': 'neural',
                 }
                 
                 model_dir = model_dirs.get(base_model, base_model.lower())
@@ -659,6 +695,12 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
                 # Construct file path
                 if base_model == 'Graph':
                     fcst_path = f'{base_dir}/{model_dir}/NXRO_GRAPHPYG_GCN_K3_stochastic{suffix}_forecasts.nc'
+                elif base_model == 'Neural' and 'Two-Stage' in model_name:
+                    # Two-stage models may have _extra_data suffix
+                    fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic_extra_data_forecasts.nc'
+                    # Fallback if not found
+                    if not os.path.exists(fcst_path):
+                        fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
                 else:
                     fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
                 
@@ -689,6 +731,7 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
                     'Attentive': '#EC407A',
                     'RO+Diag': '#FF6F00',
                     'Linear': '#2196F3',
+                    'Neural': '#9C27B0',
                 }
                 color = colors.get(base_model, '#666666')
                 
@@ -823,6 +866,8 @@ def main():
                        help='Compare all stages (post-hoc, S2, S3, S2+S3) instead of just most recent')
     parser.add_argument('--compare_arp', action='store_true',
                        help='Compare different AR(p) noise models (AR1, AR2, etc.)')
+    parser.add_argument('--include_two_stage', action='store_true',
+                       help='Include two-stage trained models (synthetic pre-training + fine-tuning)')
     parser.add_argument('--plot_plumes', action='store_true',
                        help='Generate detailed forecast plume plots for specific dates')
     parser.add_argument('--plume_dates', type=str, nargs='+',
@@ -838,13 +883,16 @@ def main():
         print(f"Mode: COMPARE ALL STAGES (post-hoc, S2, S3, S2+S3)")
     elif args.compare_arp:
         print(f"Mode: COMPARE AR(p) VARIANTS (AR1, AR2, etc.)")
+    elif args.include_two_stage:
+        print(f"Mode: Compare models (including two-stage trained models)")
     else:
         print(f"Mode: Compare models (most recent run only)")
     print()
     
     # Load results
     print("Loading stochastic evaluation results...")
-    results = load_stochastic_results(args.results_dir, compare_stages=args.compare_stages, compare_arp=args.compare_arp)
+    results = load_stochastic_results(args.results_dir, compare_stages=args.compare_stages, 
+                                     compare_arp=args.compare_arp, include_two_stage=args.include_two_stage)
     
     if len(results) == 0:
         print("[X] No stochastic results found!")
@@ -859,6 +907,8 @@ def main():
         out_dir = f'{args.results_dir}/rankings/stochastic_stages_comparison'
     elif args.compare_arp:
         out_dir = f'{args.results_dir}/rankings/stochastic_arp_comparison'
+    elif args.include_two_stage:
+        out_dir = f'{args.results_dir}/rankings/stochastic_comparison_with_two_stage'
     else:
         out_dir = f'{args.results_dir}/rankings/stochastic_comparison'
     os.makedirs(out_dir, exist_ok=True)

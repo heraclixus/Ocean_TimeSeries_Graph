@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "================================================================================"
-echo "STOCHASTIC ENSEMBLE EVALUATION: Top 5 Models + XRO Baseline"
+echo "STOCHASTIC ENSEMBLE EVALUATION: Top 6 Models + XRO Baseline"
 echo "================================================================================"
 echo "Configuration:"
 echo "  Dataset: ORAS5 only"
@@ -107,16 +107,16 @@ PYEOF
 export MEMBERS
 echo ""
 
-# Top 5 NXRO models
+# Top 6 NXRO models (including Neural Two-Stage)
 echo "================================================================================"
-echo "[1/5] NXRO-Res (Rank 1)"
+echo "[1/6] NXRO-Res (Rank 1)"
 echo "================================================================================"
 python NXRO_train_out_of_sample.py --model res \
   --stochastic --members $MEMBERS --device $DEVICE $STAGE2_FLAG $SIM_NOISE_FLAG
 echo ""
 
 echo "================================================================================"
-echo "[2/5] NXRO-Graph Fixed XRO (Rank 2)"
+echo "[2/6] NXRO-Graph Fixed XRO (Rank 2)"
 echo "================================================================================"
 echo "Using default XRO topology with k=3, GCN"
 python NXRO_train_out_of_sample.py --model graph_pyg --top_k 3 \
@@ -124,23 +124,31 @@ python NXRO_train_out_of_sample.py --model graph_pyg --top_k 3 \
 echo ""
 
 echo "================================================================================"
-echo "[3/5] NXRO-Attentive (Rank 3)"
+echo "[3/6] NXRO-Attentive (Rank 3)"
 echo "================================================================================"
 python NXRO_train_out_of_sample.py --model attentive \
   --stochastic --members $MEMBERS --device $DEVICE $STAGE2_FLAG $SIM_NOISE_FLAG
 echo ""
 
 echo "================================================================================"
-echo "[4/5] NXRO-RO+Diag (Rank 4)"
+echo "[4/6] NXRO-RO+Diag (Rank 4)"
 echo "================================================================================"
 python NXRO_train_out_of_sample.py --model rodiag \
   --stochastic --members $MEMBERS --device $DEVICE $STAGE2_FLAG $SIM_NOISE_FLAG
 echo ""
 
 echo "================================================================================"
-echo "[5/5] NXRO-Linear (Rank 5)"
+echo "[5/6] NXRO-Linear (Rank 5)"
 echo "================================================================================"
 python NXRO_train_out_of_sample.py --model linear \
+  --stochastic --members $MEMBERS --device $DEVICE $STAGE2_FLAG $SIM_NOISE_FLAG
+echo ""
+
+echo "================================================================================"
+echo "[6/6] NXRO-Neural (Two-Stage) (Rank 6)"
+echo "================================================================================"
+python NXRO_train_out_of_sample.py --model neural --two_stage \
+  --extra_train_nc auto \
   --stochastic --members $MEMBERS --device $DEVICE $STAGE2_FLAG $SIM_NOISE_FLAG
 echo ""
 
@@ -152,9 +160,10 @@ echo "All models evaluated with ${MEMBERS}-member ensembles"
 echo "Results saved to: ${BASE_DIR}/{model}/*_stochastic_*"
 echo ""
 echo "Next steps:"
-echo "  1. Visualize: python visualize_stochastic_comparison.py"
-echo "  2. Review plume plots in each model directory"
-echo "  3. Compare CRPS, spread-skill, coverage across models"
+echo "  1. Visualize (standard): python visualize_stochastic_comparison.py"
+echo "  2. Visualize (with two-stage): python visualize_stochastic_comparison.py --include_two_stage"
+echo "  3. Review plume plots in each model directory"
+echo "  4. Compare CRPS, spread-skill, coverage across models"
 echo ""
 echo "================================================================================"
 
