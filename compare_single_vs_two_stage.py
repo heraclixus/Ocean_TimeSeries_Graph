@@ -30,16 +30,78 @@ def load_data(single_stage_path, two_stage_path):
     
     return df_single, df_two
 
+def apply_display_names(df):
+    """Apply consistent display names to model names."""
+    # Mapping from CSV model names to display names
+    name_mapping = {
+        'Res': 'NXRO+MLP Residual',
+        'Graph Fixed Xro': 'NXRO + Graph Residual',
+        'Attentive': 'NXRO+Attention Residual',
+        'Neural': 'Neural ODE',
+        'Transformer': 'Transformer',
+        'XRO': 'XRO (baseline)',
+        'Linear': 'NXRO-Linear',
+        'Neural Phys': 'Neural ODE (Physics)',
+        'RO+Diag': 'RO+Diag',
+        'RO+Diag FixNL': 'RO+Diag FixNL',
+        'RO+Diag FixRO': 'RO+Diag FixRO',
+        'ResidualMix FixRO': 'ResidualMix FixRO',
+        'Graphpyg Gat K3': 'GraphPyG GAT K3',
+    }
+    
+    df = df.copy()
+    
+    def map_name(name):
+        # Remove (Two-Stage) suffix for matching
+        base_name = name.replace(' (Two-Stage)', '')
+        if base_name in name_mapping:
+            mapped = name_mapping[base_name]
+            # Re-add suffix if it was present
+            if '(Two-Stage)' in name:
+                return mapped + ' (Two-Stage)'
+            return mapped
+        return name
+    
+    df['Display_Name'] = df['Model'].apply(map_name)
+    return df
+
+
+def filter_pathological_cases(df):
+    """Filter out models with inf or NaN RMSE/ACC values."""
+    df = df.copy()
+    # Filter out rows with inf or NaN in key metrics
+    mask = (
+        np.isfinite(df['Mean_RMSE_Test']) & 
+        np.isfinite(df['Mean_ACC_Test']) &
+        np.isfinite(df['Mean_RMSE_Train']) & 
+        np.isfinite(df['Mean_ACC_Train'])
+    )
+    filtered = df[mask]
+    n_removed = len(df) - len(filtered)
+    if n_removed > 0:
+        removed_models = df[~mask]['Model'].tolist()
+        print(f"  Filtered out {n_removed} pathological model(s): {removed_models}")
+    return filtered
+
+
 def match_models(df_single, df_two):
     """Match models between single and two-stage dataframes."""
+    # Filter out pathological cases first
+    df_single = filter_pathological_cases(df_single)
+    df_two = filter_pathological_cases(df_two)
+    
+    # Apply display names first
+    df_single = apply_display_names(df_single)
+    df_two = apply_display_names(df_two)
+    
     # Create a matching key for two-stage models by stripping the suffix
-    # e.g., "NXRO-Res (Two-Stage)" -> "NXRO-Res"
+    # e.g., "NXRO+MLP Residual (Two-Stage)" -> "NXRO+MLP Residual"
     df_two = df_two.copy()
-    df_two['Match_Name'] = df_two['Model'].str.replace(' (Two-Stage)', '', regex=False)
+    df_two['Match_Name'] = df_two['Display_Name'].str.replace(' (Two-Stage)', '', regex=False)
     
     # Clean single stage names if needed (though they should be clean)
     df_single = df_single.copy()
-    df_single['Match_Name'] = df_single['Model']
+    df_single['Match_Name'] = df_single['Display_Name']
     
     # Merge
     # Use inner join to compare only models present in both
@@ -105,8 +167,16 @@ def plot_comparison(merged_df, metric, output_dir):
 def plot_overall_ranking(df_single, df_two, output_dir):
     """Plot overall ranking of top 5 models + XRO (mixed single and two-stage)."""
     
+    # Filter out pathological cases first
+    df_single = filter_pathological_cases(df_single)
+    df_two = filter_pathological_cases(df_two)
+    
+    # Apply display names
+    df_single = apply_display_names(df_single)
+    df_two = apply_display_names(df_two)
+    
     # 1. Prepare combined dataframe
-    cols = ['Model', 'Mean_ACC_Test', 'Mean_RMSE_Test']
+    cols = ['Display_Name', 'Mean_ACC_Test', 'Mean_RMSE_Test']
     
     # Ensure columns exist
     for df in [df_single, df_two]:
@@ -115,17 +185,18 @@ def plot_overall_ranking(df_single, df_two, output_dir):
                 print(f"Warning: Column {col} not found. Skipping overall ranking plot.")
                 return
 
-    df_combined = pd.concat([df_single[cols], df_two[cols]], ignore_index=True)
+    df_combined = pd.concat([df_single[cols].rename(columns={'Display_Name': 'Model'}), 
+                            df_two[cols].rename(columns={'Display_Name': 'Model'})], ignore_index=True)
     
-    # 2. Add XRO Baseline
+    # 2. Add XRO Baseline (if not already in data)
     # Values from results_out_of_sample.md or known baseline
-    xro_row = pd.DataFrame([{
-        'Model': 'XRO (Baseline)',
-        'Mean_ACC_Test': 0.596,
-        'Mean_RMSE_Test': 0.605
-    }])
-    
-    df_combined = pd.concat([df_combined, xro_row], ignore_index=True)
+    if 'XRO (baseline)' not in df_combined['Model'].values:
+        xro_row = pd.DataFrame([{
+            'Model': 'XRO (baseline)',
+            'Mean_ACC_Test': 0.596,
+            'Mean_RMSE_Test': 0.605
+        }])
+        df_combined = pd.concat([df_combined, xro_row], ignore_index=True)
     
     # 3. Generate plots for RMSE and ACC
     for metric in ['RMSE', 'ACC']:
@@ -143,11 +214,11 @@ def plot_overall_ranking(df_single, df_two, output_dir):
         top_5 = df_sorted.head(5).copy()
         
         # Check if XRO is in top 5
-        xro_in_top5 = 'XRO (Baseline)' in top_5['Model'].values
+        xro_in_top5 = 'XRO (baseline)' in top_5['Model'].values
         
         # If XRO not in top 5, append it for comparison
         if not xro_in_top5:
-            xro_entry = df_combined[df_combined['Model'] == 'XRO (Baseline)']
+            xro_entry = df_combined[df_combined['Model'] == 'XRO (baseline)']
             plot_df = pd.concat([top_5, xro_entry], ignore_index=True)
         else:
             plot_df = top_5
@@ -158,7 +229,7 @@ def plot_overall_ranking(df_single, df_two, output_dir):
         # Colors: Highlight XRO, distinguish others
         colors = []
         for model in plot_df['Model']:
-            if 'XRO (Baseline)' in model:
+            if 'XRO (baseline)' in model:
                 colors.append('black')
             elif '(Two-Stage)' in model:
                 colors.append('tab:green') # Two-stage
@@ -184,7 +255,7 @@ def plot_overall_ranking(df_single, df_two, output_dir):
         legend_elements = [
             Patch(facecolor='tab:blue', alpha=0.7, label='Single-Stage'),
             Patch(facecolor='tab:green', alpha=0.7, label='Two-Stage'),
-            Patch(facecolor='black', alpha=0.7, label='XRO (Baseline)')
+            Patch(facecolor='black', alpha=0.7, label='XRO (baseline)')
         ]
         plt.legend(handles=legend_elements)
         

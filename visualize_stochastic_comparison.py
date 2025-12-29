@@ -780,6 +780,213 @@ def plot_forecast_plumes(results, base_dir, out_dir, init_dates=None):
     obs_ds.close()
 
 
+def plot_spring_barrier_forecasts(results, base_dir, out_dir, selected_models=None):
+    """
+    Plot forecasts specifically designed to test the "spring barrier" phenomenon.
+    
+    The spring barrier refers to the difficulty in making skillful ENSO predictions
+    across the boreal spring (March-May), when predictability drops significantly.
+    
+    We test forecasts initialized in winter (Dec-Feb) that must predict through
+    spring to capture the development and peak of major El Niño events:
+    - 1982-83 El Niño (peaked Dec 1982 - Jan 1983)
+    - 1997-98 El Niño (peaked Nov 1997 - Jan 1998) 
+    - 2015-16 El Niño (peaked Nov 2015 - Feb 2016)
+    
+    Style: Each model in its own subplot with ensemble mean + uncertainty bands.
+    
+    Args:
+        results: Dictionary of model results
+        base_dir: Base results directory
+        out_dir: Output directory for plots
+        selected_models: List of model names to plot
+    """
+    import datetime
+    from dateutil.relativedelta import relativedelta
+    import matplotlib.dates as mdates
+    
+    # Spring barrier test cases - Major El Niño events (historical + out-of-sample)
+    # Initialize in winter (Jan) to test prediction through spring barrier to peak
+    spring_barrier_cases = [
+        # Historical events (in-sample period)
+        {
+            'name': '1982-83 El Niño',
+            'init_date': '1982-01',
+            'event_peak': 'Dec 1982 - Jan 1983',
+        },
+        {
+            'name': '1997-98 El Niño', 
+            'init_date': '1997-01',
+            'event_peak': 'Nov 1997 - Jan 1998',
+        },
+        # Out-of-sample period events
+        {
+            'name': '2009-10 El Niño',
+            'init_date': '2009-01',
+            'event_peak': 'Nov 2009 - Jan 2010',
+        },
+        {
+            'name': '2015-16 El Niño', 
+            'init_date': '2015-01',
+            'event_peak': 'Nov 2015 - Feb 2016',
+        },
+        {
+            'name': '2018-19 El Niño',
+            'init_date': '2018-01',
+            'event_peak': 'Oct 2018 - Feb 2019',
+        },
+    ]
+    
+    # Load observations
+    obs_ds = xr.open_dataset('data/XRO_indices_oras5.nc')
+    
+    # Fixed model list: XRO, NXRO-MLP (Res), NXRO-Graph, NXRO-Attentive, NXRO-Linear
+    # Based on actual files found in results_out_of_sample
+    model_configs = [
+        {'key': 'XRO', 'display': 'XRO Baseline', 'dir': 'xro_baseline', 
+         'file_patterns': ['xro_stochastic_fcst.nc'],
+         'color': 'red', 'is_xro': True},
+        {'key': 'Res', 'display': 'NXRO-MLP', 'dir': 'res', 
+         'file_patterns': ['NXRO_RES_stochastic_forecasts.nc', 'NXRO_RES_stochastic_stage2_forecasts.nc'],
+         'color': '#4CAF50', 'is_xro': False},
+        {'key': 'Graph', 'display': 'NXRO-Graph', 'dir': 'graphpyg/gcn_k3', 
+         'file_patterns': ['NXRO_GRAPHPYG_GCN_K3_stochastic_forecasts.nc'],
+         'color': '#78909C', 'is_xro': False},
+        {'key': 'Attentive', 'display': 'NXRO-Attentive', 'dir': 'attentive', 
+         'file_patterns': ['NXRO_ATTENTIVE_stochastic_forecasts.nc', 'NXRO_ATTENTIVE_stochastic_stage2_forecasts.nc'],
+         'color': '#EC407A', 'is_xro': False},
+        {'key': 'Linear', 'display': 'NXRO-Linear', 'dir': 'linear', 
+         'file_patterns': ['NXRO_linear_stochastic_forecasts.nc', 'NXRO_LINEAR_stochastic_forecasts.nc'],
+         'color': '#2196F3', 'is_xro': False},
+    ]
+    
+    print("\n" + "="*80)
+    print("SPRING BARRIER FORECAST VISUALIZATION")
+    print("="*80)
+    print("Testing prediction skill across the boreal spring barrier (Mar-May)")
+    print("for major El Niño events initialized in winter (Jan)")
+    print(f"Models: {[m['display'] for m in model_configs]}")
+    print()
+    
+    # Helper function to find forecast file
+    def find_forecast_file(model_config):
+        """Find the stochastic forecast NetCDF file for a model."""
+        # Try all file patterns for this model
+        for pattern in model_config['file_patterns']:
+            path = f'{base_dir}/{model_config["dir"]}/{pattern}'
+            if os.path.exists(path):
+                return path
+        return None
+    
+    # Generate plot for each El Niño event
+    for case in spring_barrier_cases:
+        init_date = case['init_date']
+        event_name = case['name']
+        
+        print(f"\n  Processing {event_name} (Init: {init_date})...")
+        
+        # Create figure with subplots - one per model (like plume comparison)
+        n_models = len(model_configs)
+        fig, axes = plt.subplots(n_models, 1, figsize=(12, 4 * n_models))
+        
+        if n_models == 1:
+            axes = [axes]
+        
+        # Setup time axis
+        try:
+            xdate_init = datetime.datetime.strptime(init_date + '-01', "%Y-%m-%d").date()
+        except:
+            print(f"    [!] Invalid init date: {init_date}")
+            continue
+        
+        xdate_strt = xdate_init + relativedelta(months=-2)
+        xdate_last = xdate_init + relativedelta(months=20)
+        
+        # Plot each model in its own subplot
+        for ax_idx, model_config in enumerate(model_configs):
+            ax = axes[ax_idx]
+            
+            fcst_path = find_forecast_file(model_config)
+            if fcst_path is None:
+                print(f"    [!] Forecast file not found for {model_config['display']}")
+                ax.text(0.5, 0.5, f"No data for {model_config['display']}", 
+                       ha='center', va='center', transform=ax.transAxes, fontsize=12)
+                ax.set_title(f"{model_config['display']} - Init: {init_date}", fontsize=11, fontweight='bold')
+                continue
+            
+            try:
+                fcst_ds = xr.open_dataset(fcst_path)
+                
+                # Get forecast data - use sel directly (like plot_forecast_plumes does)
+                # The init coordinate may be datetime objects, not strings
+                fcst_var = fcst_ds['Nino34'].sel(init=init_date)
+                fcst_mean = fcst_var.mean('member').squeeze()
+                fcst_std = fcst_var.std('member').squeeze()
+                
+                nlead = len(fcst_mean.lead)
+                xtime_fcst = [xdate_init + relativedelta(months=int(i)) for i in range(nlead)]
+                
+                # Plot ensemble mean with uncertainty band
+                color = model_config['color']
+                ax.plot(xtime_fcst, fcst_mean.values, c=color, marker='.', lw=2.5,
+                       label=f'{model_config["display"]} Ensemble Mean')
+                ax.fill_between(xtime_fcst,
+                               fcst_mean.values - fcst_std.values,
+                               fcst_mean.values + fcst_std.values,
+                               fc=color, alpha=0.3, label='±1 Std Dev')
+                
+                fcst_ds.close()
+                
+                # Plot observations
+                try:
+                    sel_obs = obs_ds['Nino34'].sel(time=slice(xdate_strt, xdate_last))
+                    ax.plot(sel_obs.time.values, sel_obs.values, c='black',
+                           marker='o', markersize=3, lw=2, label='Observed', alpha=0.8)
+                except:
+                    pass
+                
+                # Formatting
+                ax.axhline(0, c='gray', ls='-', lw=0.5, alpha=0.5)
+                ax.axhline(0.5, c='red', ls='--', lw=1, alpha=0.3)
+                ax.axhline(-0.5, c='blue', ls='--', lw=1, alpha=0.3)
+                
+                ax.xaxis.set_major_locator(mdates.MonthLocator((1, 4, 7, 10)))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+                ax.set_xlim([xdate_strt, xdate_last])
+                ax.set_ylim([-3, 3])
+                ax.set_ylabel('Niño3.4 SSTA (°C)', fontsize=10)
+                ax.set_title(f'{model_config["display"]} - Init: {init_date}', fontsize=11, fontweight='bold')
+                ax.legend(fontsize=9, loc='upper left')
+                ax.grid(True, alpha=0.3)
+                
+                print(f"    ✓ Plotted {model_config['display']}")
+                
+            except KeyError as e:
+                print(f"    [!] Init date {init_date} not in {model_config['display']} forecast")
+                ax.text(0.5, 0.5, f"Init date {init_date} not available", 
+                       ha='center', va='center', transform=ax.transAxes, fontsize=12)
+                ax.set_title(f'{model_config["display"]} - Init: {init_date}', fontsize=11, fontweight='bold')
+            except Exception as e:
+                print(f"    [!] Error plotting {model_config['display']}: {e}")
+                ax.text(0.5, 0.5, f"Error: {str(e)[:50]}", 
+                       ha='center', va='center', transform=ax.transAxes, fontsize=10)
+                ax.set_title(f'{model_config["display"]} - Init: {init_date}', fontsize=11, fontweight='bold')
+        
+        plt.suptitle(f'Spring Barrier Test: {event_name}', 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout(rect=[0, 0, 1, 0.97])  # Leave space at top for suptitle
+        
+        safe_name = event_name.replace(' ', '_').replace('-', '_')
+        out_path = f'{out_dir}/spring_barrier_{safe_name}.png'
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"    ✓ Saved: {out_path}")
+    
+    obs_ds.close()
+    print("\n  Spring barrier visualization complete!")
+
+
 def print_summary_table(results, out_dir):
     """Print comprehensive summary table."""
     print("\n" + "="*80)
@@ -873,6 +1080,8 @@ def main():
     parser.add_argument('--plume_dates', type=str, nargs='+',
                        default=['1997-04', '1997-12', '2022-09'],
                        help='Initialization dates for plume plots (format: YYYY-MM)')
+    parser.add_argument('--spring_barrier', action='store_true',
+                       help='Generate spring barrier test visualizations for major El Niño events (1982-83, 1997-98, 2015-16)')
     args = parser.parse_args()
     
     print("="*80)
@@ -928,6 +1137,11 @@ def main():
         print("\nGenerating detailed forecast plume plots...")
         plot_forecast_plumes(results, args.results_dir, out_dir, init_dates=args.plume_dates)
     
+    # Generate spring barrier visualizations if requested
+    if args.spring_barrier:
+        print("\nGenerating spring barrier test visualizations...")
+        plot_spring_barrier_forecasts(results, args.results_dir, out_dir)
+    
     # Print summary
     print_summary_table(results, out_dir)
     
@@ -939,6 +1153,9 @@ def main():
     print("  - forecast_*.png (forecast visualizations for top 5 models + XRO)")
     if args.plot_plumes:
         print("  - plume_comparison_*.png (detailed forecast plumes for specified dates)")
+    if args.spring_barrier:
+        print("  - spring_barrier_*.png (spring barrier test for 1982-83, 1997-98, 2015-16 El Niño)")
+        print("  - spring_barrier_summary_comparison.png (combined comparison)")
     print("  - stochastic_summary_metrics.csv (complete metrics table)")
     print("\n" + "="*80)
 

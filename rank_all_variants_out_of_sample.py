@@ -228,6 +228,10 @@ def get_variant_label(ckpt_path):
     label = label.replace('Fixphysics', 'FixPhysics')
     label = label.replace('Rodiag', 'RO+Diag').replace('Resmix', 'ResidualMix')
     
+    # Rename Linear to NXRO-Linear (only standalone "Linear", not "Linear XRO" baseline)
+    if label == 'Linear' or label.startswith('Linear '):
+        label = 'NXRO-Linear' + label[6:]  # Keep any suffix like " WS" or " (Two-Stage)"
+    
     return label
 
 
@@ -334,6 +338,169 @@ def load_and_evaluate_dual(ckpt_path, obs_ds, train_period, test_period):
         return None
 
 
+def plot_figure_one(output_dir='results_out_of_sample/rankings', two_stage=False):
+    """
+    Generate Figure 1: Selected models comparison plot for the paper.
+    
+    Includes only:
+    - XRO (baseline)
+    - NXRO+MLP Residual (Res)
+    - NXRO + Graph Residual (Graph Fixed Xro)
+    - NXRO+Attention Residual (Attentive)
+    - Neural ODE (Neural)
+    - Transformer
+    
+    Args:
+        output_dir: Directory to save the output plot
+        two_stage: If True, use two-stage (pre-trained + fine-tuned) model checkpoints
+    """
+    import warnings
+    warnings.filterwarnings("ignore")
+    
+    # Model name mapping: internal key -> Display name
+    # For two-stage, we append "(Two-Stage)" to the display name
+    suffix = ' (Two-Stage)' if two_stage else ''
+    model_mapping = {
+        'XRO': 'XRO (baseline)',
+        'Res': f'NXRO+MLP Residual{suffix}',
+        'Graph Fixed Xro': f'NXRO + Graph Residual{suffix}',
+        'Attentive': f'NXRO+Attention Residual{suffix}',
+        'Neural': f'Neural ODE{suffix}',
+        'Transformer': f'Transformer{suffix}',
+    }
+    
+    # Load data
+    obs_ds = xr.open_dataset('data/XRO_indices_oras5.nc')
+    
+    train_start, train_end = '1979-01', '2001-12'
+    test_start, test_end = '2002-01', '2022-12'
+    train_period = slice(train_start, train_end)
+    test_period = slice(test_start, test_end)
+    
+    # Fit XRO baseline
+    print("Fitting XRO baseline...")
+    train_ds = obs_ds.sel(time=train_period)
+    xro_ac2 = XRO(ncycle=12, ac_order=2)
+    xro_ac2_fit = xro_ac2.fit_matrix(train_ds, maskb=['IOD'], maskNT=['T2', 'TH'])
+    xro_fcst = xro_ac2.reforecast(fit_ds=xro_ac2_fit, init_ds=obs_ds, n_month=21, ncopy=1, noise_type='zero')
+    xro_rmse_test = calc_forecast_skill(xro_fcst, obs_ds, metric='rmse', is_mv3=True,
+                                        by_month=False, verify_periods=test_period)
+    
+    # Checkpoint paths for the selected models
+    if two_stage:
+        # Two-stage: use real_finetuned checkpoints
+        checkpoint_paths = {
+            'Res': 'results_out_of_sample/res/nxro_res_real_finetuned.pt',
+            'Graph Fixed Xro': 'results_out_of_sample/graph/fixed_xro/nxro_graph_fixed_xro_real_finetuned.pt',
+            'Attentive': 'results_out_of_sample/attentive/nxro_attentive_real_finetuned.pt',
+            'Neural': 'results_out_of_sample/neural/nxro_neural_real_finetuned.pt',
+            'Transformer': 'results_out_of_sample/transformer/nxro_transformer_real_finetuned.pt',
+        }
+    else:
+        # Standard: use best checkpoints
+        checkpoint_paths = {
+            'Res': 'results_out_of_sample/res/nxro_res_best.pt',
+            'Graph Fixed Xro': 'results_out_of_sample/graph/fixed_xro/nxro_graph_fixed_xro_best.pt',
+            'Attentive': 'results_out_of_sample/attentive/nxro_attentive_best.pt',
+            'Neural': 'results_out_of_sample/neural/nxro_neural_best.pt',
+            'Transformer': 'results_out_of_sample/transformer/nxro_transformer_best.pt',
+        }
+    
+    # Load and evaluate each model
+    results = {}
+    
+    # Add XRO baseline
+    results['XRO'] = {
+        'rmse_test': xro_rmse_test,
+        'display_name': model_mapping['XRO'],
+    }
+    
+    print("Loading NXRO models...")
+    for model_name, ckpt_path in checkpoint_paths.items():
+        if not os.path.exists(ckpt_path):
+            print(f"  Warning: {ckpt_path} not found, skipping {model_name}")
+            continue
+            
+        model_class, model_kwargs = infer_model_class_and_kwargs(ckpt_path)
+        if model_class is None:
+            print(f"  Warning: Could not infer model class for {model_name}")
+            continue
+            
+        try:
+            ckpt = torch.load(ckpt_path, map_location='cpu')
+            var_order = ckpt['var_order']
+            
+            model = model_class(**model_kwargs)
+            model.load_state_dict(ckpt['state_dict'])
+            
+            fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device='cpu')
+            rmse_test = calc_forecast_skill(fcst, obs_ds, metric='rmse', is_mv3=True,
+                                           by_month=False, verify_periods=test_period)
+            
+            results[model_name] = {
+                'rmse_test': rmse_test,
+                'display_name': model_mapping[model_name],
+            }
+            print(f"  ✓ Loaded {model_name}")
+            
+        except Exception as e:
+            print(f"  ✗ Failed to load {model_name}: {e}")
+    
+    # Define colors for each model
+    colors = {
+        'XRO': 'black',
+        'Res': '#E69F00',  # Orange
+        'Graph Fixed Xro': '#009E73',  # Green
+        'Attentive': '#CC79A7',  # Pink
+        'Neural': '#D55E00',  # Red-orange
+        'Transformer': '#0072B2',  # Blue
+    }
+    
+    # Define order for plotting (XRO first, then others)
+    plot_order = ['XRO', 'Res', 'Graph Fixed Xro', 'Attentive', 'Neural', 'Transformer']
+    
+    # Create the RMSE plot
+    print("\nGenerating Figure 1...")
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    
+    for model_name in plot_order:
+        if model_name not in results:
+            continue
+            
+        result = results[model_name]
+        rmse_vals = result['rmse_test']['Nino34'].values
+        lead_vals = result['rmse_test']['Nino34'].lead.values
+        display_name = result['display_name']
+        
+        if model_name == 'XRO':
+            # XRO baseline with dashed line
+            ax.plot(lead_vals, rmse_vals, label=display_name, 
+                   lw=3, linestyle='--', color=colors[model_name], alpha=0.9)
+        else:
+            ax.plot(lead_vals, rmse_vals, label=display_name, 
+                   lw=2, marker='o', markersize=4, color=colors[model_name])
+    
+    ax.set_ylabel('RMSE (°C)', fontsize=12)
+    ax.set_xlabel('Forecast Lead (months)', fontsize=12)
+    title_suffix = ' (Two-Stage)' if two_stage else ''
+    ax.set_title(f'NXRO Model Comparison: RMSE (Out-of-Sample 2002-2022){title_suffix}', fontsize=13, fontweight='bold')
+    ax.set_xlim([0, 21])
+    ax.set_ylim([0.0, 1.0])
+    ax.legend(fontsize=10, loc='lower right')
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    file_suffix = '_two_stage' if two_stage else ''
+    output_path = f'{output_dir}/figure1_selected_models_rmse{file_suffix}.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"✓ Saved Figure 1 to: {output_path}")
+    
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(description='Rank NXRO variants (Out-of-Sample Experiment)')
     parser.add_argument('--top_n', type=int, default=5, help='Number of top models to display/plot')
@@ -343,7 +510,13 @@ def main():
                        help='Output directory for ranking results')
     parser.add_argument('--force', action='store_true', help='Force recomputation even if CSV exists')
     parser.add_argument('--two_stage', action='store_true', help='Rank two-stage models (trained on synthetic then fine-tuned)')
+    parser.add_argument('--figure_one', action='store_true', help='Generate Figure 1 with selected models only')
     args = parser.parse_args()
+    
+    # If --figure_one is specified, just generate that plot and exit
+    if args.figure_one:
+        plot_figure_one(output_dir=args.output_dir, two_stage=args.two_stage)
+        return
     
     # Out-of-sample setup
     train_start, train_end = '1979-01', '2001-12'
