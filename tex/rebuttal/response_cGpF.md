@@ -21,7 +21,7 @@ We provide direct evidence of $R_\phi$'s physical role via a **seasonal gate abl
 
 The gate **selectively activates $R_\phi$ during spring/summer** (MAM/JJA), precisely when linear dynamics encounter the Spring Predictability Barrier. Without the gate, $R_\phi$ overcorrects year-round, degrading all seasons. This is not post-hoc alignment — it is a mechanistic role evidenced by ablation: $R_\phi$ compensates for nonlinear dynamics that intensify during ENSO's spring phase transition.
 
-![Seasonal gate ablation by season](figures/fig3_seasonal_gate_ablation.png)
+![Seasonal gate ablation by season](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig3_seasonal_gate_ablation.png)
 
 ## W3: Insufficient addressing of SPB
 
@@ -43,7 +43,7 @@ Per-lead RMSE for MAM initializations:
 
 The gate effect grows with lead time (6--12 months), exactly where SPB manifests.
 
-![Spring barrier per-lead detail](figures/fig4_spring_barrier_detail.png)
+![Spring barrier per-lead detail](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig4_spring_barrier_detail.png)
 
 ## W4: Limited baselines
 
