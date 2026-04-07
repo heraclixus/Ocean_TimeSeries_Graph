@@ -86,15 +86,20 @@ python scripts/aggregate_rebuttal_results.py --experiment multiseed
 
 ## Results
 
-All NXRO variants outperform the XRO baseline (0.605 avg RMSE) under strict train/val/test evaluation with 10 random seeds:
+All NXRO variants outperform the XRO baseline and classical baselines under strict train/val/test evaluation with 10 random seeds:
 
-| Model | Test RMSE | +/- std | vs XRO |
-|-------|-----------|---------|--------|
-| NXRO-Attentive | **0.555** | 0.003 | -8.3% |
-| NXRO-GNN | **0.557** | 0.000 | -8.0% |
-| NXRO-MLP | **0.577** | 0.017 | -4.6% |
+| Model | Avg Nino3.4 RMSE | +/- std | vs XRO |
+|-------|------------------|---------|--------|
+| **NXRO-Attentive** | **0.555** | 0.003 | **-8.3%** |
+| **NXRO-GNN** | **0.557** | 0.000 | **-8.0%** |
+| **NXRO-MLP** | **0.577** | 0.017 | **-4.6%** |
+| XRO (physics baseline) | 0.605 | — | — |
+| VAR(3) | 0.682 | — | +12.7% |
 | Transformer | 0.676 | 0.025 | +11.8% |
+| ARIMA(2,0,1) | 0.754 | — | +24.6% |
 | Neural ODE | 0.782 | 0.018 | +29.2% |
+| Climatology | 0.845 | — | +39.7% |
+| Persistence | 1.027 | — | +69.8% |
 
 ## Citation
 
