@@ -1,0 +1,59 @@
+\begin{table}[t]
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\centering
+\caption{OT kernel comparison for sequence datasets (full metrics). Lower is better. Best is \textcolor{ForestGreen}{$\mathbf{green}$}, second best is \textcolor{Orange}{$\mathbf{orange}$}.}
+\label{tab:sequence_kernel_full}
+\resizebox{0.8\columnwidth}{!}{%
+\begin{tabular}{llrrrrr}
+\toprule
+Dataset & Kernel & Mean & Variance & Skewness & Kurtosis & Autocorr. \\
+\midrule
+\multirow{4}{*}{AEMET}
+ & N/A & $1.12 \times 10^{-1}$ & $1.49 \times 10^{0}$ & $2.84 \times 10^{-2}$ & $3.76 \times 10^{-1}$ & $1.04 \times 10^{-7}$ \\
+
+ & Signature & \textcolor{Orange}{$\mathbf{8.92 \times 10^{-2}}$} & \textcolor{ForestGreen}{$\mathbf{1.14 \times 10^{0}}$} & \textcolor{ForestGreen}{$\mathbf{9.50 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{6.99 \times 10^{-2}}$} & $5.27 \times 10^{-7}$ \\
+
+ & RBF & \textcolor{ForestGreen}{$\mathbf{3.97 \times 10^{-2}}$} & $1.63 \times 10^{0}$ & \textcolor{Orange}{$\mathbf{1.99 \times 10^{-2}}$} & \textcolor{Orange}{$\mathbf{1.88 \times 10^{-1}}$} & \textcolor{ForestGreen}{$\mathbf{8.69 \times 10^{-8}}$} \\
+
+ & Euclidean & $1.91 \times 10^{-1}$ & \textcolor{Orange}{$\mathbf{1.49 \times 10^{0}}$} & $2.67 \times 10^{-2}$ & $3.50 \times 10^{-1}$ & \textcolor{Orange}{$\mathbf{9.78 \times 10^{-8}}$} \\
+\midrule
+\multirow{4}{*}{Gene Expr.}
+ & N/A & $1.30 \times 10^{-3}$ & $5.35 \times 10^{-3}$ & $1.80 \times 10^{-1}$ & $1.81 \times 10^{0}$ & $3.80 \times 10^{-5}$ \\
+
+ & Signature & $1.23 \times 10^{-3}$ & \textcolor{Orange}{$\mathbf{5.20 \times 10^{-3}}$} & $1.61 \times 10^{-1}$ & $1.71 \times 10^{0}$ & $4.80 \times 10^{-5}$ \\
+
+ & RBF & \textcolor{Orange}{$\mathbf{1.15 \times 10^{-3}}$} & $5.40 \times 10^{-3}$ & \textcolor{Orange}{$\mathbf{1.16 \times 10^{-1}}$} & \textcolor{Orange}{$\mathbf{6.02 \times 10^{-1}}$} & \textcolor{ForestGreen}{$\mathbf{1.81 \times 10^{-5}}$} \\
+
+ & Euclidean & \textcolor{ForestGreen}{$\mathbf{1.07 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{5.05 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{1.02 \times 10^{-1}}$} & \textcolor{ForestGreen}{$\mathbf{5.42 \times 10^{-1}}$} & \textcolor{Orange}{$\mathbf{2.19 \times 10^{-5}}$} \\
+\midrule
+\multirow{4}{*}{Economy}
+ & N/A & $9.20 \times 10^{-5}$ & $2.64 \times 10^{-6}$ & $1.41 \times 10^{-1}$ & $2.59 \times 10^{0}$ & $2.12 \times 10^{-4}$ \\
+
+ & Signature & \textcolor{Orange}{$\mathbf{7.33 \times 10^{-6}}$} & \textcolor{ForestGreen}{$\mathbf{1.83 \times 10^{-6}}$} & \textcolor{ForestGreen}{$\mathbf{7.88 \times 10^{-2}}$} & \textcolor{Orange}{$\mathbf{1.78 \times 10^{0}}$} & \textcolor{Orange}{$\mathbf{9.24 \times 10^{-5}}$} \\
+
+ & RBF & \textcolor{ForestGreen}{$\mathbf{6.72 \times 10^{-6}}$} & $1.85 \times 10^{-6}$ & \textcolor{Orange}{$\mathbf{8.26 \times 10^{-2}}$} & \textcolor{ForestGreen}{$\mathbf{1.74 \times 10^{0}}$} & \textcolor{ForestGreen}{$\mathbf{8.82 \times 10^{-5}}$} \\
+
+ & Euclidean & $7.69 \times 10^{-6}$ & \textcolor{Orange}{$\mathbf{1.84 \times 10^{-6}}$} & $8.49 \times 10^{-2}$ & $1.95 \times 10^{0}$ & $1.07 \times 10^{-4}$ \\
+\midrule
+\multirow{4}{*}{Heston}
+ & N/A & $2.74 \times 10^{-3}$ & $7.17 \times 10^{-2}$ & $3.65 \times 10^{0}$ & $9.48 \times 10^{2}$ & $1.85 \times 10^{-4}$ \\
+
+ & Signature & $3.63 \times 10^{-3}$ & $8.55 \times 10^{-2}$ & \textcolor{ForestGreen}{$\mathbf{3.07 \times 10^{0}}$} & \textcolor{ForestGreen}{$\mathbf{8.09 \times 10^{2}}$} & \textcolor{Orange}{$\mathbf{5.40 \times 10^{-5}}$} \\
+
+ & RBF & \textcolor{Orange}{$\mathbf{1.76 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{6.80 \times 10^{-2}}$} & \textcolor{Orange}{$\mathbf{3.43 \times 10^{0}}$} & \textcolor{Orange}{$\mathbf{9.32 \times 10^{2}}$} & \textcolor{ForestGreen}{$\mathbf{3.20 \times 10^{-5}}$} \\
+
+ & Euclidean & \textcolor{ForestGreen}{$\mathbf{1.05 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{7.08 \times 10^{-2}}$} & $3.65 \times 10^{0}$ & $1.05 \times 10^{3}$ & $8.38 \times 10^{-5}$ \\
+\midrule
+\multirow{4}{*}{rBergomi}
+ & N/A & $2.22 \times 10^{-3}$ & $7.26 \times 10^{-3}$ & $2.71 \times 10^{-2}$ & $3.62 \times 10^{0}$ & $1.49 \times 10^{-3}$ \\
+
+ & Signature & $2.10 \times 10^{-3}$ & $1.11 \times 10^{-2}$ & $2.06 \times 10^{-2}$ & \textcolor{ForestGreen}{$\mathbf{9.05 \times 10^{-2}}$} & $1.28 \times 10^{-3}$ \\
+
+ & RBF & \textcolor{Orange}{$\mathbf{1.18 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{6.90 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{1.39 \times 10^{-2}}$} & \textcolor{Orange}{$\mathbf{1.17 \times 10^{-1}}$} & \textcolor{ForestGreen}{$\mathbf{7.41 \times 10^{-5}}$} \\
+
+ & Euclidean & \textcolor{ForestGreen}{$\mathbf{9.81 \times 10^{-4}}$} & \textcolor{ForestGreen}{$\mathbf{6.86 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{1.64 \times 10^{-2}}$} & $1.34 \times 10^{0}$ & \textcolor{Orange}{$\mathbf{3.72 \times 10^{-4}}$} \\
+\bottomrule
+\end{tabular}
+} % end resizebox
+\end{table}

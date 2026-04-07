@@ -269,10 +269,20 @@ def main():
     parser = argparse.ArgumentParser(description='Compare Single vs Two-Stage NXRO Models')
     parser.add_argument('--metric', type=str, default='combined', help='Metric suffix used in filenames (e.g., combined, rmse)')
     parser.add_argument('--results_dir', type=str, default='results_out_of_sample/rankings')
+    parser.add_argument('--remove_wwv', action='store_true', help='Compare no-WWV experiment results')
     args = parser.parse_args()
     
-    single_path = f'{args.results_dir}/all_variants_ranked_{args.metric}_out_of_sample.csv'
-    two_stage_path = f'{args.results_dir}/all_variants_ranked_{args.metric}_out_of_sample_two_stage.csv'
+    # Handle no-WWV configuration
+    if args.remove_wwv:
+        # If results_dir wasn't explicitly set, use the no-WWV default
+        if args.results_dir == 'results_out_of_sample/rankings':
+            args.results_dir = 'results_out_of_sample_no_wwv/rankings'
+        wwv_suffix = '_no_wwv'
+    else:
+        wwv_suffix = ''
+    
+    single_path = f'{args.results_dir}/all_variants_ranked_{args.metric}_out_of_sample{wwv_suffix}.csv'
+    two_stage_path = f'{args.results_dir}/all_variants_ranked_{args.metric}_out_of_sample_two_stage{wwv_suffix}.csv'
     
     print("="*80)
     print("COMPARING SINGLE-STAGE VS TWO-STAGE MODELS")

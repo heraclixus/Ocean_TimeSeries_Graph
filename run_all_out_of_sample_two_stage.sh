@@ -41,7 +41,7 @@ echo "  Epochs per stage: ${EPOCHS}"
 echo "  Device: ${DEVICE}"
 echo "  Eval all datasets: ${EVAL_ALL_DATASETS:-disabled}"
 echo "  XRO fit file (for frozen/warm-start): ${XRO_FIT_FILE}"
-echo "  Synthetic Data: Auto-detected (data/XRO_indices_*_preproc.nc)"
+echo "  Synthetic Data: Auto-detected (prefers CESM2-LENS if available)"
 echo "================================================================================"
 echo ""
 
@@ -82,53 +82,53 @@ fi
 # RUN 12 MODELS (Two-Stage)
 # ============================================================================
 
-# echo "[1/12] NXRO-Res (Rank 1)"
-# python NXRO_train_out_of_sample.py --model res ${common_args}
-# echo ""
+echo "[1/12] NXRO-Res (Rank 1)"
+python NXRO_train_out_of_sample.py --model res ${common_args}
+echo ""
 
-# echo "[2/12] NXRO-Graph (Fixed XRO) (Rank 2)"
-# python NXRO_train_out_of_sample.py --model graph ${common_args}
-# echo ""
+echo "[2/12] NXRO-Graph (Fixed XRO) (Rank 2)"
+python NXRO_train_out_of_sample.py --model graph ${common_args}
+echo ""
 
-# echo "[3/12] NXRO-Attentive (Rank 3)"
-# python NXRO_train_out_of_sample.py --model attentive ${common_args}
-# echo ""
+echo "[3/12] NXRO-Attentive (Rank 3)"
+python NXRO_train_out_of_sample.py --model attentive ${common_args}
+echo ""
 
-# echo "[4/12] NXRO-RO+Diag (Rank 4)"
-# python NXRO_train_out_of_sample.py --model rodiag ${common_args}
-# echo ""
+echo "[4/12] NXRO-RO+Diag (Rank 4)"
+python NXRO_train_out_of_sample.py --model rodiag ${common_args}
+echo ""
 
-# echo "[5/12] NXRO-Linear (Rank 5)"
-# python NXRO_train_out_of_sample.py --model linear ${common_args}
-# echo ""
+echo "[5/12] NXRO-Linear (Rank 5)"
+python NXRO_train_out_of_sample.py --model linear ${common_args}
+echo ""
 
-# echo "[6/12] NXRO-NeuralODE (Rank 6)"
-# python NXRO_train_out_of_sample.py --model neural ${common_args}
-# echo ""
+echo "[6/12] NXRO-NeuralODE (Rank 6)"
+python NXRO_train_out_of_sample.py --model neural ${common_args}
+echo ""
 
-# echo "[7/12] NXRO-RO+Diag-FixNL (Rank 8)"
-# python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro,diag
-# echo ""
+echo "[7/12] NXRO-RO+Diag-FixNL (Rank 8)"
+python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro,diag
+echo ""
 
-# echo "[8/12] NXRO-RO+Diag-FixRO (Rank 9)"
-# python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
-# echo ""
+echo "[8/12] NXRO-RO+Diag-FixRO (Rank 9)"
+python NXRO_train_out_of_sample.py --model rodiag ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
+echo ""
 
-# echo "[9/12] NXRO-ResidualMix-FixRO (Rank 10)"
-# python NXRO_train_out_of_sample.py --model resmix ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
-# echo ""
+echo "[9/12] NXRO-ResidualMix-FixRO (Rank 10)"
+python NXRO_train_out_of_sample.py --model resmix ${common_args} --warm_start ${XRO_FIT_FILE} --freeze ro
+echo ""
 
-# echo "[10/12] NXRO-Graph (Learned Adjacency)"
-# python NXRO_train_out_of_sample.py --model graph ${common_args} --graph_learned --graph_l1 0.01
-# echo ""
+echo "[10/12] NXRO-Graph (Learned Adjacency)"
+python NXRO_train_out_of_sample.py --model graph ${common_args} --graph_learned --graph_l1 0.01
+echo ""
 
-# echo "[11/12] NXRO-GraphPyG (GAT)"
-# python NXRO_train_out_of_sample.py --model graph_pyg ${common_args} --gat
-# echo ""
+echo "[11/12] NXRO-GraphPyG (GAT)"
+python NXRO_train_out_of_sample.py --model graph_pyg ${common_args} --gat
+echo ""
 
-# echo "[12/12] NXRO-PhysReg (NeuralODE + Physics Reg)"
-# python NXRO_train_out_of_sample.py --model neural_phys ${common_args} --jac_reg 1e-4
-# echo ""
+echo "[12/12] NXRO-PhysReg (NeuralODE + Physics Reg)"
+python NXRO_train_out_of_sample.py --model neural_phys ${common_args} --jac_reg 1e-4
+echo ""
 
 # ============================================================================
 # RANKING (Two-Stage)

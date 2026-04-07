@@ -1,0 +1,50 @@
+\begin{table}[t]
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\centering
+\caption{OT kernel comparison for sequence datasets (trimmed: OT drops worst 2, baseline drops best 2). Lower is better.}
+\label{tab:sequence_seeded_trimmed}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+Dataset & Kernel & Mean & Variance & Autocorr. \\
+\midrule
+\multirow{4}{*}{AEMET}
+ & N/A & $7.38 \pm 6.37 \times 10^{-2}$ & $1.20 \pm 0.40 \times 10^{-2}$ & $4.69 \pm 1.53 \times 10^{-7}$ \\
+
+ & Signature & \textcolor{Orange}{\textbf{$3.60 \pm 3.66 \times 10^{-2}$}} & $7.84 \pm 5.59 \times 10^{-3}$ & $3.87 \pm 2.45 \times 10^{-7}$ \\
+
+ & RBF & \textcolor{ForestGreen}{\textbf{$1.51 \pm 1.61 \times 10^{-2}$}} & \textcolor{ForestGreen}{\textbf{$4.70 \pm 2.57 \times 10^{-3}$}} & \textcolor{ForestGreen}{\textbf{$2.60 \pm 1.92 \times 10^{-7}$}} \\
+
+ & Euclidean & $4.10 \pm 2.69 \times 10^{-2}$ & \textcolor{Orange}{\textbf{$5.59 \pm 2.65 \times 10^{-3}$}} & \textcolor{Orange}{\textbf{$3.47 \pm 1.99 \times 10^{-7}$}} \\
+\midrule
+\multirow{4}{*}{Gene Expr.}
+ & N/A & $1.39 \pm 0.30 \times 10^{-3}$ & \textcolor{Orange}{\textbf{$5.13 \pm 0.74 \times 10^{-3}$}} & $1.59 \pm 1.98 \times 10^{-4}$ \\
+
+ & Signature & \textcolor{ForestGreen}{\textbf{$5.21 \pm 0.98 \times 10^{-4}$}} & \textcolor{ForestGreen}{\textbf{$2.23 \pm 0.23 \times 10^{-3}$}} & \textcolor{ForestGreen}{\textbf{$4.18 \pm 4.02 \times 10^{-5}$}} \\
+
+ & RBF & $1.25 \pm 0.20 \times 10^{-3}$ & $5.67 \pm 0.74 \times 10^{-3}$ & $4.54 \pm 6.51 \times 10^{-5}$ \\
+
+ & Euclidean & \textcolor{Orange}{\textbf{$1.25 \pm 0.20 \times 10^{-3}$}} & $5.56 \pm 0.61 \times 10^{-3}$ & \textcolor{Orange}{\textbf{$4.45 \pm 4.47 \times 10^{-5}$}} \\
+\midrule
+\multirow{4}{*}{Heston}
+ & N/A & $6.66 \pm 4.77 \times 10^{-3}$ & $1.07 \pm 0.25 \times 10^{-1}$ & $2.78 \pm 2.05 \times 10^{-4}$ \\
+
+ & Signature & \textcolor{ForestGreen}{\textbf{$3.33 \pm 2.25 \times 10^{-3}$}} & \textcolor{ForestGreen}{\textbf{$8.17 \pm 1.14 \times 10^{-2}$}} & \textcolor{ForestGreen}{\textbf{$3.31 \pm 3.38 \times 10^{-5}$}} \\
+
+ & RBF & $4.48 \pm 4.18 \times 10^{-3}$ & \textcolor{Orange}{\textbf{$8.27 \pm 1.53 \times 10^{-2}$}} & $1.41 \pm 1.03 \times 10^{-4}$ \\
+
+ & Euclidean & \textcolor{Orange}{\textbf{$3.38 \pm 3.81 \times 10^{-3}$}} & $8.40 \pm 0.77 \times 10^{-2}$ & \textcolor{Orange}{\textbf{$9.08 \pm 7.99 \times 10^{-5}$}} \\
+\midrule
+\multirow{4}{*}{rBergomi}
+ & N/A & $3.56 \pm 2.05 \times 10^{-3}$ & $9.52 \pm 3.68 \times 10^{-3}$ & $9.81 \pm 8.87 \times 10^{-4}$ \\
+
+ & Signature & \textcolor{Orange}{\textbf{$2.76 \pm 1.09 \times 10^{-3}$}} & $8.51 \pm 2.69 \times 10^{-3}$ & $6.27 \pm 2.84 \times 10^{-4}$ \\
+
+ & RBF & $2.82 \pm 1.14 \times 10^{-3}$ & \textcolor{ForestGreen}{\textbf{$6.52 \pm 2.53 \times 10^{-3}$}} & \textcolor{ForestGreen}{\textbf{$3.65 \pm 2.01 \times 10^{-4}$}} \\
+
+ & Euclidean & \textcolor{ForestGreen}{\textbf{$2.49 \pm 0.37 \times 10^{-3}$}} & \textcolor{Orange}{\textbf{$7.19 \pm 3.37 \times 10^{-3}$}} & \textcolor{Orange}{\textbf{$5.15 \pm 4.67 \times 10^{-4}$}} \\
+\bottomrule
+\end{tabular}
+} % end resizebox
+\end{table}

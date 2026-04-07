@@ -1,10 +1,25 @@
 import os
+import re
+import random
 import warnings
 warnings.filterwarnings("ignore")
 import argparse
 
+import numpy as np
 import torch
 import xarray as xr
+
+
+def set_seed(seed: int) -> None:
+    """Set random seeds for reproducibility across all libraries."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # Ensure deterministic behavior (may slow down training slightly)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 from nxro.nxro_utils import (
     plot_observed_nino34,
@@ -13,6 +28,10 @@ from nxro.nxro_utils import (
 from run_utils import (
     ensure_dir,
     run_linear,
+    run_memory_linear,
+    run_memory_res,
+    run_memory_attentive,
+    run_memory_graph,
     run_ro,
     run_rodiag,
     run_res,
@@ -24,7 +43,10 @@ from run_utils import (
     run_attentive,
     run_graph,
     run_graph_pyg,
+    run_graph_deep,
     run_transformer,
+    run_pure_neural_ode,
+    run_pure_transformer,
 )
 from run_utils_twostage import (
     run_linear_twostage,
@@ -45,20 +67,28 @@ from run_utils_twostage import (
 
 def main():
     parser = argparse.ArgumentParser(description='Train NXRO models (Out-of-Sample Experiment)')
-    parser.add_argument('--model', type=str, default='linear', choices=['linear', 'ro', 'rodiag', 'res', 'res_fullxro', 'neural', 'neural_phys', 'resmix', 'bilinear', 'attentive', 'graph', 'graph_pyg', 'transformer', 'all'])
+    parser.add_argument('--model', type=str, default='all', choices=['linear', 'memory_linear', 'memory_res', 'memory_attentive', 'memory_graph', 'ro', 'rodiag', 'res', 'res_fullxro', 'neural', 'neural_phys', 'pure_neural_ode', 'pure_transformer', 'resmix', 'bilinear', 'attentive', 'graph', 'graph_pyg', 'deep_gcn', 'transformer', 'all'])
     parser.add_argument('--top_k', type=int, default=3)
     parser.add_argument('--gat', action='store_true')
     parser.add_argument('--res_reg', type=float, default=1e-4)
     parser.add_argument('--nc_path', type=str, default='data/XRO_indices_oras5.nc')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed for reproducibility. If set, appended to run_tag.')
     # Out-of-sample defaults: train on 1979-2001, test on 2002-2022
     parser.add_argument('--train_start', type=str, default='1979-01')
     parser.add_argument('--train_end', type=str, default='2001-12')
+    parser.add_argument('--val_start', type=str, default=None,
+                        help='Validation period start (e.g., 1996-01). If set, early stopping uses val instead of test.')
+    parser.add_argument('--val_end', type=str, default=None,
+                        help='Validation period end (e.g., 2001-12). Required if --val_start is set.')
     parser.add_argument('--test_start', type=str, default='2002-01')
     parser.add_argument('--test_end', type=str, default='2022-12')
     parser.add_argument('--epochs', type=int, default=2000)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
+    parser.add_argument('--hidden_mlp', type=int, default=32,
+                        help='Hidden dimension for MLP residual (NXRO-Res)')
     parser.add_argument('--k_max', type=int, default=2)
     parser.add_argument('--jac_reg', type=float, default=1e-4)
     parser.add_argument('--div_reg', type=float, default=0.0)
@@ -75,10 +105,31 @@ def main():
     parser.add_argument('--use_sim_noise', action='store_true',
                         help='Use simulation-observation differences for noise instead of model residuals')
     parser.add_argument('--rollout_k', type=int, default=1, help='K-step rollout loss if >1')
-    parser.add_argument('--extra_train_nc', type=str, nargs='*', default=None,
-                        help='Additional NetCDFs for training only (test stays ORAS5).')
+    parser.add_argument('--memory_depth', type=int, default=3, help='History length in months for memory-aware models')
+    parser.add_argument('--memory_hidden', type=int, default=64,
+                        help='Hidden width for the memory_res / Memory-MLP residual MLP')
+    parser.add_argument('--memory_d', type=int, default=32, help='Token dimension for memory attention model')
+    parser.add_argument('--memory_n_heads', type=int, default=1, help='Attention heads for memory attention model')
+    parser.add_argument('--memory_dropout', type=float, default=0.1,
+                        help='Dropout used by memory attention models')
+    parser.add_argument('--memory_mask_mode', type=str, default='th_only', choices=['th_only', 'full'],
+                        help='Attention mask mode for memory attention models')
+    parser.add_argument('--memory_graph_mode', type=str, default='agg_spatial', choices=['agg_spatial', 'full_st'],
+                        help='Graph memory aggregation mode')
+    parser.add_argument('--run_tag', type=str, default=None,
+                        help='Optional filename tag to distinguish repeated runs')
+    parser.add_argument('--base_results_dir', type=str, default=None,
+                        help='Optional override for the results directory root')
+    parser.add_argument('--extra_train_nc', type=str, nargs='*', default='cesm2',
+                        help='Additional NetCDFs for training only (test stays ORAS5). '
+                             'Use "none" for ORAS5-only training. '
+                             'Use "cesm2" or "cesm2-lens" to auto-discover CESM2-LENS climate mode files. '
+                             'CESM2-LENS files have automatic variable mapping (ENSO->Nino34, d20->WWV).')
     parser.add_argument('--eval_all_datasets', action='store_true',
                         help='Evaluate on all available datasets (ORAS5, ERA5, GODAS, etc.) separately')
+    # Ablation options
+    parser.add_argument('--disable_seasonal_gate', action='store_true',
+                        help='Disable seasonal gate α(t) in Attentive/GNN models (for ablation study)')
     # Graph options
     parser.add_argument('--graph_learned', action='store_true', help='Use learnable adjacency in NXRO-Graph (L1 sparsity)')
     parser.add_argument('--graph_l1', type=float, default=0.0, help='L1 lambda for learned adjacency')
@@ -95,13 +146,22 @@ def main():
                         help='Comma-separated list of components to freeze: linear, ro, diag (e.g., "linear,ro")')
     parser.add_argument('--two_stage', action='store_true',
                         help='Enable two-stage training: 1. Synthetic Pre-training, 2. ORAS5 Fine-tuning.')
+    parser.add_argument('--remove_wwv', action='store_true',
+                        help='Remove WWV variable from datasets (train with one fewer dimension).')
     args = parser.parse_args()
 
-    # Use different results directory based on eval_all_datasets flag
-    if args.eval_all_datasets:
-        base_results_dir = 'results_all_outsample'
+    # Use different results directory based on eval_all_datasets and remove_wwv flags,
+    # unless explicitly overridden for sweeps or custom experiments.
+    if args.base_results_dir:
+        base_results_dir = args.base_results_dir
     else:
-        base_results_dir = 'results_out_of_sample'
+        if args.eval_all_datasets:
+            base_results_dir = 'results_all_outsample'
+        else:
+            base_results_dir = 'results_out_of_sample'
+        if args.remove_wwv:
+            base_results_dir = f'{base_results_dir}_no_wwv'
+    
     ensure_dir(base_results_dir)
     device = args.device
     
@@ -118,8 +178,12 @@ def main():
         }
     
     # Helper function to load XRO fit and extract init parameters
-    def load_xro_init(xro_path, k_max, include_ro=False, include_diag=False):
-        """Load XRO fit and extract initialization parameters."""
+    def load_xro_init(xro_path, k_max, include_ro=False, include_diag=False, exclude_vars=None):
+        """Load XRO fit and extract initialization parameters.
+        
+        Note: exclude_vars is accepted for API consistency but the XRO fit file 
+        should already be created with the correct variables excluded.
+        """
         if xro_path is None:
             return {}
         from utils.xro_utils import init_nxro_from_xro
@@ -186,22 +250,77 @@ def main():
         except Exception:
             return []
 
+    # Auto-discover helper for CESM2-LENS climate mode files
+    def discover_cesm2_climate_mode_files():
+        """Discover all CESM2-LENS climate mode NC files."""
+        cesm2_dir = 'data/CESM2-LENS_climate_mode_data'
+        if not os.path.isdir(cesm2_dir):
+            return []
+        try:
+            import glob
+            # Pattern for climate mode files
+            cands = sorted(glob.glob(os.path.join(cesm2_dir, '*.climate-modes.*.nc')))
+            if not cands:
+                # Fallback to all NC files in directory
+                cands = sorted(glob.glob(os.path.join(cesm2_dir, '*.nc')))
+            return cands
+        except Exception:
+            return []
+
     def resolve_preprocessed_paths(paths):
         if paths is None:
             return None
+        if isinstance(paths, (list, tuple)) and any(
+            str(p).lower() in ('none', 'no', 'oras5', 'oras5_only', 'oras5-only')
+            for p in paths
+        ):
+            print("Using ORAS5-only training data (extra training data disabled)")
+            return None
         if isinstance(paths, (list, tuple)) and len(paths) == 0:
+            # Prefer CESM2-LENS if available, fall back to old preprocessed files
+            cesm2_files = discover_cesm2_climate_mode_files()
+            if cesm2_files:
+                print(f"Auto-using {len(cesm2_files)} CESM2-LENS climate mode files")
+                return cesm2_files
             auto = discover_preprocessed_all(args.nc_path)
             print(f"Auto-using {len(auto)} preprocessed files from data/: {auto}")
             return auto or None
         if isinstance(paths, (list, tuple)) and any(str(p).lower() == 'auto' for p in paths):
+            # Prefer CESM2-LENS if available, fall back to old preprocessed files
+            cesm2_files = discover_cesm2_climate_mode_files()
+            if cesm2_files:
+                print(f"Auto-using {len(cesm2_files)} CESM2-LENS climate mode files from data/CESM2-LENS_climate_mode_data/")
+                for f in cesm2_files[:3]:  # Show first 3
+                    print(f"  - {os.path.basename(f)}")
+                if len(cesm2_files) > 3:
+                    print(f"  ... and {len(cesm2_files) - 3} more")
+                return cesm2_files
+            # Fall back to old preprocessed files
             auto = discover_preprocessed_all(args.nc_path)
-            print(f"Auto-using {len(auto)} preprocessed files from data/: {auto}")
+            print(f"CESM2-LENS not found, using {len(auto)} preprocessed files from data/")
             return auto or None
+        # Check for CESM2-LENS keyword (explicit)
+        if isinstance(paths, (list, tuple)) and any(str(p).lower() in ('cesm2', 'cesm2-lens', 'cesm2_lens') for p in paths):
+            cesm2_files = discover_cesm2_climate_mode_files()
+            print(f"Auto-using {len(cesm2_files)} CESM2-LENS climate mode files from data/CESM2-LENS_climate_mode_data/")
+            if cesm2_files:
+                for f in cesm2_files[:3]:  # Show first 3
+                    print(f"  - {os.path.basename(f)}")
+                if len(cesm2_files) > 3:
+                    print(f"  ... and {len(cesm2_files) - 3} more")
+            return cesm2_files or None
         resolved = []
         for p in paths:
             if not isinstance(p, str):
                 continue
-            if p.endswith('_preproc.nc'):
+            # Check for CESM2-LENS directory or file
+            if 'CESM2-LENS_climate_mode_data' in p or 'climate-modes' in p.lower():
+                if os.path.exists(p):
+                    resolved.append(p)
+                    print(f"Using CESM2-LENS climate mode file: {os.path.basename(p)}")
+                else:
+                    print(f"[WARN] CESM2-LENS file not found: {p} (skipping)")
+            elif p.endswith('_preproc.nc'):
                 if os.path.exists(p):
                     resolved.append(p)
                 else:
@@ -212,18 +331,43 @@ def main():
                 if os.path.exists(cand):
                     print(f"Using preprocessed file for {p}: {cand}")
                     resolved.append(cand)
+                elif os.path.exists(p):
+                    # Allow raw NC files (e.g., CESM2-LENS climate mode files)
+                    resolved.append(p)
+                    print(f"Using raw NC file: {os.path.basename(p)}")
                 else:
-                    print(f"[WARN] Skipping non-preprocessed file {p}; expected {cand}")
+                    print(f"[WARN] Skipping non-existent file {p}")
             else:
                 print(f"[WARN] Skipping non-NetCDF path: {p}")
-        return resolved
+        return resolved if resolved else None
 
     args.extra_train_nc = resolve_preprocessed_paths(args.extra_train_nc)
     
-    def build_extra_tag(extra_paths):
-        if not extra_paths:
+    def sanitize_run_tag(tag):
+        if tag is None:
             return ''
-        return '_extra_data'
+        cleaned = re.sub(r'[^A-Za-z0-9._-]+', '_', tag.strip())
+        return cleaned.strip('_')
+
+    def build_extra_tag(extra_paths):
+        parts = []
+        if extra_paths:
+            parts.append('extra_data')
+        run_tag = sanitize_run_tag(args.run_tag)
+        if run_tag:
+            parts.append(run_tag)
+        return f"_{'_'.join(parts)}" if parts else ''
+
+    # Set random seed for reproducibility (must happen before build_extra_tag
+    # so the seed tag is included in filenames)
+    if args.seed is not None:
+        set_seed(args.seed)
+        print(f"Random seed set to {args.seed}")
+        seed_tag = f"seed{args.seed}"
+        if args.run_tag:
+            args.run_tag = f"{args.run_tag}_{seed_tag}"
+        else:
+            args.run_tag = seed_tag
 
     extra_tag = build_extra_tag(args.extra_train_nc)
     fig_suffix = extra_tag
@@ -231,8 +375,37 @@ def main():
     if device == 'auto':
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+    # Validation split: if --val_start is set, adjust train_end to exclude val period
+    if args.val_start is not None:
+        if args.val_end is None:
+            # Default: val_end = original train_end, train_end shrinks
+            args.val_end = args.train_end
+        # Shrink training period to end before validation
+        from datetime import datetime
+        val_start_dt = datetime.strptime(args.val_start, '%Y-%m')
+        # train_end becomes one month before val_start
+        import calendar
+        if val_start_dt.month == 1:
+            new_train_end = f"{val_start_dt.year - 1}-12"
+        else:
+            new_train_end = f"{val_start_dt.year}-{val_start_dt.month - 1:02d}"
+        print(f"Validation split active: train {args.train_start}-{new_train_end}, "
+              f"val {args.val_start}-{args.val_end}, test {args.test_start}-{args.test_end}")
+        args.train_end = new_train_end
+
+    # Set up exclude_vars based on --remove_wwv flag
+    exclude_vars = ['WWV'] if args.remove_wwv else None
+
     # Data
     obs_ds = xr.open_dataset(args.nc_path)
+    
+    # Drop excluded variables from dataset
+    if exclude_vars:
+        for var in exclude_vars:
+            if var in obs_ds.data_vars:
+                obs_ds = obs_ds.drop_vars(var)
+                print(f"✓ Removed {var} from dataset (--remove_wwv flag)")
+    
     train_ds = obs_ds.sel(time=slice(args.train_start, args.train_end))
     test_ds = obs_ds.sel(time=slice(args.test_start, args.test_end))
     
@@ -240,14 +413,24 @@ def main():
     all_eval_datasets = None
     if args.eval_all_datasets:
         print("\nLoading all available datasets for evaluation...")
-        all_eval_datasets = load_all_eval_datasets()
+        all_eval_datasets = load_all_eval_datasets(exclude_vars=exclude_vars)
         print(f"✓ Loaded {len(all_eval_datasets)} datasets: {list(all_eval_datasets.keys())}\n")
+
+    # Load validation dataset if split is active
+    val_ds = None
+    if args.val_start is not None:
+        val_ds = obs_ds.sel(time=slice(args.val_start, args.val_end))
+        print(f"Validation set: {len(val_ds.time)} months ({args.val_start} to {args.val_end})")
 
     print("="*80)
     print("OUT-OF-SAMPLE EXPERIMENT SETUP")
     print("="*80)
     print(f"Training period: {args.train_start} to {args.train_end}")
+    if args.val_start:
+        print(f"Validation period: {args.val_start} to {args.val_end}")
     print(f"Test period: {args.test_start} to {args.test_end}")
+    if args.seed is not None:
+        print(f"Random seed: {args.seed}")
     print(f"Results directory: {base_results_dir}/")
     if args.eval_all_datasets:
         print(f"Multi-dataset evaluation: ENABLED ({len(all_eval_datasets)} datasets)")
@@ -255,6 +438,7 @@ def main():
 
     # Periods for evaluation
     train_period = slice(args.train_start, args.train_end)
+    val_period = slice(args.val_start, args.val_end) if args.val_start else None
     test_period = slice(args.test_start, args.test_end)
 
     # Observed plot with train/test split marked
@@ -266,121 +450,166 @@ def main():
         if args.two_stage:
             run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                        base_results_dir, all_eval_datasets, device, 
-                       load_xro_init, variant_suffix, extra_tag, fig_suffix)
+                       load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_linear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                        base_results_dir, all_eval_datasets, device, 
-                       load_xro_init, variant_suffix, extra_tag, fig_suffix)
+                       load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
+
+    if args.model in ('memory_linear', 'all'):
+        if args.two_stage:
+            print("Two-stage training is not implemented yet for memory_linear. Running single-stage instead.")
+        run_memory_linear(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                          base_results_dir, all_eval_datasets, device,
+                          load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
+
+    if args.model in ('memory_res', 'all'):
+        if args.two_stage:
+            print("Two-stage training is not implemented yet for memory_res. Running single-stage instead.")
+        run_memory_res(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                       base_results_dir, all_eval_datasets, device,
+                       load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
+
+    if args.model in ('memory_attentive', 'all'):
+        if args.two_stage:
+            print("Two-stage training is not implemented yet for memory_attentive. Running single-stage instead.")
+        run_memory_attentive(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                             base_results_dir, all_eval_datasets, device,
+                             load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
+
+    if args.model in ('memory_graph', 'all'):
+        if args.two_stage:
+            print("Two-stage training is not implemented yet for memory_graph. Running single-stage instead.")
+        run_memory_graph(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                         base_results_dir, all_eval_datasets, device,
+                         load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('ro', 'all'):
         if args.two_stage:
             run_ro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                    base_results_dir, all_eval_datasets, device, 
-                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_ro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                    base_results_dir, all_eval_datasets, device, 
-                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                   load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('rodiag', 'all'):
         if args.two_stage:
             run_rodiag_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                        base_results_dir, all_eval_datasets, device, 
-                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_rodiag(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                        base_results_dir, all_eval_datasets, device, 
-                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('res', 'all'):
         if args.two_stage:
             run_res_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                     base_results_dir, all_eval_datasets, device, 
-                    load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                    load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_res(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                     base_results_dir, all_eval_datasets, device, 
-                    load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                    load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model == 'res_fullxro':
         if args.two_stage:
             run_res_fullxro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                             base_results_dir, all_eval_datasets, device, 
-                            load_xro_init, extra_tag, fig_suffix)
+                            load_xro_init, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_res_fullxro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                             base_results_dir, all_eval_datasets, device, 
-                            load_xro_init, extra_tag, fig_suffix)
+                            load_xro_init, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('neural', 'all'):
         if args.two_stage:
             run_neural_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                       base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                       base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_neural(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                       base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                       base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('neural_phys', 'all'):
         if args.two_stage:
             run_neural_phys_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_neural_phys(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
+    
+    # Pure Neural ODE (no physical priors - baseline)
+    if args.model in ('pure_neural_ode', 'all'):
+        # No two-stage version for pure baseline - it's intentionally not using any prior structure
+        run_pure_neural_ode(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                           base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('resmix', 'all'):
         if args.two_stage:
             run_resmix_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                        base_results_dir, all_eval_datasets, device, 
-                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_resmix(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                        base_results_dir, all_eval_datasets, device, 
-                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                       load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('bilinear', 'all'):
         if args.two_stage:
             run_bilinear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                         base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                         base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_bilinear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                         base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                         base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('attentive', 'all'):
         if args.two_stage:
             run_attentive_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                           base_results_dir, all_eval_datasets, device, 
-                          load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                          load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_attentive(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                           base_results_dir, all_eval_datasets, device, 
-                          load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                          load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('graph', 'all'):
         if args.two_stage:
             run_graph_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                       base_results_dir, all_eval_datasets, device, 
-                      load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                      load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_graph(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                       base_results_dir, all_eval_datasets, device, 
-                      load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix)
+                      load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('graph_pyg', 'all'):
         if args.two_stage:
             run_graph_pyg_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                          base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                          base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                          base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                          base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
+    
+    if args.model in ('deep_gcn', 'all'):
+        # Best model from hyperparameter search: 3-layer GCN, hidden=64, l1=0
+        run_graph_deep(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                      base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
     
     if args.model in ('transformer', 'all'):
         if args.two_stage:
             run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
         else:
             run_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix)
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
+
+    # Pure Transformer (no physical priors - baseline)
+    if args.model in ('pure_transformer', 'all'):
+        # No two-stage version for pure baseline - it's intentionally not using any prior structure
+        run_pure_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                            base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=exclude_vars)
 
     print("\n" + "="*80)
     print("OUT-OF-SAMPLE EXPERIMENT COMPLETE")

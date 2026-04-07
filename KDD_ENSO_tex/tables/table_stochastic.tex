@@ -1,0 +1,21 @@
+\begin{table}[h]
+\setlength{\tabcolsep}{1pt}
+\centering
+\caption{Stochastic ensemble forecast performance for NXRO and XRO. Higher CRPS metrics means better calibration. }
+\label{tab:stochastic_outsample}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{CRPS} 
+& \textbf{\shortstack{Ensemble\\RMSE}} 
+& \textbf{\shortstack{Spread \\ over RMSE}} 
+& \textbf{\shortstack{vs. \\ XRO}} \\
+\midrule
+NXRO-GNN & \textbf{0.488} & \textbf{0.899°C} & \textbf{0.654} & \textbf{$-$13.0\%} \\
+NXRO-Attentive & 0.513 & 0.901°C & 0.634 & $-$8.6\% \\
+NXRO-MLP & 0.548 & 0.963°C & 0.625 & $-$2.4\% \\
+XRO & 0.561 & 0.970°C & 0.527 & --- \\
+\bottomrule
+\end{tabular}
+}
+\end{table}

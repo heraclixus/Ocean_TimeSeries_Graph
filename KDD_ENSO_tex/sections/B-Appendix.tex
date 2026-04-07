@@ -1,0 +1,52 @@
+\section{Dataset Details} 
+The definition of non-ENSO climate modes are detailed in Table \ref{tab:climate_modes}. We train our model based on reanalysis data from ECMWF Ocean Reanalysis System 5 (ORAS5). The monthly sea surface temperature anomalies (SSTA) are computed by subtracting the 1979–2022 monthly climatology and then removing a quadratic trend fit over 1979–2023. 
+
+\begin{table}[h!]
+\setlength{\tabcolsep}{3pt}
+\centering
+\caption{Definitions of non-ENSO climate-mode indices used in this study.}
+\label{tab:climate_modes}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{p{0.40\columnwidth} c p{0.55\columnwidth}}
+\toprule
+\textbf{Climate Mode} & \textbf{Acronym} & \textbf{Description} \\
+\midrule
+
+North Pacific Meridional Mode & NPMM &
+SSTAs averaged over 160$^\circ$--120$^\circ$W, 10$^\circ$--25$^\circ$N. \\
+
+South Pacific Meridional Mode & SPMM &
+SSTAs averaged over 110$^\circ$--90$^\circ$W, 25$^\circ$--15$^\circ$S. \\
+
+Indian Ocean Basin mode & IOB &
+SSTAs averaged over 40$^\circ$--100$^\circ$E, 20$^\circ$S--20$^\circ$N. \\
+
+Indian Ocean Dipole mode & IOD &
+SSTAs averaged over 50$^\circ$--70$^\circ$E, 10$^\circ$S--10$^\circ$N minus those averaged over
+90$^\circ$--110$^\circ$E, 10$^\circ$S--0$^\circ$N. \\
+
+Southern Indian Ocean Dipole mode & SIOD &
+SSTAs averaged over 65$^\circ$--85$^\circ$E, 25$^\circ$--10$^\circ$S minus those averaged over
+90$^\circ$--120$^\circ$E, 30$^\circ$--10$^\circ$S. \\
+
+Tropical North Atlantic variability & TNA &
+SSTAs averaged over 55$^\circ$--15$^\circ$W, 5$^\circ$--25$^\circ$N. \\
+
+Atlantic Ni\~no & ATL3 &
+SSTAs averaged over 20$^\circ$W--0$^\circ$E, 3$^\circ$S--3$^\circ$N. \\
+
+South Atlantic Subtropical Dipole & SASD &
+SSTAs averaged over 60$^\circ$--0$^\circ$W, 45$^\circ$--35$^\circ$S minus those averaged over
+40$^\circ$W--20$^\circ$E, 30$^\circ$--20$^\circ$S. \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+To perform transfer-learning experiment, we utilize the output from a large ensemble of climate model simulations conducted with the Community Earth System Model (CESM), version 2 \cite{LENS}. Each member within the CESM large ensemble simulations uses nominal 1 degree horizontal resolution and is driven by the same observed changes in external influences (e.g., greenhouse gases and aerosols) that affected the real world over the historical period. Because the climate system is inherently chaotic, small differences in the initial state can grow over time and produce different climate, a phenomenon commonly called internal variability. To sample internal variability as comprehensively as possible, each ensemble member is conducted with the same external forcings and model configuration, but is initialized with a slight perturbation to the atmospheric temperature field. In total, 100 ensemble members are performed. 
+
+
+
+
+
+

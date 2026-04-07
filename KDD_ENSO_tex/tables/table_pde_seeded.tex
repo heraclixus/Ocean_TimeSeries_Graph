@@ -1,0 +1,44 @@
+\begin{table}[t]
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\centering
+\caption{OT kernel comparison for PDE datasets with 10 runs,  Lower is better.}
+\label{tab:pde_seeded_trimmed}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+Dataset & Kernel & Mean & Variance & Spectrum (log) \\
+\midrule
+\multirow{4}{*}{KdV}
+ & N/A & $4.74 \pm 3.37 \times 10^{-4}$ & $1.30 \pm 0.51 \times 10^{-4}$ & $1.72 \pm 0.04 \times 10^{1}$ \\
+
+ & Signature & $3.82 \pm 3.42 \times 10^{-4}$ & \textcolor{Orange}{\textbf{$8.87 \pm 6.17 \times 10^{-5}$}} & \textcolor{ForestGreen}{\textbf{$1.69 \pm 0.02 \times 10^{1}$}} \\
+
+ & RBF & \textcolor{ForestGreen}{\textbf{$2.29 \pm 2.32 \times 10^{-4}$}} & \textcolor{ForestGreen}{\textbf{$7.04 \pm 4.33 \times 10^{-5}$}} & $1.69 \pm 0.03 \times 10^{1}$ \\
+
+ & Euclidean & \textcolor{Orange}{\textbf{$3.01 \pm 1.50 \times 10^{-4}$}} & $9.20 \pm 6.89 \times 10^{-5}$ & \textcolor{Orange}{\textbf{$1.69 \pm 0.03 \times 10^{1}$}} \\
+\midrule
+\multirow{3}{*}{Navier-Stokes}
+ & N/A & $7.11 \pm 7.65 \times 10^{-2}$ & $2.95 \pm 0.86 \times 10^{-2}$ & $7.69 \pm 1.03 \times 10^{-1}$ \\
+
+ & RBF & \textcolor{Orange}{\textbf{$3.33 \pm 3.53 \times 10^{-2}$}} & \textcolor{ForestGreen}{\textbf{$2.32 \pm 0.75 \times 10^{-2}$}} & \textcolor{Orange}{\textbf{$6.41 \pm 0.75 \times 10^{-1}$}} \\
+
+ & Euclidean & \textcolor{ForestGreen}{\textbf{$3.27 \pm 4.72 \times 10^{-2}$}} & \textcolor{Orange}{\textbf{$2.68 \pm 1.00 \times 10^{-2}$}} & \textcolor{ForestGreen}{\textbf{$6.26 \pm 0.75 \times 10^{-1}$}} \\
+\midrule
+\multirow{3}{*}{Stoch. KdV}
+ & N/A & \textcolor{Orange}{\textbf{$1.53 \pm 1.30 \times 10^{-3}$}} & $2.83 \pm 2.32 \times 10^{-3}$ & $4.23 \pm 0.27 \times 10^{0}$ \\
+
+ & RBF & \textcolor{ForestGreen}{\textbf{$1.36 \pm 0.84 \times 10^{-3}$}} & \textcolor{ForestGreen}{\textbf{$1.87 \pm 1.07 \times 10^{-3}$}} & \textcolor{Orange}{\textbf{$4.08 \pm 0.15 \times 10^{0}$}} \\
+
+ & Euclidean & $2.13 \pm 1.23 \times 10^{-3}$ & \textcolor{Orange}{\textbf{$1.95 \pm 0.95 \times 10^{-3}$}} & \textcolor{ForestGreen}{\textbf{$4.03 \pm 0.22 \times 10^{0}$}} \\
+\midrule
+\multirow{3}{*}{Stoch. NS}
+ & N/A & $3.45 \pm 2.28 \times 10^{-1}$ & $5.54 \pm 0.92 \times 10^{0}$ & $6.04 \pm 1.10 \times 10^{-2}$ \\
+
+ & RBF & \textcolor{ForestGreen}{\textbf{$1.96 \pm 0.43 \times 10^{-1}$}} & \textcolor{Orange}{\textbf{$4.69 \pm 0.92 \times 10^{0}$}} & \textcolor{Orange}{\textbf{$5.45 \pm 1.05 \times 10^{-2}$}} \\
+
+ & Euclidean & \textcolor{Orange}{\textbf{$2.06 \pm 0.72 \times 10^{-1}$}} & \textcolor{ForestGreen}{\textbf{$4.64 \pm 0.72 \times 10^{0}$}} & \textcolor{ForestGreen}{\textbf{$5.22 \pm 0.94 \times 10^{-2}$}} \\
+\bottomrule
+\end{tabular}
+} % end resizebox
+\end{table}

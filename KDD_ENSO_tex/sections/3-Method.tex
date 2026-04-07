@@ -1,0 +1,59 @@
+\section{Neural Residual Dynamics}
+\label{sec:neural_ode}
+
+The limitations of XRO identified in Section~\ref{sec:background} motivate a neural extension that preserves the model's physical interpretability while adding flexibility. In this section, we develop the Neural Residual ODE framework, decomposing the dynamics into a linear component inspired by physical model and a nonlinear residual correction.
+
+\subsection{Motivation: Physics-Informed Residual Learning}
+
+The central insight of our approach is that the XRO linear operator captures the dominant, well-understood physics of ENSO: the recharge-discharge mechanism, seasonal modulation of coupling strengths, and teleconnections among climate modes, which generalizes robustly across climate regimes \cite{zhao2024xro}. However, the polynomial nonlinearities in XRO impose strong assumptions about functional form that may not match the true dynamics and can lead to overfitting. In addition, the linear and non-linear term can be optimized end-to-end for better coupling.
+
+Rather than specifying the nonlinear dynamics apriori, we propose to \emph{learn} them from data through a neural network that captures the residual between the linear physics model and observations. Recent works have demonstrated the effectiveness of this paradigm across scientific machine learning~\cite{karniadakis2021physics,willard2023integrating}, including learning corrections to fluid simulations~\cite{um2020solver,list2022learned}, augmenting physical models for complex dynamics forecasting~\cite{yin2021augmenting}, and discovering missing physics in partial differential equations~\cite{raissi2019pinn}. The key is to let the physics-based component handle what it does well (linear dynamics, seasonal structure) while delegating the remainder to a flexible function approximator that can adapt to the specific dataset. This explicit linear-plus-nonlinear decomposition offers several advantages. First, the linear operator provides strong inductive bias that reduces the effective hypothesis space, enabling learning from limited data, a critical consideration when training samples number in the hundreds rather than millions. Second, the neural residual needs only capture the \emph{difference} between true dynamics and the linear approximation, a smaller signal that is easier to learn than the full dynamics. Third, the approach naturally controls the contribution of nonlinear component, balancing both effects.
+
+\subsection{Model Formulation}
+
+We model the evolution of the climate state vector $\bX(t) \in \R^n$ as a continuous-time dynamical system, inspired by neural ODE methods~\cite{chen2018neuralode, huang2023generalizinggraphodelearning}:
+\begin{equation}
+    \frac{d\bX}{dt} = \bL_\theta(t) \cdot \bX + R_\phi([\bX, \bphi(t)]),
+    \label{eq:nxro_main}
+\end{equation}
+where $\bL_\theta(t) \in \R^{n \times n}$ is a seasonally-modulated linear operator with learnable parameters $\theta$, following the form in Equation \ref{eq:seasonal_L}. $R_\phi$ is a neural network residual, and $\bphi(t)$ encodes seasonal context through Fourier features. The linear operator inherits the Fourier structure from XRO, expanded to the second harmonic to capture semi-annual variations. This parameterization ensures that the linear dynamics vary smoothly with season, capturing the well-documented seasonal dependence of ENSO growth rates and teleconnection strengths.
+\paragraph{Seasonal Context Features:} To provide the residual network with information about the current season, we construct Fourier features encoding the annual cycle:
+\begin{equation}
+    \bphi(t) = [1, \cos(\omega t), \sin(\omega t), \cos(2\omega t), \sin(2\omega t)]^\top \in \R^5
+\end{equation}
+These features allow the residual to learn seasonally-varying corrections. The constant term enables the network to learn season-independent corrections, while the harmonic terms capture annual and semi-annual modulation.
+
+\paragraph{Neural Residual Network:} The residual function $R_\phi$ is parameterized by default as a MLP that take the concatenation of the state vector and seasonal features as input.  The MLP architecture is deliberately simple, with 3-layers and hidden dimension of 64. Since we are extending the XRO model with neural components, we call the resulting model Neural Extended Recharge Oscillator (NXRO). Note that our proposed neural residual model can potentially be applied to other scientific domains, and in this project we only focus on the task of ENSO forecasting.
+
+\paragraph{Training Procedure:} We train the model end-to-end by minimizing the mean squared forecast error across multiple lead times. Let $\{(\bX_i^{\text{obs}}, t_i)\}_{i=1}^N$ denote the training observations, where $\bX_i^{\text{obs}}$ is the observed state at time $t_i$. For each initialization time $t_i$, we integrate the model forward to generate forecasts $\hat{\bX}_i(t_i + \ell)$ at leads $\ell = 1, \ldots, L_{\max}$ months. The training objective is:
+\begin{equation}
+    \mathcal{L}(\theta, \phi) = \frac{1}{N \cdot L_{\max}} \sum_{i=1}^{N} \sum_{\ell=1}^{L_{\max}} \left\| \hat{\bX}_i(t_i + \ell) - \bX_i^{\text{obs}}(t_i + \ell) \right\|^2
+    \label{eq:loss}
+\end{equation}
+where $L_{\max} = 21$ months in our experiments, covering the operationally-relevant forecast horizon for ENSO. 
+By optimizing over extended forecast trajectories, our loss rewards coefficient configurations that maintain accuracy over long integration periods.
+
+\subsection{Alternative Nonlinear Components}
+\label{sec:ablations}
+
+While the MLP residual represents our primary model, we conduct extensive architectural search and investigate alternative parameterizations of the nonlinear component to understand which architectural choices are essential for performance. These alternatives share the same linear operator structure but differ in how they model the residual / correction term.
+
+\subsubsection{Graph-Based Corrections}
+
+Climate dynamics exhibit structured interactions among variables---for instance, the equatorial SST anomaly is strongly coupled to warm water volume but only weakly coupled to the Indian Ocean Dipole. A Graph Neural Network (GNN) ~\cite{kipf2017gcn,wu2020comprehensive} can encode these interaction patterns explicitly through a sparse adjacency matrix, whose entries can encode the strength of pairwise interaction. Recent works on multivariate time series forecasting with graph neural ODEs~\cite{huang2023generalizinggraphodelearning} has demonstrated the effectiveness of combining continuous-time dynamics with structured variable interactions. In particular, we consider a 2-layer Graph Convolutional Network (GCN) residual of the form: %\YS{which GNN are you using? GCN? How many layers? specify the exact form. What is the $\mathcal{E}$ in eq. 5? }
+\begin{align}\label{eq:nxro_graph}
+    & \frac{dX}{dt} = L_\theta(t) \cdot X + \alpha(t) \cdot \mathrm{softmax}\!\Big(\hat{A}\,\sigma\!\big(\hat{A}XW^{(0)}\big)\,W^{(1)}\Big), %\text{GCN}_\theta(X, A),
+\end{align}
+where in our setup, the normalized adjacency matrix $\tilde{A}$ is initialized via top-2 pairwise correlation between the historical time series at training split, while the graph nodes are each individual climate indices. The adjacency matrix is formulated as a learnable component and optimized end-to-end during model training. $\alpha(t)$ are learnable seasonal gate variables, modulating the effect of the nonlinear interaction term on the overall dynamics at different months:
+\begin{equation}\label{eq:gate}
+    \alpha(t) = \sigma \left( \mathbf{w}_0 + \sum_{k=1}^{K}w_{2k-1}\cos(k\omega t)+w_{2k}\sin(k\omega t) \right),
+\end{equation}
+where $\mathbf{w}_0,\mathbf{w}_1$ are learnable, $\sigma$ is the sigmoid activation, $\omega = 2\pi$, and $K = 2$ to capture annual and semi-annual harmonics. The graph structure provides a physics-informed sparsity pattern that prevents the model from learning spurious correlations, and the learnable seasonal gate $\alpha(t)$ captures the magnitude of GNN's influence on the overall model prediction. We call the NXRO model with GNN residual NXRO-GNN.
+
+\subsubsection{Attention-Based Corrections}
+
+The attention mechanism~\cite{vaswani2017attention} offers an alternative approach to modeling variable interactions, where the coupling strength depends on the current state. We implement a masked self-attention residual: %\YS{be consistent with Eq 5. write down the full ODE or just residual term.}
+\begin{equation}
+    \frac{d\mathbf{X}}{dt} = L_\theta(t)\cdot X + \alpha(t)\cdot \text{Proj}\left(\text{Softmax}\left(\mathbf{M} \odot \frac{\mathbf{Q}\mathbf{K}^\top}{\sqrt{d}}\right)\,\mathbf{V}\right)
+\end{equation}
+where $Q = \bX W_Q$, $K = \bX W_K$, $V = \bX W_V$ are learnable query, key, and value projections, $\mathbf{M}$ is a fixed masking matrix that forces sparsity, by default allowing self attention each index and attention to the two ocean indices of ENSO and WWV, following the design in \cite{zhao2024xro}, and $\alpha(t)$ provides seasonal gating in Equation \ref{eq:gate}. We call the model with Attention residual as NXRO-Attentive. % \YS{explain $W_o$. How does mask M parameterized? which part is learnable?}

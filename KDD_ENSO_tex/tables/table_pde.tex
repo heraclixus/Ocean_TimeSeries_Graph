@@ -1,0 +1,128 @@
+% \begin{table}[t]
+% \scriptsize
+% \setlength{\tabcolsep}{3pt}
+% \centering
+% \caption{OT kernel comparison for PDE datasets. Mean and variance of MSE between target and generation at each discretization, along with the average error in log-spectrum, are computed. Here we compare the baseline FFM (N/A) against its variants with different kernel types.  The best result is in \textcolor{ForestGreen}{$\mathbf{green}$} and the second best is \textcolor{Orange}{$\mathbf{orange}$}.}
+% \label{tab:pde_kernel}
+% \resizebox{\columnwidth}{!}{%
+% \begin{tabular}{llrrr}
+% \toprule
+% Dataset & Kernel & Mean & Variance & Spectrum (log) \\
+% \midrule
+% \multirow{4}{*}{KdV}
+%  & N/A & $9.28 \times 10^{-4}$ & $2.58 \times 10^{-4}$ & $1.69 \times 10^{1}$ \\
+
+%  & Signature & \textcolor{Orange}{$\mathbf{3.89 \times 10^{-4}}$} & \textcolor{Orange}{$\mathbf{5.95 \times 10^{-5}}$} & $1.69 \times 10^{1}$ \\
+
+%  & RBF & $4.66 \times 10^{-4}$ & $6.94 \times 10^{-5}$ & \textcolor{Orange}{$\mathbf{1.66 \times 10^{1}}$} \\
+
+%  & Euclidean & \textcolor{ForestGreen}{$\mathbf{1.21 \times 10^{-4}}$} & \textcolor{ForestGreen}{$\mathbf{3.70 \times 10^{-5}}$} & \textcolor{ForestGreen}{$\mathbf{1.48 \times 10^{1}}$} \\
+% \midrule
+% \multirow{3}{*}{\shortstack{Navier-\\Stokes}}
+%  & N/A & $6.74 \times 10^{-2}$ & $2.85 \times 10^{-2}$ & \textcolor{Orange}{$\mathbf{7.72 \times 10^{-1}}$} \\
+
+%  & RBF & \textcolor{ForestGreen}{$\mathbf{4.12 \times 10^{-4}}$} & \textcolor{Orange}{$\mathbf{8.99 \times 10^{-4}}$} & $7.74 \times 10^{-1}$ \\
+
+%  & Euclidean & \textcolor{Orange}{$\mathbf{5.41 \times 10^{-4}}$} & \textcolor{ForestGreen}{$\mathbf{1.65 \times 10^{-4}}$} & \textcolor{ForestGreen}{$\mathbf{6.74 \times 10^{-1}}$} \\
+% \midrule
+% \multirow{4}{*}{\shortstack{Stoch.\\KdV}}
+%  & N/A & $9.34 \times 10^{-4}$ & $4.26 \times 10^{-3}$ & $4.11 \times 10^{0}$ \\
+
+%  & Signature & $8.66 \times 10^{-4}$ & $2.12 \times 10^{-3}$ & $4.05 \times 10^{0}$ \\
+
+%  & RBF & \textcolor{Orange}{$\mathbf{2.25 \times 10^{-4}}$} & \textcolor{ForestGreen}{$\mathbf{8.86 \times 10^{-4}}$} & \textcolor{ForestGreen}{$\mathbf{3.37 \times 10^{0}}$} \\
+
+%  & Euclidean & \textcolor{ForestGreen}{$\mathbf{1.29 \times 10^{-4}}$} & \textcolor{Orange}{$\mathbf{1.11 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{3.77 \times 10^{0}}$} \\
+% \midrule
+% \multirow{3}{*}{Stoch. NS}
+%  & N/A & $1.87 \times 10^{-1}$ & $5.03 \times 10^{0}$ & $5.76 \times 10^{-2}$ \\
+
+%  & RBF & \textcolor{Orange}{$\mathbf{3.47 \times 10^{-2}}$} & \textcolor{Orange}{$\mathbf{4.04 \times 10^{-1}}$} & \textcolor{Orange}{$\mathbf{1.29 \times 10^{-2}}$} \\
+
+%  & Euclidean & \textcolor{ForestGreen}{$\mathbf{1.71 \times 10^{-2}}$} & \textcolor{ForestGreen}{$\mathbf{2.50 \times 10^{-1}}$} & \textcolor{ForestGreen}{$\mathbf{7.94 \times 10^{-3}}$} \\
+% \bottomrule
+% \end{tabular}
+% } % end resizebox
+% \end{table}
+
+
+% Suggested compact formatting:
+% - Move scientific exponent outside parentheses: (mean ± std)×10^k
+% - Slightly tighter columns + row spacing
+% Keep your existing color definitions (ForestGreen/Orange) from xcolor.
+
+\begin{table}[t]
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{0.95}
+\centering
+\caption{OT kernel comparison for PDE datasets. Mean and variance of MSE between target and generation at each discretization, along with the average error in log-spectrum, are computed. Here we compare the baseline FFM (N/A) against its variants with different kernel types. Results computed with average $\pm$ std over 10 different seeds. The best result is in \textcolor{ForestGreen}{$\mathbf{green}$} and the second best is \textcolor{Orange}{$\mathbf{orange}$}.}
+\label{tab:pde_kernel}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+Dataset & Kernel & Mean & Variance & Spectrum (log) \\
+\midrule
+\multirow{4}{*}{KdV}
+ & N/A
+ & $\esci{4.74}{3.37}{-4}$
+ & $\esci{1.30}{0.51}{-4}$
+ & $\esci{1.72}{0.04}{1}$ \\
+ & Signature
+ & $\esci{3.82}{3.42}{-4}$
+ & \textcolor{Orange}{\textbf{$\esci{8.87}{6.17}{-5}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{1.69}{0.02}{1}$}} \\
+ & RBF
+ & \textcolor{ForestGreen}{\textbf{$\esci{2.29}{2.32}{-4}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{7.04}{4.33}{-5}$}}
+ & $\esci{1.69}{0.03}{1}$ \\
+ & Euclidean
+ & \textcolor{Orange}{\textbf{$\esci{3.01}{1.50}{-4}$}}
+ & $\esci{9.20}{6.89}{-5}$
+ & \textcolor{Orange}{\textbf{$\esci{1.69}{0.03}{1}$}} \\
+\midrule
+\multirow{3}{*}{Navier-Stokes}
+ & N/A
+ & $\esci{7.11}{7.65}{-2}$
+ & $\esci{2.95}{0.86}{-2}$
+ & $\esci{7.69}{1.03}{-1}$ \\
+ & RBF
+ & \textcolor{Orange}{\textbf{$\esci{3.33}{3.53}{-2}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{2.32}{0.75}{-2}$}}
+ & \textcolor{Orange}{\textbf{$\esci{6.41}{0.75}{-1}$}} \\
+ & Euclidean
+ & \textcolor{ForestGreen}{\textbf{$\esci{3.27}{4.72}{-2}$}}
+ & \textcolor{Orange}{\textbf{$\esci{2.68}{1.00}{-2}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{6.26}{0.75}{-1}$}} \\
+\midrule
+\multirow{3}{*}{Stoch.\ KdV}
+ & N/A
+ & \textcolor{Orange}{\textbf{$\esci{1.53}{1.30}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{2.83}{2.32}{-3}$}}
+ & $\esci{4.23}{0.27}{0}$ \\
+ & RBF
+ & \textcolor{ForestGreen}{\textbf{$\esci{1.36}{0.84}{-3}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{1.87}{1.07}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{4.08}{0.15}{0}$}} \\
+ & Euclidean
+ & $\esci{2.76}{1.94}{-3}$
+ & $\esci{3.18}{2.27}{-3}$
+ & \textcolor{ForestGreen}{\textbf{$\esci{4.01}{0.29}{0}$}} \\
+\midrule
+\multirow{3}{*}{Stoch.\ NS}
+ & N/A
+ & $\esci{3.45}{2.28}{-1}$
+ & $\esci{5.54}{0.92}{0}$
+ & $\esci{6.04}{1.10}{-2}$ \\
+ & RBF
+ & \textcolor{ForestGreen}{\textbf{$\esci{1.96}{0.43}{-1}$}}
+ & \textcolor{Orange}{\textbf{$\esci{4.69}{0.92}{0}$}}
+ & \textcolor{Orange}{\textbf{$\esci{5.45}{1.05}{-2}$}} \\
+ & Euclidean
+ & \textcolor{Orange}{\textbf{$\esci{2.06}{0.72}{-1}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{4.64}{0.72}{0}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{5.22}{0.94}{-2}$}} \\
+\bottomrule
+\end{tabular}
+} % end resizebox
+\end{table}

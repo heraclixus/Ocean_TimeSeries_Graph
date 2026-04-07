@@ -4,12 +4,17 @@ Contains run_*() functions for different model variants.
 """
 
 import os
+import json
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
 from nxro.train import (
     train_nxro_linear,
+    train_nxro_memory_linear,
+    train_nxro_memory_res,
+    train_nxro_memory_attentive,
+    train_nxro_memory_graph,
     train_nxro_ro,
     train_nxro_rodiag,
     train_nxro_res,
@@ -22,6 +27,9 @@ from nxro.train import (
     train_nxro_neural_phys,
     train_nxro_resmix,
     train_nxro_transformer,
+    train_pure_neural_ode,
+    train_pure_transformer,
+    train_nxro_deep_gcn,
 )
 from utils.xro_utils import (
     calc_forecast_skill,
@@ -50,6 +58,77 @@ from nxro.stochastic import (
 
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+
+def _to_serializable(value):
+    if isinstance(value, dict):
+        return {k: _to_serializable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_serializable(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _save_training_artifacts(model, var_order, history, best_rmse, save_path, metadata=None):
+    payload = {
+        'state_dict': model.state_dict(),
+        'var_order': var_order,
+        'best_test_rmse': float(best_rmse) if best_rmse is not None else None,
+        'history': history,
+    }
+    if metadata:
+        payload['metadata'] = metadata
+    torch.save(payload, save_path)
+
+    summary = {
+        'checkpoint_path': save_path,
+        'best_test_rmse': float(best_rmse) if best_rmse is not None else None,
+        'best_epoch': int(history['best_epoch']) if history.get('best_epoch') is not None else None,
+        'final_train_rmse': float(history['train_rmse'][-1]) if history.get('train_rmse') else None,
+        'final_test_rmse': float(history['test_rmse'][-1]) if history.get('test_rmse') else None,
+        'epochs_completed': len(history.get('train_rmse', [])),
+        'stopped_early': bool(history.get('stopped_early', False)),
+        'history': _to_serializable(history),
+    }
+    if metadata:
+        summary['metadata'] = _to_serializable(metadata)
+
+    summary_path = save_path.replace('.pt', '_summary.json')
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"  Saved checkpoint: {save_path}")
+    print(f"  Saved summary: {summary_path}")
+    if summary['best_test_rmse'] is not None:
+        print(f"  Best test RMSE: {summary['best_test_rmse']:.4f}")
+
+
+def _memory_run_metadata(args, model_name, variant_suffix, extra_tag, extra_fields=None):
+    metadata = {
+        'model': model_name,
+        'train_start': args.train_start,
+        'train_end': args.train_end,
+        'test_start': args.test_start,
+        'test_end': args.test_end,
+        'nc_path': args.nc_path,
+        'epochs': args.epochs,
+        'batch_size': args.batch_size,
+        'lr': args.lr,
+        'weight_decay': args.weight_decay,
+        'k_max': args.k_max,
+        'rollout_k': args.rollout_k,
+        'memory_depth': args.memory_depth,
+        'run_tag': getattr(args, 'run_tag', None),
+        'variant_suffix': variant_suffix,
+        'extra_tag': extra_tag,
+        'extra_train_nc': args.extra_train_nc,
+    }
+    if extra_fields:
+        metadata.update(extra_fields)
+    return metadata
 
 
 def _evaluate_and_plot(fcst, obs_ds, train_period, test_period, eval_all_datasets, 
@@ -92,8 +171,18 @@ def _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir,
     if args.use_sim_noise:
         print("  Fitting noise from simulation-observation differences...")
         from nxro.stochastic import fit_noise_from_simulations
+        from nxro.data import discover_cesm2_climate_mode_files
         import glob
-        sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+        
+        # Prefer CESM2-LENS data if available, otherwise fall back to old XRO_indices files
+        cesm2_paths = discover_cesm2_climate_mode_files()
+        if cesm2_paths:
+            print(f"  Using CESM2-LENS data ({len(cesm2_paths)} ensemble members)")
+            sim_paths = cesm2_paths
+        else:
+            print("  CESM2-LENS data not found, falling back to XRO_indices_*_preproc.nc")
+            sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+        
         # Warning: fit_noise_from_simulations currently only supports AR(1)
         # If p > 1, we probably should warn or fallback
         if ar_p > 1:
@@ -179,23 +268,26 @@ def _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir,
 
 def run_linear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                base_results_dir, all_eval_datasets, device, 
-               load_xro_init, variant_suffix, extra_tag, fig_suffix):
+               load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Linear model."""
     base_dir = f'{base_results_dir}/linear'
     ensure_dir(base_dir)
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     L_basis_init = warmstart_params.get('L_basis_init') if warmstart_params else None
     
     model, var_order, best_rmse, history = train_nxro_linear(
         nc_path=args.nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max, 
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=args.extra_train_nc,
         L_basis_init=L_basis_init,
+        exclude_vars=exclude_vars,
+        val_start=getattr(args, 'val_start', None),
+        val_end=getattr(args, 'val_end', None),
     )
     
     # Plot training curves
@@ -236,15 +328,301 @@ def run_linear(args, obs_ds, train_ds, test_ds, train_period, test_period,
     print(f"✓ NXRO-Linear complete (out-of-sample)")
 
 
+def run_memory_linear(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                      base_results_dir, all_eval_datasets, device,
+                      load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
+    """Train and evaluate NXRO-Memory-Linear."""
+    base_dir = f'{base_results_dir}/memory_linear'
+    ensure_dir(base_dir)
+    freeze_linear = bool(getattr(args, 'freeze', None) and 'linear' in args.freeze.lower())
+
+    warmstart_params = load_xro_init(
+        args.warm_start, k_max=args.k_max, include_ro=False, include_diag=False,
+        exclude_vars=exclude_vars,
+    ) if args.warm_start else None
+    L_basis_init = warmstart_params.get('L_basis_init') if warmstart_params else None
+
+    model, var_order, best_rmse, history = train_nxro_memory_linear(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
+        memory_depth=args.memory_depth, device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        L_basis_init=L_basis_init,
+        exclude_vars=exclude_vars,
+        freeze_instantaneous=freeze_linear,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('NXRO-Memory-Linear training')
+    ax.legend()
+    plt.savefig(f'{base_dir}/NXRO_memory_linear_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+
+    save_path = f'{base_dir}/nxro_memory_linear{variant_suffix}_best{extra_tag}.pt'
+    _save_training_artifacts(
+        model, var_order, history, best_rmse, save_path,
+        metadata=_memory_run_metadata(
+            args,
+            'memory_linear',
+            variant_suffix,
+            extra_tag,
+        ),
+    )
+
+    fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device=device)
+    _evaluate_and_plot(fcst, obs_ds, train_period, test_period,
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/NXRO_memory_linear', fig_suffix, 'Nino34', 'NXRO-Memory-Linear')
+
+    if args.stochastic:
+        _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir,
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device,
+                                'nxro_memory_linear', fcst)
+
+    sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, sim_ds, sel_var='Nino34',
+                      out_path=f'{base_dir}/NXRO_memory_linear_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NXRO-Memory-Linear')
+
+    print("✓ NXRO-Memory-Linear complete")
+
+
+def run_memory_res(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                   base_results_dir, all_eval_datasets, device,
+                   load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
+    """Train and evaluate NXRO-Memory-Res."""
+    base_dir = f'{base_results_dir}/memory_res'
+    ensure_dir(base_dir)
+    freeze_linear = bool(getattr(args, 'freeze', None) and 'linear' in args.freeze.lower())
+
+    warmstart_params = load_xro_init(
+        args.warm_start, k_max=args.k_max, include_ro=False, include_diag=False,
+        exclude_vars=exclude_vars,
+    ) if args.warm_start else None
+    L_basis_init = warmstart_params.get('L_basis_init') if warmstart_params else None
+
+    model, var_order, best_rmse, history = train_nxro_memory_res(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
+        memory_depth=args.memory_depth, hidden=args.memory_hidden, device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        L_basis_init=L_basis_init,
+        exclude_vars=exclude_vars,
+        freeze_instantaneous=freeze_linear,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('NXRO-Memory-Res training')
+    ax.legend()
+    plt.savefig(f'{base_dir}/NXRO_memory_res_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+
+    save_path = f'{base_dir}/nxro_memory_res{variant_suffix}_best{extra_tag}.pt'
+    _save_training_artifacts(
+        model, var_order, history, best_rmse, save_path,
+        metadata=_memory_run_metadata(
+            args,
+            'memory_res',
+            variant_suffix,
+            extra_tag,
+            extra_fields={
+                'hidden': args.memory_hidden,
+            },
+        ),
+    )
+
+    fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device=device)
+    _evaluate_and_plot(fcst, obs_ds, train_period, test_period,
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/NXRO_memory_res', fig_suffix, 'Nino34', 'NXRO-Memory-Res')
+
+    if args.stochastic:
+        _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir,
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device,
+                                'nxro_memory_res', fcst)
+
+    sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, sim_ds, sel_var='Nino34',
+                      out_path=f'{base_dir}/NXRO_memory_res_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NXRO-Memory-Res')
+
+    print("✓ NXRO-Memory-Res complete")
+
+
+def run_memory_attentive(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                         base_results_dir, all_eval_datasets, device,
+                         load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
+    """Train and evaluate NXRO-Memory-Attentive."""
+    base_dir = f'{base_results_dir}/memory_attentive'
+    ensure_dir(base_dir)
+    freeze_linear = bool(getattr(args, 'freeze', None) and 'linear' in args.freeze.lower())
+
+    warmstart_params = load_xro_init(
+        args.warm_start, k_max=args.k_max, include_ro=False, include_diag=False,
+        exclude_vars=exclude_vars,
+    ) if args.warm_start else None
+    L_basis_init = warmstart_params.get('L_basis_init') if warmstart_params else None
+
+    model, var_order, best_rmse, history = train_nxro_memory_attentive(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
+        memory_depth=args.memory_depth, d=args.memory_d, n_heads=args.memory_n_heads,
+        dropout=args.memory_dropout, mask_mode=args.memory_mask_mode, device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        L_basis_init=L_basis_init,
+        exclude_vars=exclude_vars,
+        freeze_instantaneous=freeze_linear,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('NXRO-Memory-Attentive training')
+    ax.legend()
+    plt.savefig(f'{base_dir}/NXRO_memory_attentive_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+
+    save_path = f'{base_dir}/nxro_memory_attentive{variant_suffix}_best{extra_tag}.pt'
+    _save_training_artifacts(
+        model, var_order, history, best_rmse, save_path,
+        metadata=_memory_run_metadata(
+            args,
+            'memory_attentive',
+            variant_suffix,
+            extra_tag,
+            extra_fields={
+                'd': args.memory_d,
+                'n_heads': args.memory_n_heads,
+                'dropout': args.memory_dropout,
+                'mask_mode': args.memory_mask_mode,
+            },
+        ),
+    )
+
+    fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device=device)
+    _evaluate_and_plot(fcst, obs_ds, train_period, test_period,
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/NXRO_memory_attentive', fig_suffix, 'Nino34', 'NXRO-Memory-Attentive')
+
+    if args.stochastic:
+        _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir,
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device,
+                                'nxro_memory_attentive', fcst)
+
+    sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, sim_ds, sel_var='Nino34',
+                      out_path=f'{base_dir}/NXRO_memory_attentive_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NXRO-Memory-Attentive')
+
+    print("✓ NXRO-Memory-Attentive complete")
+
+
+def run_memory_graph(args, obs_ds, train_ds, test_ds, train_period, test_period,
+                     base_results_dir, all_eval_datasets, device,
+                     load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
+    """Train and evaluate NXRO-Memory-Graph."""
+    base_dir = f'{base_results_dir}/memory_graph'
+    ensure_dir(base_dir)
+    freeze_linear = bool(getattr(args, 'freeze', None) and 'linear' in args.freeze.lower())
+
+    warmstart_params = load_xro_init(
+        args.warm_start, k_max=args.k_max, include_ro=False, include_diag=False,
+        exclude_vars=exclude_vars,
+    ) if args.warm_start else None
+    L_basis_init = warmstart_params.get('L_basis_init') if warmstart_params else None
+
+    model, var_order, best_rmse, history = train_nxro_memory_graph(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
+        memory_depth=args.memory_depth, use_fixed_graph=not args.graph_learned,
+        graph_mode=args.memory_graph_mode, learned_l1_lambda=args.graph_l1,
+        stat_knn_method=args.graph_stat_method, stat_knn_top_k=args.graph_stat_topk,
+        stat_knn_source=args.graph_stat_source, device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        L_basis_init=L_basis_init,
+        exclude_vars=exclude_vars,
+        freeze_instantaneous=freeze_linear,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('NXRO-Memory-Graph training')
+    ax.legend()
+    plt.savefig(f'{base_dir}/NXRO_memory_graph_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+
+    save_path = f'{base_dir}/nxro_memory_graph{variant_suffix}_best{extra_tag}.pt'
+    _save_training_artifacts(
+        model, var_order, history, best_rmse, save_path,
+        metadata=_memory_run_metadata(
+            args,
+            'memory_graph',
+            variant_suffix,
+            extra_tag,
+            extra_fields={
+                'graph_mode': args.memory_graph_mode,
+                'graph_learned': bool(args.graph_learned),
+                'use_fixed_graph': not bool(args.graph_learned),
+                'graph_l1': args.graph_l1,
+                'graph_stat_method': args.graph_stat_method,
+                'graph_stat_topk': args.graph_stat_topk,
+                'graph_stat_source': args.graph_stat_source,
+            },
+        ),
+    )
+
+    fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device=device)
+    _evaluate_and_plot(fcst, obs_ds, train_period, test_period,
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/NXRO_memory_graph', fig_suffix, 'Nino34', 'NXRO-Memory-Graph')
+
+    if args.stochastic:
+        _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir,
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device,
+                                'nxro_memory_graph', fcst)
+
+    sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, sim_ds, sel_var='Nino34',
+                      out_path=f'{base_dir}/NXRO_memory_graph_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NXRO-Memory-Graph')
+
+    print("✓ NXRO-Memory-Graph complete")
+
+
 def run_ro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
            base_results_dir, all_eval_datasets, device, 
-           load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+           load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-RO model."""
     base_dir = f'{base_results_dir}/ro'
     ensure_dir(base_dir)
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=True, include_diag=False) if args.warm_start else None
+                                     include_ro=True, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k != 'freeze_diag'}
     
@@ -257,6 +635,7 @@ def run_ro(args, obs_ds, train_ds, test_ds, train_period, test_period,
         extra_train_nc_paths=args.extra_train_nc,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
+        exclude_vars=exclude_vars,
     )
     
     # Training curves
@@ -298,13 +677,13 @@ def run_ro(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_rodiag(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                base_results_dir, all_eval_datasets, device, 
-               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-RO+Diag model."""
     base_dir = f'{base_results_dir}/rodiag'
     ensure_dir(base_dir)
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=True, include_diag=True) if args.warm_start else None
+                                     include_ro=True, include_diag=True, exclude_vars=exclude_vars) if args.warm_start else None
     
     rd_model, rd_var_order, rd_best_rmse, rd_history = train_nxro_rodiag(
         nc_path=args.nc_path,
@@ -315,6 +694,7 @@ def run_rodiag(args, obs_ds, train_ds, test_ds, train_period, test_period,
         extra_train_nc_paths=args.extra_train_nc,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags,
+        exclude_vars=exclude_vars,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -353,24 +733,33 @@ def run_rodiag(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_res(args, obs_ds, train_ds, test_ds, train_period, test_period, 
             base_results_dir, all_eval_datasets, device, 
-            load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+            load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Res model."""
     base_dir = f'{base_results_dir}/res'
     ensure_dir(base_dir)
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k == 'freeze_linear'}
     
+    # Best hyperparameters from grid search (hidden=32, lr=0.001, weight_decay=0.001, res_reg=1e-5)
     rs_model, rs_var_order, rs_best_rmse, rs_history = train_nxro_res(
         nc_path=args.nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        res_reg=args.res_reg, device=device, rollout_k=args.rollout_k,
+        n_epochs=args.epochs, batch_size=args.batch_size,
+        lr=getattr(args, 'lr', 0.001),  # Best: 0.001
+        k_max=args.k_max,
+        hidden=getattr(args, 'hidden_mlp', 32),  # Best: 32
+        res_reg=getattr(args, 'res_reg', 1e-5),  # Best: 1e-5
+        weight_decay=getattr(args, 'weight_decay', 0.001),  # Best: 0.001
+        device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=args.extra_train_nc,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
+        exclude_vars=exclude_vars,
+        val_start=getattr(args, 'val_start', None),
+        val_end=getattr(args, 'val_end', None),
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -409,14 +798,14 @@ def run_res(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_res_fullxro(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                     base_results_dir, all_eval_datasets, device, 
-                    load_xro_init, extra_tag, fig_suffix):
+                    load_xro_init, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Res-FullXRO model."""
     assert args.warm_start is not None, "Variant res_fullxro requires --warm_start argument!"
     
     base_dir = f'{base_results_dir}/res_fullxro'
     ensure_dir(base_dir)
     
-    xro_init = load_xro_init(args.warm_start, k_max=args.k_max, include_ro=True, include_diag=True)
+    xro_init = load_xro_init(args.warm_start, k_max=args.k_max, include_ro=True, include_diag=True, exclude_vars=exclude_vars)
     xro_init_dict = {k.replace('_init', ''): v for k, v in xro_init.items()}
     
     rs_fullxro_model, rs_fullxro_var_order, rs_fullxro_best_rmse, rs_fullxro_history = train_nxro_res_fullxro(
@@ -426,7 +815,8 @@ def run_res_fullxro(args, obs_ds, train_ds, test_ds, train_period, test_period,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         res_reg=args.res_reg, device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=args.extra_train_nc,
-        xro_init_dict=xro_init_dict
+        xro_init_dict=xro_init_dict,
+        exclude_vars=exclude_vars,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -466,7 +856,7 @@ def run_res_fullxro(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 
 def run_neural(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-               base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+               base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-NeuralODE model."""
     base_dir = f'{base_results_dir}/neural'
     ensure_dir(base_dir)
@@ -478,7 +868,8 @@ def run_neural(args, obs_ds, train_ds, test_ds, train_period, test_period,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         hidden=64, depth=2, dropout=0.1, allow_cross=False, mask_mode='th_only', 
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=args.extra_train_nc
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -515,8 +906,67 @@ def run_neural(args, obs_ds, train_ds, test_ds, train_period, test_period,
     print(f"✓ NXRO-NeuralODE complete (out-of-sample)")
 
 
+def run_pure_neural_ode(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                        base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
+    """Train and evaluate Pure Neural ODE model (NO physical priors - baseline).
+    
+    This is a pure black-box neural ODE: dX/dt = G_θ(X)
+    - No seasonal linear operator
+    - No XRO structure
+    - Just learns dynamics from data
+    """
+    base_dir = f'{base_results_dir}/pure_neural_ode'
+    ensure_dir(base_dir)
+    
+    model, var_order, best_rmse, history = train_pure_neural_ode(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
+        hidden=64, depth=2, dropout=0.1, use_time=False,
+        device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
+        val_start=getattr(args, 'val_start', None),
+        val_end=getattr(args, 'val_end', None),
+    )
+    
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('PureNeuralODE training (Out-of-Sample)')
+    ax.legend()
+    plt.savefig(f'{base_dir}/pure_neural_ode_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+    
+    save_path = f'{base_dir}/pure_neural_ode_best{extra_tag}.pt'
+    torch.save({'state_dict': model.state_dict(), 'var_order': var_order}, save_path)
+    print(f"✓ Saved to: {save_path}")
+    
+    fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device=device)
+    _evaluate_and_plot(fcst, obs_ds, train_period, test_period, 
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/pure_neural_ode', fig_suffix, 'Nino34', 'NeuralODE')
+    
+    # Stochastic ensemble forecasts (optional)
+    if args.stochastic:
+        _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir, 
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device, 
+                                'pure_neural_ode', fcst)
+    
+    sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, sim_ds, sel_var='Nino34', 
+                      out_path=f'{base_dir}/pure_neural_ode_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NeuralODE')
+    
+    print(f"✓ PureNeuralODE complete (out-of-sample)")
+
+
 def run_neural_phys(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                    base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                    base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-PhysReg model."""
     base_dir = f'{base_results_dir}/neural_phys'
     ensure_dir(base_dir)
@@ -529,7 +979,8 @@ def run_neural_phys(args, obs_ds, train_ds, test_ds, train_period, test_period,
         hidden=64, depth=2, dropout=0.1, allow_cross=False, mask_mode='th_only',
         jac_reg=args.jac_reg, div_reg=args.div_reg, noise_std=args.noise_std, 
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=args.extra_train_nc
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -568,13 +1019,13 @@ def run_neural_phys(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_resmix(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                base_results_dir, all_eval_datasets, device, 
-               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-ResidualMix model."""
     base_dir = f'{base_results_dir}/resmix'
     ensure_dir(base_dir)
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=True, include_diag=True) if args.warm_start else None
+                                     include_ro=True, include_diag=True, exclude_vars=exclude_vars) if args.warm_start else None
     
     rx_model, rx_var_order, rx_best_rmse, rx_history = train_nxro_resmix(
         nc_path=args.nc_path,
@@ -586,6 +1037,7 @@ def run_resmix(args, obs_ds, train_ds, test_ds, train_period, test_period,
         extra_train_nc_paths=args.extra_train_nc,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags,
+        exclude_vars=exclude_vars,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -623,7 +1075,7 @@ def run_resmix(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 
 def run_bilinear(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                 base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                 base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Bilinear model."""
     base_dir = f'{base_results_dir}/bilinear'
     ensure_dir(base_dir)
@@ -634,7 +1086,8 @@ def run_bilinear(args, obs_ds, train_ds, test_ds, train_period, test_period,
         test_start=args.test_start, test_end=args.test_end,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         n_channels=2, rank=2, device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=args.extra_train_nc
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -673,26 +1126,36 @@ def run_bilinear(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_attentive(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                   base_results_dir, all_eval_datasets, device, 
-                  load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+                  load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Attentive model."""
     base_dir = f'{base_results_dir}/attentive'
     ensure_dir(base_dir)
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k == 'freeze_linear'}
     
+    # Best hyperparameters from grid search (d=16, lr=0.001, weight_decay=0.0001, dropout=0.0)
     at_model, at_var_order, at_best_rmse, at_history = train_nxro_attentive(
         nc_path=args.nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        d=32, dropout=0.1, mask_mode='th_only', device=device, rollout_k=args.rollout_k,
+        n_epochs=args.epochs, batch_size=args.batch_size,
+        lr=getattr(args, 'lr', 0.001),  # Best: 0.001
+        weight_decay=getattr(args, 'weight_decay_att', 0.0001),  # Best: 0.0001
+        k_max=args.k_max,
+        d=getattr(args, 'd_att', 16),  # Best: 16
+        dropout=getattr(args, 'dropout_att', 0.0),  # Best: 0.0
+        mask_mode='th_only', device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=args.extra_train_nc,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
+        exclude_vars=exclude_vars,
+        val_start=getattr(args, 'val_start', None),
+        val_end=getattr(args, 'val_end', None),
+        disable_seasonal_gate=getattr(args, 'disable_seasonal_gate', False),
     )
-    
+
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
     ax.plot(at_history['train_rmse'], label='train RMSE', c='tab:blue')
     ax.plot(at_history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
@@ -729,10 +1192,10 @@ def run_attentive(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_graph(args, obs_ds, train_ds, test_ds, train_period, test_period, 
               base_results_dir, all_eval_datasets, device, 
-              load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+              load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Graph model."""
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k == 'freeze_linear'}
     
     gr_model, gr_var_order, gr_best_rmse, gr_history = train_nxro_graph(
@@ -748,7 +1211,8 @@ def run_graph(args, obs_ds, train_ds, test_ds, train_period, test_period,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=args.extra_train_nc
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
     )
     
     graph_kind = f"stat_{args.graph_stat_method}_k{args.graph_stat_topk}" if args.graph_stat_method else "xro"
@@ -793,22 +1257,45 @@ def run_graph(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 
 def run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                  base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                  base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-GraphPyG model."""
-    gp_model, gp_var_order, gp_best_rmse, gp_history = train_nxro_graph_pyg(
-        nc_path=args.nc_path,
-        train_start=args.train_start, train_end=args.train_end,
-        test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        top_k=args.top_k, hidden=16, dropout=0.1, use_gat=args.gat, device=device, 
-        rollout_k=args.rollout_k,
-        extra_train_nc_paths=args.extra_train_nc
-    )
-    
     tag2 = 'gat' if args.gat else 'gcn'
     ktag = f"k{args.top_k}"
     base_dir = f'{base_results_dir}/graphpyg/{tag2}_{ktag}'
     ensure_dir(base_dir)
+    
+    # Check for existing checkpoint to resume from
+    checkpoint_dir = f'{base_dir}/checkpoints'
+    resume_checkpoint = None
+    if os.path.exists(checkpoint_dir):
+        existing_ckpts = sorted([f for f in os.listdir(checkpoint_dir) if f.endswith('.pt')])
+        if existing_ckpts:
+            resume_checkpoint = os.path.join(checkpoint_dir, existing_ckpts[-1])
+            print(f"  Found existing checkpoint: {resume_checkpoint}")
+    
+    # Best hyperparameters from grid search (hidden=16, lr=0.001, weight_decay=1e-5, dropout=0.0)
+    gp_model, gp_var_order, gp_best_rmse, gp_history = train_nxro_graph_pyg(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size,
+        lr=getattr(args, 'lr', 0.001),  # Best: 0.001
+        weight_decay=getattr(args, 'weight_decay_gcn', 1e-5),  # Best: 1e-5
+        k_max=args.k_max,
+        top_k=args.top_k,
+        hidden=getattr(args, 'hidden_gcn', 16),  # Best: 16
+        dropout=getattr(args, 'dropout_gcn', 0.0),  # Best: 0.0
+        use_gat=args.gat, device=device,
+        rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
+        checkpoint_dir=checkpoint_dir,
+        checkpoint_every=10,
+        resume_from_checkpoint=resume_checkpoint,
+        val_start=getattr(args, 'val_start', None),
+        val_end=getattr(args, 'val_end', None),
+        disable_seasonal_gate=getattr(args, 'disable_seasonal_gate', False),
+    )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
     ax.plot(gp_history['train_rmse'], label='train RMSE', c='tab:blue')
@@ -845,8 +1332,72 @@ def run_graph_pyg(args, obs_ds, train_ds, test_ds, train_period, test_period,
     print(f"✓ NXRO-GraphPyG complete (out-of-sample)")
 
 
+def run_graph_deep(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                   base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
+    """Train and evaluate NXRO-DeepGCN model (best configuration from hyperparameter search).
+    
+    Configuration: 3-layer GCN, hidden=64, l1=0, cosine scheduler, layer norm
+    Achieves val_rmse=0.4633, beating previous best of 0.4974.
+    """
+    base_dir = f'{base_results_dir}/deep_gcn'
+    ensure_dir(base_dir)
+    
+    # Best hyperparameters from search
+    dg_model, dg_var_order, dg_best_rmse, dg_history = train_nxro_deep_gcn(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size,
+        lr=getattr(args, 'lr_deep_gcn', 0.001),
+        weight_decay=getattr(args, 'wd_deep_gcn', 1e-5),
+        k_max=args.k_max,
+        hidden=getattr(args, 'hidden_deep_gcn', 64),
+        n_layers=getattr(args, 'n_layers_deep_gcn', 3),
+        dropout=getattr(args, 'dropout_deep_gcn', 0.0),
+        use_layer_norm=True,
+        l1_lambda=getattr(args, 'l1_deep_gcn', 0.0),
+        use_cosine_scheduler=True,
+        device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
+    )
+    
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(dg_history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(dg_history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('NXRO-DeepGCN training (Out-of-Sample)')
+    ax.legend()
+    plt.savefig(f'{base_dir}/NXRO_deep_gcn_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+    
+    dg_save = f'{base_dir}/nxro_deep_gcn_best{extra_tag}.pt'
+    torch.save({'state_dict': dg_model.state_dict(), 'var_order': dg_var_order}, dg_save)
+    print(f"✓ Saved to: {dg_save}")
+    
+    NXRO_dg_fcst = nxro_reforecast(dg_model, init_ds=obs_ds, n_month=21, var_order=dg_var_order, device=device)
+    _evaluate_and_plot(NXRO_dg_fcst, obs_ds, train_period, test_period, 
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/NXRO_deep_gcn', fig_suffix, 'Nino34', 'NXRO-DeepGCN')
+    
+    # Stochastic ensemble forecasts (optional)
+    if args.stochastic:
+        _run_stochastic_forecast(dg_model, dg_var_order, train_ds, obs_ds, args, base_dir, 
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device, 
+                                'nxro_deep_gcn', NXRO_dg_fcst)
+    
+    dg_sim_ds = simulate_nxro_longrun(dg_model, X0_ds=train_ds, var_order=dg_var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, dg_sim_ds, sel_var='Nino34', 
+                      out_path=f'{base_dir}/NXRO_deep_gcn_seasonal_synchronization{fig_suffix}.png',
+                      model_label='NXRO-DeepGCN')
+    
+    print(f"✓ NXRO-DeepGCN complete (out-of-sample)")
+
+
 def run_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                     base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                     base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Transformer model."""
     base_dir = f'{base_results_dir}/transformer'
     ensure_dir(base_dir)
@@ -858,7 +1409,8 @@ def run_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         d_model=64, nhead=4, num_layers=2, dim_feedforward=256, dropout=0.1,
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=args.extra_train_nc
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -893,3 +1445,60 @@ def run_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period,
                       model_label='NXRO-Transformer')
     
     print(f"✓ NXRO-Transformer complete (out-of-sample)")
+
+
+def run_pure_transformer(args, obs_ds, train_ds, test_ds, train_period, test_period, 
+                         base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix, exclude_vars=None):
+    """Train and evaluate Pure Transformer model (NO physical priors - baseline).
+    
+    This is a pure black-box Transformer: each variable is a token, no seasonal features.
+    """
+    base_dir = f'{base_results_dir}/pure_transformer'
+    ensure_dir(base_dir)
+    
+    model, var_order, best_rmse, history = train_pure_transformer(
+        nc_path=args.nc_path,
+        train_start=args.train_start, train_end=args.train_end,
+        test_start=args.test_start, test_end=args.test_end,
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
+        d_model=64, nhead=4, num_layers=2, dim_feedforward=256, dropout=0.1,
+        use_time=False,
+        device=device, rollout_k=args.rollout_k,
+        extra_train_nc_paths=args.extra_train_nc,
+        exclude_vars=exclude_vars,
+        val_start=getattr(args, 'val_start', None),
+        val_end=getattr(args, 'val_end', None),
+    )
+    
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.plot(history['train_rmse'], label='train RMSE', c='tab:blue')
+    ax.plot(history['test_rmse'], label='test RMSE (out-of-sample)', c='tab:orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('RMSE')
+    ax.set_title('PureTransformer training (Out-of-Sample)')
+    ax.legend()
+    plt.savefig(f'{base_dir}/pure_transformer_training_curves{fig_suffix}.png', dpi=300)
+    plt.close()
+    
+    save_path = f'{base_dir}/pure_transformer_best{extra_tag}.pt'
+    torch.save({'state_dict': model.state_dict(), 'var_order': var_order}, save_path)
+    print(f"✓ Saved to: {save_path}")
+    
+    fcst = nxro_reforecast(model, init_ds=obs_ds, n_month=21, var_order=var_order, device=device)
+    _evaluate_and_plot(fcst, obs_ds, train_period, test_period, 
+                      args.eval_all_datasets, all_eval_datasets,
+                      f'{base_dir}/pure_transformer', fig_suffix, 'Nino34', 'Transformer')
+    
+    # Stochastic ensemble forecasts (optional)
+    if args.stochastic:
+        _run_stochastic_forecast(model, var_order, train_ds, obs_ds, args, base_dir, 
+                                extra_tag, fig_suffix, train_period, test_period,
+                                args.eval_all_datasets, all_eval_datasets, device, 
+                                'pure_transformer', fcst)
+    
+    sim_ds = simulate_nxro_longrun(model, X0_ds=train_ds, var_order=var_order, nyear=100, device=device)
+    plot_seasonal_sync(train_ds, sim_ds, sel_var='Nino34', 
+                      out_path=f'{base_dir}/pure_transformer_seasonal_synchronization{fig_suffix}.png',
+                      model_label='Transformer')
+    
+    print(f"✓ PureTransformer complete (out-of-sample)")

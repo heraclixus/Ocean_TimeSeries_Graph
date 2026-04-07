@@ -1,0 +1,148 @@
+% \begin{table}[t]
+% \scriptsize
+% \setlength{\tabcolsep}{3pt}
+% \centering
+% \caption{Mean and variance of MSE between target and generation at each discretization, along with the average error in sequence autocorrelation, are computed. Here we compare the baseline FFM against its variants with kernel based optimal transport. N/A refers to the base FFM model while the rest are configs using different kernel types. The best result is \textcolor{ForestGreen}{$\mathbf{green}$}, and the second best is \textcolor{Orange}{$\mathbf{orange}$}.}
+% \label{tab:sequence_kernel}
+% \resizebox{\columnwidth}{!}{%
+% \begin{tabular}{llrrr}
+% \toprule
+% Dataset & Kernel & Mean & Variance & Autocorr. \\
+% \midrule
+% \multirow{4}{*}{AEMET}
+%  & N/A & $1.12 \times 10^{-1}$ & $1.49 \times 10^{0}$ & $1.04 \times 10^{-7}$ \\
+
+%  & Signature & \textcolor{Orange}{$\mathbf{8.92 \times 10^{-2}}$} & \textcolor{ForestGreen}{$\mathbf{1.14 \times 10^{0}}$} & $5.27 \times 10^{-7}$ \\
+
+%  & RBF & \textcolor{ForestGreen}{$\mathbf{3.97 \times 10^{-2}}$} & $1.63 \times 10^{0}$ & \textcolor{ForestGreen}{$\mathbf{8.69 \times 10^{-8}}$} \\
+
+%  & Euclidean & $1.91 \times 10^{-1}$ & \textcolor{Orange}{$\mathbf{1.49 \times 10^{0}}$} & \textcolor{Orange}{$\mathbf{9.78 \times 10^{-8}}$} \\
+% \midrule
+% \multirow{4}{*}{Gene Expr.}
+%  & N/A & $1.30 \times 10^{-3}$ & $5.35 \times 10^{-3}$ & $3.80 \times 10^{-5}$ \\
+
+%  & Signature & $1.23 \times 10^{-3}$ & \textcolor{Orange}{$\mathbf{5.20 \times 10^{-3}}$} & $4.80 \times 10^{-5}$ \\
+
+%  & RBF & \textcolor{Orange}{$\mathbf{1.15 \times 10^{-3}}$} & $5.40 \times 10^{-3}$ & \textcolor{ForestGreen}{$\mathbf{1.81 \times 10^{-5}}$} \\
+
+%  & Euclidean & \textcolor{ForestGreen}{$\mathbf{1.07 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{5.05 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{2.19 \times 10^{-5}}$} \\
+% \midrule
+% \multirow{4}{*}{Economy}
+%  & N/A & $9.20 \times 10^{-5}$ & $2.64 \times 10^{-6}$ & $2.12 \times 10^{-4}$ \\
+
+%  & Signature & \textcolor{Orange}{$\mathbf{7.33 \times 10^{-6}}$} & \textcolor{ForestGreen}{$\mathbf{1.83 \times 10^{-6}}$} & \textcolor{Orange}{$\mathbf{9.24 \times 10^{-5}}$} \\
+
+%  & RBF & \textcolor{ForestGreen}{$\mathbf{6.72 \times 10^{-6}}$} & $1.85 \times 10^{-6}$ & \textcolor{ForestGreen}{$\mathbf{8.82 \times 10^{-5}}$} \\
+
+%  & Euclidean & $7.69 \times 10^{-6}$ & \textcolor{Orange}{$\mathbf{1.84 \times 10^{-6}}$} & $1.07 \times 10^{-4}$ \\
+% \midrule
+% \multirow{4}{*}{Heston}
+%  & N/A & $2.74 \times 10^{-3}$ & $7.17 \times 10^{-2}$ & $1.85 \times 10^{-4}$ \\
+
+%  & Signature & $3.63 \times 10^{-3}$ & $8.55 \times 10^{-2}$ & \textcolor{Orange}{$\mathbf{5.40 \times 10^{-5}}$} \\
+
+%  & RBF & \textcolor{Orange}{$\mathbf{1.76 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{6.80 \times 10^{-2}}$} & \textcolor{ForestGreen}{$\mathbf{3.20 \times 10^{-5}}$} \\
+
+%  & Euclidean & \textcolor{ForestGreen}{$\mathbf{1.05 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{7.08 \times 10^{-2}}$} & $8.38 \times 10^{-5}$ \\
+% \midrule
+% \multirow{4}{*}{rBergomi}
+%  & N/A & $2.22 \times 10^{-3}$ & $7.26 \times 10^{-3}$ & $1.49 \times 10^{-3}$ \\
+
+%  & Signature & $2.10 \times 10^{-3}$ & $1.11 \times 10^{-2}$ & $1.28 \times 10^{-3}$ \\
+
+%  & RBF & \textcolor{Orange}{$\mathbf{1.18 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{6.90 \times 10^{-3}}$} & \textcolor{ForestGreen}{$\mathbf{7.41 \times 10^{-5}}$} \\
+
+%  & Euclidean & \textcolor{ForestGreen}{$\mathbf{9.81 \times 10^{-4}}$} & \textcolor{ForestGreen}{$\mathbf{6.86 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{3.72 \times 10^{-4}}$} \\
+% \bottomrule
+% \end{tabular}
+% } % end resizebox
+% \end{table}
+
+
+\begin{table}[t]
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{0.95}
+\centering
+\caption{Mean and variance of MSE between target and generation at each discretization, along with the average error in sequence autocorrelation, are computed. Here we compare the baseline FFM against its variants with kernel based optimal transport. N/A refers to the base FFM model while the rest are configs using different kernel types. The best result is \textcolor{ForestGreen}{$\mathbf{green}$}, and the second best is \textcolor{Orange}{$\mathbf{orange}$}. Results computed over 10 different seeds.}
+\label{tab:sequence_kernel}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+Dataset & Kernel & Mean & Variance & Autocorr. \\
+\midrule
+\multirow{4}{*}{AEMET}
+ & N/A
+ & $\esci{7.38}{6.37}{-2}$
+ & $\esci{1.20}{0.40}{-2}$
+ & $\esci{4.69}{1.53}{-7}$ \\
+ & Signature
+ & \textcolor{Orange}{\textbf{$\esci{3.60}{3.66}{-2}$}}
+ & $\esci{7.84}{5.59}{-3}$
+ & $\esci{3.87}{2.45}{-7}$ \\
+ & RBF
+ & \textcolor{ForestGreen}{\textbf{$\esci{1.51}{1.61}{-2}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{4.70}{2.57}{-3}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{2.60}{1.92}{-7}$}} \\
+ & Euclidean
+ & $\esci{4.10}{2.69}{-2}$
+ & \textcolor{Orange}{\textbf{$\esci{5.59}{2.65}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{3.47}{1.99}{-7}$}} \\
+\midrule
+\multirow{4}{*}{Gene Expr.}
+ & N/A
+ & $\esci{1.39}{0.30}{-3}$
+ & \textcolor{Orange}{\textbf{$\esci{5.13}{0.74}{-3}$}}
+ & $\esci{1.59}{1.98}{-4}$ \\
+ & Signature
+ & \textcolor{ForestGreen}{\textbf{$\esci{5.21}{0.98}{-4}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{2.23}{0.23}{-3}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{4.18}{4.02}{-5}$}} \\
+ & RBF
+ & $\esci{1.25}{0.20}{-3}$
+ & $\esci{5.67}{0.74}{-3}$
+ & $\esci{4.54}{6.51}{-5}$ \\
+ & Euclidean
+ & \textcolor{Orange}{\textbf{$\esci{1.25}{0.20}{-3}$}}
+ & $\esci{5.56}{0.61}{-3}$
+ & \textcolor{Orange}{\textbf{$\esci{4.45}{4.47}{-5}$}} \\
+\midrule
+\multirow{4}{*}{Heston}
+ & N/A
+ & $\esci{6.66}{4.77}{-3}$
+ & $\esci{1.07}{0.25}{-1}$
+ & $\esci{2.78}{2.05}{-4}$ \\
+ & Signature
+ & \textcolor{ForestGreen}{\textbf{$\esci{3.33}{2.25}{-3}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{8.17}{1.14}{-2}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{3.31}{3.38}{-5}$}} \\
+ & RBF
+ & $\esci{4.48}{4.18}{-3}$
+ & \textcolor{Orange}{\textbf{$\esci{8.27}{1.53}{-2}$}}
+ & $\esci{1.41}{1.03}{-4}$ \\
+ & Euclidean
+ & \textcolor{Orange}{\textbf{$\esci{3.38}{3.81}{-3}$}}
+ & $\esci{8.40}{0.77}{-2}$
+ & \textcolor{Orange}{\textbf{$\esci{9.08}{7.99}{-5}$}} \\
+\midrule
+\multirow{4}{*}{rBergomi}
+ & N/A
+ & $\esci{3.56}{2.05}{-3}$
+ & $\esci{9.52}{3.68}{-3}$
+ & $\esci{9.81}{8.87}{-4}$ \\
+ & Signature
+ & \textcolor{Orange}{\textbf{$\esci{2.76}{1.09}{-3}$}}
+ & $\esci{8.51}{2.69}{-3}$
+ & $\esci{6.27}{2.84}{-4}$ \\
+ & RBF
+ & $\esci{2.82}{1.14}{-3}$
+ & \textcolor{ForestGreen}{\textbf{$\esci{6.52}{2.53}{-3}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{3.65}{2.01}{-4}$}} \\
+ & Euclidean
+ & \textcolor{ForestGreen}{\textbf{$\esci{2.49}{0.37}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{7.19}{3.37}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{5.15}{4.67}{-4}$}} \\
+\bottomrule
+\end{tabular}
+} % end resizebox
+\end{table}

@@ -1,0 +1,163 @@
+% \begin{table}[t]
+% \scriptsize
+% \setlength{\tabcolsep}{3pt}
+% \centering
+% \caption{Baseline comparison for time series datasets. Mean and variance of MSE between target and generation at each discretization, along with the average error in sequence autocorrelation, are computed. The k-FFM model's result is taken over all the kernel-based methods. The best result is in \textcolor{ForestGreen}{$\mathbf{green}$}, and the second best is in \textcolor{Orange}{$\mathbf{orange}$}.}
+% \label{tab:baseline_seq}
+% \resizebox{0.9\columnwidth}{!}{%
+% \begin{tabular}{llrrr}
+% \toprule
+% Dataset & Model & Mean & Var. & Autocorr. \\
+% \midrule
+% \multirow{4}{*}{AEMET}
+%  & DDPM & $9.04 \times 10^{-1}$ & $4.92 \times 10^{2}$ & $1.01 \times 10^{-6}$ \\
+
+%  & NCSN & $1.25 \times 10^{1}$ & $7.04 \times 10^{1}$ & $6.38 \times 10^{-3}$ \\
+
+%  & FFM & \textcolor{Orange}{$\mathbf{1.12 \times 10^{-1}}$} & \textcolor{Orange}{$\mathbf{1.49 \times 10^{0}}$} & \textcolor{Orange}{$\mathbf{1.04 \times 10^{-7}}$} \\
+
+%  & k-FFM & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{3.97 \times 10^{-2}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{1.14 \times 10^{0}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{8.69 \times 10^{-8}}$} \\
+% \midrule
+% \multirow{4}{*}{Gene Expr.}
+%  & DDPM & $4.41 \times 10^{-3}$ & $1.04 \times 10^{-2}$ & $2.75 \times 10^{-4}$ \\
+
+%  & NCSN & $6.05 \times 10^{-3}$ & $9.03 \times 10^{-3}$ & $5.52 \times 10^{-2}$ \\
+
+%  & FFM & \textcolor{Orange}{$\mathbf{1.30 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{5.35 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{3.80 \times 10^{-5}}$} \\
+
+%  & k-FFM & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{1.07 \times 10^{-3}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{5.05 \times 10^{-3}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{1.81 \times 10^{-5}}$} \\
+% \midrule
+% \multirow{4}{*}{Economy}
+%  & DDPM & $1.17 \times 10^{-4}$ & $6.27 \times 10^{-6}$ & \textcolor{ForestGreen}{$\mathbf{8.72 \times 10^{-7}}$} \\
+
+%  & NCSN & $4.48 \times 10^{-4}$ & $8.68 \times 10^{-3}$ & $3.62 \times 10^{-1}$ \\
+
+%  & FFM & \textcolor{Orange}{$\mathbf{9.20 \times 10^{-5}}$} & \textcolor{Orange}{$\mathbf{2.64 \times 10^{-6}}$} & $2.12 \times 10^{-4}$ \\
+
+%  & k-FFM & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{6.72 \times 10^{-6}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{1.83 \times 10^{-6}}$} & \cellcolor[gray]{0.9}\textcolor{Orange}{$\mathbf{8.82 \times 10^{-5}}$} \\
+% \midrule
+% \multirow{4}{*}{Heston}
+%  & DDPM & $1.22 \times 10^{-2}$ & $9.46 \times 10^{-2}$ & $3.20 \times 10^{-4}$ \\
+
+%  & NCSN & $1.25 \times 10^{-2}$ & $7.21 \times 10^{-1}$ & $4.17 \times 10^{-2}$ \\
+
+%  & FFM & \textcolor{Orange}{$\mathbf{2.74 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{7.17 \times 10^{-2}}$} & \textcolor{Orange}{$\mathbf{1.85 \times 10^{-4}}$} \\
+
+%  & k-FFM & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{1.05 \times 10^{-3}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{6.80 \times 10^{-2}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{3.20 \times 10^{-5}}$} \\
+% \midrule
+% \multirow{4}{*}{rBergomi}
+%  & DDPM & $5.89 \times 10^{-3}$ & \textcolor{ForestGreen}{$\mathbf{6.44 \times 10^{-3}}$} & \textcolor{Orange}{$\mathbf{4.57 \times 10^{-4}}$} \\
+
+%  & NCSN & $7.83 \times 10^{-3}$ & $3.16 \times 10^{-2}$ & $5.90 \times 10^{-3}$ \\
+
+%  & FFM & \textcolor{Orange}{$\mathbf{2.22 \times 10^{-3}}$} & $7.26 \times 10^{-3}$ & $1.49 \times 10^{-3}$ \\
+
+%  & k-FFM & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{9.81 \times 10^{-4}}$} & \cellcolor[gray]{0.9}\textcolor{Orange}{$\mathbf{6.86 \times 10^{-3}}$} & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{$\mathbf{7.41 \times 10^{-5}}$} \\
+% \bottomrule
+% \end{tabular}
+% } % end resizebox
+% \end{table}
+
+% Reformatted sequence-baseline table:
+% - Compact e-notation: (mean ± std)e-4, with e0 removed
+% - Tighter spacing: tabcolsep + arraystretch
+% Keeps your color/bold + k-FFM gray highlight
+% Requires: booktabs, multirow, xcolor (ForestGreen/Orange), colortbl (for \cellcolor)
+
+\begin{table}[t]
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{0.95}
+\centering
+\caption{Baseline comparison for time series datasets. Mean and variance of MSE between target and generation at each discretization, along with the average error in sequence autocorrelation, are computed. The k-FFM model's result is taken over all the kernel-based methods. The best result is in \textcolor{ForestGreen}{$\mathbf{green}$}, and the second best is in \textcolor{Orange}{$\mathbf{orange}$}. Results computed over 10 different seeds}
+\label{tab:baseline_seq}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+Dataset & Model & Mean & Variance & Autocorr. \\
+\midrule
+\multirow{4}{*}{AEMET}
+ & NCSN
+ & $\esci{2.89}{0.68}{-1}$
+ & $\esci{1.13}{0.05}{-1}$
+ & $\esci{3.37}{0.68}{-3}$ \\
+ & DDPM
+ & $\esci{1.04}{0.85}{-1}$
+ & $\esci{1.31}{0.78}{-2}$
+ & \textcolor{ForestGreen}{\textbf{$\esci{1.04}{1.50}{-7}$}} \\
+ & FFM
+ & \textcolor{Orange}{\textbf{$\esci{7.38}{6.37}{-2}$}}
+ & \textcolor{Orange}{\textbf{$\esci{1.20}{0.40}{-2}$}}
+ & $\esci{4.69}{1.53}{-7}$ \\
+ & k-FFM
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{1.51}{1.61}{-2}$}}
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{4.70}{2.57}{-3}$}}
+ & \cellcolor[gray]{0.9}\textcolor{Orange}{\textbf{$\esci{2.60}{1.92}{-7}$}} \\
+\midrule
+\multirow{4}{*}{Gene Expr.}
+ & NCSN
+ & $\esci{5.38}{0.63}{-3}$
+ & $\esci{9.21}{0.33}{-3}$
+ & $\esci{5.31}{0.15}{-2}$ \\
+ & DDPM
+ & $\esci{3.29}{0.33}{-3}$
+ & $\esci{1.01}{0.07}{-2}$
+ & \textcolor{Orange}{\textbf{$\esci{1.38}{1.21}{-4}$}} \\
+ & FFM
+ & \textcolor{Orange}{\textbf{$\esci{1.39}{0.30}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{5.13}{0.74}{-3}$}}
+ & $\esci{1.59}{1.98}{-4}$ \\
+ & k-FFM
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{5.21}{0.98}{-4}$}}
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{2.23}{0.23}{-3}$}}
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{4.18}{4.02}{-5}$}} \\
+\midrule
+\multirow{2}{*}{Economy}
+ & NCSN
+ & \textcolor{Orange}{\textbf{$\esci{1.35}{0.90}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{9.35}{1.14}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{2.53}{0.99}{-1}$}} \\
+ & DDPM
+ & \textcolor{ForestGreen}{\textbf{$\esci{4.59}{6.88}{-4}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{8.26}{10.16}{-5}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{1.50}{2.42}{-2}$}} \\
+\midrule
+\multirow{4}{*}{Heston}
+ & NCSN
+ & $\esci{1.30}{0.26}{-2}$
+ & $\esci{7.22}{0.09}{-1}$
+ & $\esci{4.15}{0.20}{-2}$ \\
+ & DDPM
+ & \textcolor{Orange}{\textbf{$\esci{3.83}{3.43}{-3}$}}
+ & \textcolor{Orange}{\textbf{$\esci{8.95}{2.04}{-2}$}}
+ & \textcolor{Orange}{\textbf{$\esci{1.67}{2.16}{-4}$}} \\
+ & FFM
+ & $\esci{6.66}{4.77}{-3}$
+ & $\esci{1.07}{0.25}{-1}$
+ & $\esci{2.78}{2.05}{-4}$ \\
+ & k-FFM
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{3.33}{2.25}{-3}$}}
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{8.17}{1.14}{-2}$}}
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{3.31}{3.38}{-5}$}} \\
+\midrule
+\multirow{4}{*}{rBergomi}
+ & NCSN
+ & $\esci{7.96}{1.51}{-3}$
+ & $\esci{3.27}{0.37}{-2}$
+ & $\esci{5.76}{0.65}{-3}$ \\
+ & DDPM
+ & $\esci{5.51}{3.64}{-3}$
+ & \textcolor{ForestGreen}{\textbf{$\esci{4.56}{1.28}{-3}$}}
+ & \textcolor{ForestGreen}{\textbf{$\esci{3.51}{1.75}{-4}$}} \\
+ & FFM
+ & \textcolor{Orange}{\textbf{$\esci{3.56}{2.05}{-3}$}}
+ & $\esci{9.52}{3.68}{-3}$
+ & $\esci{9.81}{8.87}{-4}$ \\
+ & k-FFM
+ & \cellcolor[gray]{0.9}\textcolor{ForestGreen}{\textbf{$\esci{2.49}{0.37}{-3}$}}
+ & \cellcolor[gray]{0.9}\textcolor{Orange}{\textbf{$\esci{6.52}{2.53}{-3}$}}
+ & \cellcolor[gray]{0.9}\textcolor{Orange}{\textbf{$\esci{3.65}{2.01}{-4}$}} \\
+\bottomrule
+\end{tabular}
+} % end resizebox
+\end{table}

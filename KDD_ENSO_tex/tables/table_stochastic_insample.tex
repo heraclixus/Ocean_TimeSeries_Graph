@@ -1,0 +1,18 @@
+\begin{table}[htbp]
+\centering
+\caption{Stochastic ensemble forecast performance (in-sample: train and evaluate on 1979--2022).}
+\label{tab:stochastic_insample}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{CRPS} & \textbf{Ensemble RMSE} & \textbf{Spread/RMSE} & \textbf{vs XRO} \\
+\midrule
+NXRO-Attentive (S2) & 0.503 & 0.894°C & 0.671 & $-$5.0\% \\
+NXRO-Graph (S2) & 0.510 & 0.923°C & 0.677 & $-$3.7\% \\
+NXRO-Linear (S2) & 0.521 & 0.927°C & 0.657 & $-$1.5\% \\
+NXRO-Res (S2) & 0.524 & 0.909°C & 0.664 & $-$1.0\% \\
+XRO (baseline) & 0.529 & 0.922°C & 0.580 & --- \\
+\bottomrule
+\end{tabular}
+}
+\end{table}

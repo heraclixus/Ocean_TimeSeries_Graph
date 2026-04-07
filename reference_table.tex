@@ -1,0 +1,22 @@
+\begin{table}[t]
+\centering
+\setlength{\tabcolsep}{3.5pt} % tighten column spacing
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{rccc@{\hspace{6pt}\vrule\hspace{6pt}}cccc}
+\toprule
+Lead & \shortstack{Neural\\ODE} & \shortstack{Trans\\former} & XRO & \shortstack{NXRO-\\MLP} & \shortstack{NXRO-\\Attn} & \shortstack{NXRO-\\GNN} \\
+\midrule
+3  & 0.401 & 0.406 & 0.350 & \textbf{0.275} & 0.289 & 0.298 \\
+6  & 0.628 & 0.622 & 0.558 & \textbf{0.440} & 0.456 & 0.479 \\
+9  & 0.718 & 0.749 & 0.659 & \textbf{0.571} & 0.571 & 0.598 \\
+12 & 0.786 & 0.858 & 0.704 & 0.672 & \textbf{0.659} & 0.682 \\
+15 & 0.859 & 0.948 & 0.763 & 0.778 & \textbf{0.740} & 0.750 \\
+18 & 0.872 & 0.987 & 0.809 & 0.851 & 0.787 & \textbf{0.785} \\
+21 & 0.856 & 0.968 & 0.833 & 0.883 & 0.807 & \textbf{0.801} \\
+\midrule
+Parameters & 5514 & $\sim$ 170K & 650 & 6334 & 633 & 537 \\
+\bottomrule
+\end{tabular}
+\caption{RMSE at selected lead times  for the models explored in Figure \ref{fig:1c_core_models_ranking}. Best (lowest) RMSE per row is in bold. We see a clear pattern that MLP based nonlinear component performs the best at short-term, while attention starts to pick up at middle-term, and GNN at long-term.}
+\label{tab:rmse_selected}
+\end{table}

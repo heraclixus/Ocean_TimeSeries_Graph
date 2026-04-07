@@ -4,6 +4,7 @@ Derived from run_utils.py.
 """
 
 import os
+from typing import Optional, List
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -46,12 +47,13 @@ from nxro.stochastic import (
     nxro_reforecast_stochastic,
     nxro_reforecast_stochastic_arp,
 )
+from nxro.data import get_common_vars, is_cesm2_climate_mode_file
 from run_utils import ensure_dir, _evaluate_and_plot, _run_stochastic_forecast
 
 
 def run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                base_results_dir, all_eval_datasets, device, 
-               load_xro_init, variant_suffix, extra_tag, fig_suffix):
+               load_xro_init, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Linear model (Two-Stage)."""
     base_dir = f'{base_results_dir}/linear'
     ensure_dir(base_dir)
@@ -59,21 +61,31 @@ def run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
 
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+
     # --- Stage 1: Synthetic Pre-training ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
     
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
-    
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     L_basis_init = warmstart_params.get('L_basis_init') if warmstart_params else None
 
     # Note: Using args.train_start/end for synthetic data slicing. 
     # Assumes synthetic data covers this period or is aligned.
-    model_s1, _, _, _ = train_nxro_linear(
+    model_s1, stage1_var_order, _, _ = train_nxro_linear(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
@@ -81,11 +93,14 @@ def run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=stage1_extra,
         L_basis_init=L_basis_init,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,  # Use common vars for Stage 1
     )
     
     s1_path = f'{base_dir}/nxro_linear_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
 
     # --- Stage 2: Fine-tuning on ORAS5 ---
@@ -93,6 +108,7 @@ def run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
     print("STAGE 2: Fine-tuning on ORAS5")
     print("="*40)
     
+    # Use include_only_vars to ensure Stage 2 uses same variables as Stage 1
     model, var_order, best_rmse, history = train_nxro_linear(
         nc_path=args.nc_path,
         train_start=args.train_start, train_end=args.train_end,
@@ -101,7 +117,9 @@ def run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None, # Fine-tune ONLY on ORAS5
         L_basis_init=L_basis_init,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,  # Ensure same variables as Stage 1
     )
     
     # Plot training curves
@@ -137,11 +155,11 @@ def run_linear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
                       out_path=f'{base_dir}/NXRO_linear_seasonal_synchronization{fig_suffix}.png',
                       model_label='NXRO-Linear')
     print(f"✓ NXRO-Linear complete (Two-Stage)")
-    
+
 
 def run_ro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
            base_results_dir, all_eval_datasets, device, 
-           load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+           load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-RO model (Two-Stage)."""
     base_dir = f'{base_results_dir}/ro'
     ensure_dir(base_dir)
@@ -149,18 +167,29 @@ def run_ro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period,
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=True, include_diag=False) if args.warm_start else None
+                                     include_ro=True, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k != 'freeze_diag'}
     
-    model_s1, _, _, _ = train_nxro_ro(
+    model_s1, stage1_var_order, _, _ = train_nxro_ro(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
@@ -169,10 +198,13 @@ def run_ro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period,
         extra_train_nc_paths=stage1_extra,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_ro_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -189,7 +221,9 @@ def run_ro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period,
         extra_train_nc_paths=None,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -226,7 +260,7 @@ def run_ro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_rodiag_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                base_results_dir, all_eval_datasets, device, 
-               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-RO+Diag model (Two-Stage)."""
     base_dir = f'{base_results_dir}/rodiag'
     ensure_dir(base_dir)
@@ -234,17 +268,28 @@ def run_rodiag_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
 
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=True, include_diag=True) if args.warm_start else None
+                                     include_ro=True, include_diag=True, exclude_vars=exclude_vars) if args.warm_start else None
     
-    model_s1, _, _, _ = train_nxro_rodiag(
+    model_s1, stage1_var_order, _, _ = train_nxro_rodiag(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
@@ -253,10 +298,13 @@ def run_rodiag_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
         extra_train_nc_paths=stage1_extra,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_rodiag_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -273,7 +321,9 @@ def run_rodiag_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
         extra_train_nc_paths=None,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -310,7 +360,7 @@ def run_rodiag_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
 
 def run_res_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
             base_results_dir, all_eval_datasets, device, 
-            load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+            load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix, exclude_vars=None):
     """Train and evaluate NXRO-Res model (Two-Stage)."""
     base_dir = f'{base_results_dir}/res'
     ensure_dir(base_dir)
@@ -318,30 +368,50 @@ def run_res_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period,
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k == 'freeze_linear'}
     
-    model_s1, _, _, _ = train_nxro_res(
+    # Best hyperparameters from grid search (hidden=32, lr=0.001, weight_decay=0.001, res_reg=1e-5)
+    model_s1, stage1_var_order, _, _ = train_nxro_res(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        res_reg=args.res_reg, device=device, rollout_k=args.rollout_k,
+        n_epochs=args.epochs, batch_size=args.batch_size, 
+        lr=getattr(args, 'lr', 0.001),
+        k_max=args.k_max,
+        hidden=getattr(args, 'hidden_mlp', 32),
+        res_reg=getattr(args, 'res_reg', 1e-5),
+        weight_decay=getattr(args, 'weight_decay', 0.001),
+        device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=stage1_extra,
         warmstart_init_dict=warmstart_params,
+        include_only_vars=common_vars,
         freeze_flags=freeze_flags_filtered,
+        exclude_vars=exclude_vars,
     )
     s1_path = f'{base_dir}/nxro_res_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -349,16 +419,24 @@ def run_res_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period,
     print("STAGE 2: Fine-tuning on ORAS5")
     print("="*40)
     
+    # Best hyperparameters from grid search (hidden=32, lr=0.001, weight_decay=0.001, res_reg=1e-5)
     rs_model, rs_var_order, rs_best_rmse, rs_history = train_nxro_res(
         nc_path=args.nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        res_reg=args.res_reg, device=device, rollout_k=args.rollout_k,
+        n_epochs=args.epochs, batch_size=args.batch_size, 
+        lr=getattr(args, 'lr', 0.001),
+        k_max=args.k_max,
+        hidden=getattr(args, 'hidden_mlp', 32),
+        res_reg=getattr(args, 'res_reg', 1e-5),
+        weight_decay=getattr(args, 'weight_decay', 0.001),
+        device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -395,7 +473,7 @@ def run_res_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period,
 
 def run_res_fullxro_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                     base_results_dir, all_eval_datasets, device, 
-                    load_xro_init, extra_tag, fig_suffix):
+                    load_xro_init, extra_tag, fig_suffix, exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-Res-FullXRO model (Two-Stage)."""
     assert args.warm_start is not None, "Variant res_fullxro requires --warm_start argument!"
     
@@ -405,28 +483,42 @@ def run_res_fullxro_twostage(args, obs_ds, train_ds, test_ds, train_period, test
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
-    xro_init = load_xro_init(args.warm_start, k_max=args.k_max, include_ro=True, include_diag=True)
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
+    xro_init = load_xro_init(args.warm_start, k_max=args.k_max, include_ro=True, include_diag=True, exclude_vars=exclude_vars)
     xro_init_dict = {k.replace('_init', ''): v for k, v in xro_init.items()}
     
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
-    model_s1, _, _, _ = train_nxro_res_fullxro(
+    model_s1, stage1_var_order, _, _ = train_nxro_res_fullxro(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         res_reg=args.res_reg, device=device, rollout_k=args.rollout_k,
+        include_only_vars=common_vars,
         extra_train_nc_paths=stage1_extra,
-        xro_init_dict=xro_init_dict
+        xro_init_dict=xro_init_dict,
+        exclude_vars=exclude_vars
     )
     s1_path = f'{base_dir}/nxro_res_fullxro_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -442,7 +534,9 @@ def run_res_fullxro_twostage(args, obs_ds, train_ds, test_ds, train_period, test
         res_reg=args.res_reg, device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
         xro_init_dict=xro_init_dict,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -480,7 +574,8 @@ def run_res_fullxro_twostage(args, obs_ds, train_ds, test_ds, train_period, test
     
 
 def run_neural_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-               base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+               base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix,
+               exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-NeuralODE model (Two-Stage)."""
     base_dir = f'{base_results_dir}/neural'
     ensure_dir(base_dir)
@@ -488,25 +583,39 @@ def run_neural_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
-    model_s1, _, _, _ = train_nxro_neural(
+    model_s1, stage1_var_order, _, _ = train_nxro_neural(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         hidden=64, depth=2, dropout=0.1, allow_cross=False, mask_mode='th_only', 
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=stage1_extra
+        extra_train_nc_paths=stage1_extra,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_neural_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -522,7 +631,9 @@ def run_neural_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
         hidden=64, depth=2, dropout=0.1, allow_cross=False, mask_mode='th_only', 
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -558,7 +669,8 @@ def run_neural_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
     
 
 def run_neural_phys_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                    base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                    base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix,
+                    exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-PhysReg model (Two-Stage)."""
     base_dir = f'{base_results_dir}/neural_phys'
     ensure_dir(base_dir)
@@ -566,14 +678,25 @@ def run_neural_phys_twostage(args, obs_ds, train_ds, test_ds, train_period, test
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
-    model_s1, _, _, _ = train_nxro_neural_phys(
+    model_s1, stage1_var_order, _, _ = train_nxro_neural_phys(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
@@ -581,11 +704,14 @@ def run_neural_phys_twostage(args, obs_ds, train_ds, test_ds, train_period, test
         hidden=64, depth=2, dropout=0.1, allow_cross=False, mask_mode='th_only',
         jac_reg=args.jac_reg, div_reg=args.div_reg, noise_std=args.noise_std, 
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=stage1_extra
+        extra_train_nc_paths=stage1_extra,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_neural_phys_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -602,7 +728,9 @@ def run_neural_phys_twostage(args, obs_ds, train_ds, test_ds, train_period, test
         jac_reg=args.jac_reg, div_reg=args.div_reg, noise_std=args.noise_std, 
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -639,7 +767,8 @@ def run_neural_phys_twostage(args, obs_ds, train_ds, test_ds, train_period, test
 
 def run_resmix_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                base_results_dir, all_eval_datasets, device, 
-               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+               load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix,
+               exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-ResidualMix model (Two-Stage)."""
     base_dir = f'{base_results_dir}/resmix'
     ensure_dir(base_dir)
@@ -647,17 +776,28 @@ def run_resmix_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=True, include_diag=True) if args.warm_start else None
+                                     include_ro=True, include_diag=True, exclude_vars=exclude_vars) if args.warm_start else None
     
-    model_s1, _, _, _ = train_nxro_resmix(
+    model_s1, stage1_var_order, _, _ = train_nxro_resmix(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
@@ -667,10 +807,13 @@ def run_resmix_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
         extra_train_nc_paths=stage1_extra,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_resmix_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -688,7 +831,9 @@ def run_resmix_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
         extra_train_nc_paths=None,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -724,7 +869,8 @@ def run_resmix_twostage(args, obs_ds, train_ds, test_ds, train_period, test_peri
     
 
 def run_bilinear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                 base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                 base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix,
+                 exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-Bilinear model (Two-Stage)."""
     base_dir = f'{base_results_dir}/bilinear'
     ensure_dir(base_dir)
@@ -732,24 +878,38 @@ def run_bilinear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_pe
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
-    model_s1, _, _, _ = train_nxro_bilinear(
+    model_s1, stage1_var_order, _, _ = train_nxro_bilinear(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         n_channels=2, rank=2, device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=stage1_extra
+        extra_train_nc_paths=stage1_extra,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_bilinear_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -764,7 +924,9 @@ def run_bilinear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_pe
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         n_channels=2, rank=2, device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -801,7 +963,8 @@ def run_bilinear_twostage(args, obs_ds, train_ds, test_ds, train_period, test_pe
 
 def run_attentive_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
                   base_results_dir, all_eval_datasets, device, 
-                  load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+                  load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix,
+                  exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-Attentive model (Two-Stage)."""
     base_dir = f'{base_results_dir}/attentive'
     ensure_dir(base_dir)
@@ -809,30 +972,50 @@ def run_attentive_twostage(args, obs_ds, train_ds, test_ds, train_period, test_p
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k == 'freeze_linear'}
     
-    model_s1, _, _, _ = train_nxro_attentive(
+    # Best hyperparameters from grid search (d=16, lr=0.001, weight_decay=0.0001, dropout=0.0)
+    model_s1, stage1_var_order, _, _ = train_nxro_attentive(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        d=32, dropout=0.1, mask_mode='th_only', device=device, rollout_k=args.rollout_k,
+        n_epochs=args.epochs, batch_size=args.batch_size, 
+        lr=getattr(args, 'lr', 0.001),
+        weight_decay=getattr(args, 'weight_decay_att', 0.0001),
+        k_max=args.k_max,
+        d=getattr(args, 'd_att', 16),
+        dropout=getattr(args, 'dropout_att', 0.0),
+        mask_mode='th_only', device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=stage1_extra,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_attentive_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -840,16 +1023,24 @@ def run_attentive_twostage(args, obs_ds, train_ds, test_ds, train_period, test_p
     print("STAGE 2: Fine-tuning on ORAS5")
     print("="*40)
     
+    # Best hyperparameters from grid search (d=16, lr=0.001, weight_decay=0.0001, dropout=0.0)
     at_model, at_var_order, at_best_rmse, at_history = train_nxro_attentive(
         nc_path=args.nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        d=32, dropout=0.1, mask_mode='th_only', device=device, rollout_k=args.rollout_k,
+        n_epochs=args.epochs, batch_size=args.batch_size, 
+        lr=getattr(args, 'lr', 0.001),
+        weight_decay=getattr(args, 'weight_decay_att', 0.0001),
+        k_max=args.k_max,
+        d=getattr(args, 'd_att', 16),
+        dropout=getattr(args, 'dropout_att', 0.0),
+        mask_mode='th_only', device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -886,10 +1077,11 @@ def run_attentive_twostage(args, obs_ds, train_ds, test_ds, train_period, test_p
 
 def run_graph_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
               base_results_dir, all_eval_datasets, device, 
-              load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix):
+              load_xro_init, freeze_flags, variant_suffix, extra_tag, fig_suffix,
+              exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-Graph model (Two-Stage)."""
     warmstart_params = load_xro_init(args.warm_start, k_max=args.k_max, 
-                                     include_ro=False, include_diag=False) if args.warm_start else None
+                                     include_ro=False, include_diag=False, exclude_vars=exclude_vars) if args.warm_start else None
     freeze_flags_filtered = {k: v for k, v in freeze_flags.items() if k == 'freeze_linear'}
     
     graph_kind = f"stat_{args.graph_stat_method}_k{args.graph_stat_topk}" if args.graph_stat_method else "xro"
@@ -902,14 +1094,25 @@ def run_graph_twostage(args, obs_ds, train_ds, test_ds, train_period, test_perio
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
-    model_s1, _, _, _ = train_nxro_graph(
+    model_s1, stage1_var_order, _, _ = train_nxro_graph(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
@@ -922,8 +1125,11 @@ def run_graph_twostage(args, obs_ds, train_ds, test_ds, train_period, test_perio
         warmstart_init_dict=warmstart_params,
         freeze_flags=freeze_flags_filtered,
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=stage1_extra
+        extra_train_nc_paths=stage1_extra,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     s1_path = f'{base_dir}/nxro_graph{graph_tag}_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
@@ -948,7 +1154,9 @@ def run_graph_twostage(args, obs_ds, train_ds, test_ds, train_period, test_perio
         freeze_flags=freeze_flags_filtered,
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -984,7 +1192,8 @@ def run_graph_twostage(args, obs_ds, train_ds, test_ds, train_period, test_perio
     
 
 def run_graph_pyg_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                  base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                  base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix,
+                  exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-GraphPyG model (Two-Stage)."""
     tag2 = 'gat' if args.gat else 'gcn'
     ktag = f"k{args.top_k}"
@@ -994,25 +1203,58 @@ def run_graph_pyg_twostage(args, obs_ds, train_ds, test_ds, train_period, test_p
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
-    model_s1, _, _, _ = train_nxro_graph_pyg(
+    # Check for existing Stage 1 checkpoint to resume from
+    s1_checkpoint_dir = f'{base_dir}/checkpoints_stage1'
+    s1_resume_checkpoint = None
+    if os.path.exists(s1_checkpoint_dir):
+        existing_ckpts = sorted([f for f in os.listdir(s1_checkpoint_dir) if f.endswith('.pt')])
+        if existing_ckpts:
+            s1_resume_checkpoint = os.path.join(s1_checkpoint_dir, existing_ckpts[-1])
+            print(f"  Found existing Stage 1 checkpoint: {s1_resume_checkpoint}")
+    
+    # Best hyperparameters from grid search (hidden=16, lr=0.001, weight_decay=1e-5, dropout=0.0)
+    model_s1, stage1_var_order, _, _ = train_nxro_graph_pyg(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        top_k=args.top_k, hidden=16, dropout=0.1, use_gat=args.gat, device=device, 
+        n_epochs=args.epochs, batch_size=args.batch_size, 
+        lr=getattr(args, 'lr', 0.001),
+        weight_decay=getattr(args, 'weight_decay_gcn', 1e-5),
+        k_max=args.k_max,
+        top_k=args.top_k, 
+        hidden=getattr(args, 'hidden_gcn', 16),
+        dropout=getattr(args, 'dropout_gcn', 0.0),
+        use_gat=args.gat, device=device, 
         rollout_k=args.rollout_k,
-        extra_train_nc_paths=stage1_extra
+        extra_train_nc_paths=stage1_extra,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
+        checkpoint_dir=s1_checkpoint_dir,
+        checkpoint_every=10,
+        resume_from_checkpoint=s1_resume_checkpoint,
     )
     s1_path = f'{base_dir}/nxro_graphpyg_{tag2}_{ktag}_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -1020,15 +1262,36 @@ def run_graph_pyg_twostage(args, obs_ds, train_ds, test_ds, train_period, test_p
     print("STAGE 2: Fine-tuning on ORAS5")
     print("="*40)
     
+    # Check for existing Stage 2 checkpoint to resume from
+    s2_checkpoint_dir = f'{base_dir}/checkpoints_stage2'
+    s2_resume_checkpoint = None
+    if os.path.exists(s2_checkpoint_dir):
+        existing_ckpts = sorted([f for f in os.listdir(s2_checkpoint_dir) if f.endswith('.pt')])
+        if existing_ckpts:
+            s2_resume_checkpoint = os.path.join(s2_checkpoint_dir, existing_ckpts[-1])
+            print(f"  Found existing Stage 2 checkpoint: {s2_resume_checkpoint}")
+    
+    # Best hyperparameters from grid search (hidden=16, lr=0.001, weight_decay=1e-5, dropout=0.0)
     gp_model, gp_var_order, gp_best_rmse, gp_history = train_nxro_graph_pyg(
         nc_path=args.nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
-        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
-        top_k=args.top_k, hidden=16, dropout=0.1, use_gat=args.gat, device=device, 
+        n_epochs=args.epochs, batch_size=args.batch_size, 
+        lr=getattr(args, 'lr', 0.001),
+        weight_decay=getattr(args, 'weight_decay_gcn', 1e-5),
+        k_max=args.k_max,
+        top_k=args.top_k, 
+        hidden=getattr(args, 'hidden_gcn', 16),
+        dropout=getattr(args, 'dropout_gcn', 0.0),
+        use_gat=args.gat, device=device, 
         rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights if s2_resume_checkpoint is None else None,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
+        checkpoint_dir=s2_checkpoint_dir,
+        checkpoint_every=10,
+        resume_from_checkpoint=s2_resume_checkpoint,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))
@@ -1065,7 +1328,8 @@ def run_graph_pyg_twostage(args, obs_ds, train_ds, test_ds, train_period, test_p
 
 
 def run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test_period, 
-                              base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix):
+                              base_results_dir, all_eval_datasets, device, extra_tag, fig_suffix,
+                              exclude_vars: Optional[List[str]] = None):
     """Train and evaluate NXRO-Transformer model (Two-Stage)."""
     base_dir = f'{base_results_dir}/transformer'
     ensure_dir(base_dir)
@@ -1073,25 +1337,39 @@ def run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test
     if not args.extra_train_nc:
         raise ValueError("Two-stage training requires synthetic datasets via --extra_train_nc!")
     
+    stage1_nc_path = args.extra_train_nc[0]
+    stage1_extra = args.extra_train_nc[1:]
+    
+    # --- Compute common variables between CESM2-LENS and ORAS5 ---
+    common_vars = None
+    if is_cesm2_climate_mode_file(stage1_nc_path):
+        print("\n" + "="*40)
+        print("Computing common variables between datasets")
+        print("="*40)
+        common_vars = get_common_vars(stage1_nc_path, args.nc_path, exclude_vars=exclude_vars)
+        if not common_vars:
+            raise ValueError("No common variables found between CESM2-LENS and ORAS5!")
+    
     # --- Stage 1 ---
     print("\n" + "="*40)
     print("STAGE 1: Synthetic Pre-training")
     print("="*40)
-    stage1_nc_path = args.extra_train_nc[0]
-    stage1_extra = args.extra_train_nc[1:]
     
-    model_s1, _, _, _ = train_nxro_transformer(
+    model_s1, stage1_var_order, _, _ = train_nxro_transformer(
         nc_path=stage1_nc_path,
         train_start=args.train_start, train_end=args.train_end,
         test_start=args.test_start, test_end=args.test_end,
         n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, k_max=args.k_max,
         d_model=64, nhead=4, num_layers=2, dim_feedforward=256, dropout=0.1,
         device=device, rollout_k=args.rollout_k,
-        extra_train_nc_paths=stage1_extra
+        extra_train_nc_paths=stage1_extra,
+        exclude_vars=exclude_vars,
+        include_only_vars=common_vars,
     )
     s1_path = f'{base_dir}/nxro_transformer_best{extra_tag}_synthetic_pretrained.pt'
     torch.save(model_s1.state_dict(), s1_path)
     print(f"✓ Saved Stage 1 model to: {s1_path}")
+    print(f"  Stage 1 var_order: {stage1_var_order}")
     stage1_weights = model_s1.state_dict()
     
     # --- Stage 2 ---
@@ -1107,7 +1385,9 @@ def run_transformer_twostage(args, obs_ds, train_ds, test_ds, train_period, test
         d_model=64, nhead=4, num_layers=2, dim_feedforward=256, dropout=0.1,
         device=device, rollout_k=args.rollout_k,
         extra_train_nc_paths=None,
-        pretrained_state_dict=stage1_weights
+        pretrained_state_dict=stage1_weights,
+        exclude_vars=exclude_vars,
+        include_only_vars=stage1_var_order,
     )
     
     fig, ax = plt.subplots(1, 1, figsize=(7, 4))

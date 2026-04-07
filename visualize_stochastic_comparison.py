@@ -339,8 +339,16 @@ def plot_metric_rankings(results, out_dir, top_n=10):
     print(f"  [OK] Saved: {out_dir}/stochastic_rankings_all_metrics.png")
 
 
-def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
-    """Plot stochastic forecast examples for top N models including XRO."""
+def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5, shared_ylim=True):
+    """Plot stochastic forecast examples for top N models including XRO.
+    
+    Args:
+        results: Dictionary of model results
+        base_dir: Base directory for forecast files
+        out_dir: Output directory for plots
+        top_n: Number of top models to plot
+        shared_ylim: If True, use the same y-axis range for all plots
+    """
     # Get top models by CRPS
     summary = []
     for model_name, df in results.items():
@@ -368,93 +376,86 @@ def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
         print(f"    - {m}")
     print()
     
-    # Load forecast NetCDF files for top models
-    for model_name in top_models:
-        print(f"  Processing {model_name}...")
-        try:
-            # Determine file path based on model name
-            if 'XRO' in model_name and 'NXRO' not in model_name:
-                fcst_path = f'{base_dir}/xro_baseline/xro_stochastic_fcst.nc'
-                model_label = model_name
+    # Helper function to get forecast path
+    def get_forecast_path(model_name, base_dir):
+        if 'XRO' in model_name and 'NXRO' not in model_name:
+            return f'{base_dir}/xro_baseline/xro_stochastic_fcst.nc', model_name
+        
+        # Extract base model and stage
+        base_model = model_name.split()[0]
+        
+        # Determine suffix from stage or AR
+        if '(S2+S3)' in model_name:
+            suffix = '_sim_noise_stage2'
+        elif '(S2)' in model_name:
+            suffix = '_stage2'
+        elif '(S3)' in model_name:
+            suffix = '_sim_noise'
+        elif '(AR' in model_name:
+            import re
+            p_match = re.search(r'\(AR(\d+)\)', model_name)
+            if p_match:
+                p = int(p_match.group(1))
+                suffix = f'_arp{p}' if p > 1 else ''
             else:
-                # Extract base model and stage
-                base_model = model_name.split()[0]
-                
-                # Determine suffix from stage or AR
-                if '(S2+S3)' in model_name:
-                    suffix = '_sim_noise_stage2'
-                elif '(S2)' in model_name:
-                    suffix = '_stage2'
-                elif '(S3)' in model_name:
-                    suffix = '_sim_noise'
-                elif '(AR' in model_name:
-                    import re
-                    p_match = re.search(r'\(AR(\d+)\)', model_name)
-                    if p_match:
-                        p = int(p_match.group(1))
-                        suffix = f'_arp{p}' if p > 1 else ''
-                    else:
-                        suffix = ''
-                else:
-                    suffix = ''
-                
-                # Map model names to directories
-                model_dirs = {
-                    'Res': 'res',
-                    'Graph': 'graphpyg/gcn_k3',
-                    'Attentive': 'attentive',
-                    'RO+Diag': 'rodiag',
-                    'Linear': 'linear',
-                    'Neural': 'neural',
-                }
-                
-                model_dir = model_dirs.get(base_model, base_model.lower())
-                
-                # Handle graph special case
-                if base_model == 'Graph':
-                    fcst_path = f'{base_dir}/{model_dir}/NXRO_GRAPHPYG_GCN_K3_stochastic{suffix}_forecasts.nc'
-                elif base_model == 'Neural' and 'Two-Stage' in model_name:
-                    # Two-stage models may have _extra_data suffix
-                    fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic_extra_data_forecasts.nc'
-                    # Fallback if not found
-                    if not os.path.exists(fcst_path):
-                        fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
-                else:
-                    fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
-                
-                model_label = model_name
-            
-            print(f"    Looking for: {fcst_path}")
+                suffix = ''
+        else:
+            suffix = ''
+        
+        # Map model names to directories
+        model_dirs = {
+            'Res': 'res',
+            'Graph': 'graphpyg/gcn_k3',
+            'Attentive': 'attentive',
+            'RO+Diag': 'rodiag',
+            'Linear': 'linear',
+            'Neural': 'neural',
+        }
+        
+        model_dir = model_dirs.get(base_model, base_model.lower())
+        
+        # Handle graph special case
+        if base_model == 'Graph':
+            fcst_path = f'{base_dir}/{model_dir}/NXRO_GRAPHPYG_GCN_K3_stochastic{suffix}_forecasts.nc'
+        elif base_model == 'Neural' and 'Two-Stage' in model_name:
+            # Two-stage models may have _extra_data suffix
+            fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic_extra_data_forecasts.nc'
+            # Fallback if not found
             if not os.path.exists(fcst_path):
-                print(f"    [!] Forecast file not found, skipping")
+                fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
+        else:
+            fcst_path = f'{base_dir}/{model_dir}/NXRO_{base_model.upper()}_stochastic{suffix}_forecasts.nc'
+        
+        return fcst_path, model_name
+    
+    # First pass: collect all data to determine shared y-axis range (if shared_ylim=True)
+    all_plot_data = []
+    global_ymin, global_ymax = np.inf, -np.inf
+    obs_ds = xr.open_dataset('data/XRO_indices_oras5.nc')
+    
+    for model_name in top_models:
+        try:
+            fcst_path, model_label = get_forecast_path(model_name, base_dir)
+            
+            if not os.path.exists(fcst_path):
                 continue
             
-            # Load and plot sample forecast
             fcst_ds = xr.open_dataset(fcst_path)
-            obs_ds = xr.open_dataset('data/XRO_indices_oras5.nc')
             
-            # Pick a sample initialization (e.g., 2002-01 for out-of-sample)
-            init_date = '2002-01'
+            # Pick a sample initialization
+            init_date = '1979-01'
             if init_date not in fcst_ds.init.values:
-                init_date = str(fcst_ds.init.values[0])[:7]  # Use first available
-            
-            # Plot forecast
-            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                init_date = str(fcst_ds.init.values[0])[:7]
             
             fcst_var = fcst_ds['Nino34'].sel(init=init_date)
             fcst_mean = fcst_var.mean('member').squeeze()
             fcst_std = fcst_var.std('member').squeeze()
             
             lead_months = fcst_mean.lead.values
-            # Convert to numpy arrays and flatten
             fcst_mean_vals = fcst_mean.values.flatten()
             fcst_std_vals = fcst_std.values.flatten()
             
-            ax.plot(lead_months, fcst_mean_vals, color='blue', lw=2, label='Ensemble Mean')
-            ax.fill_between(lead_months, fcst_mean_vals - fcst_std_vals, fcst_mean_vals + fcst_std_vals,
-                           alpha=0.3, color='blue', label='±1 Std Dev')
-            
-            # Overlay observations
+            # Get observations
             init_time = pd.Timestamp(init_date + '-01')
             obs_times = [init_time + pd.DateOffset(months=int(L)) for L in lead_months]
             obs_vals = []
@@ -465,15 +466,69 @@ def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
                 except:
                     obs_vals.append(np.nan)
             
-            ax.plot(lead_months, obs_vals, color='black', lw=2, marker='o', 
+            # Store data for plotting
+            all_plot_data.append({
+                'model_name': model_name,
+                'model_label': model_label,
+                'fcst_path': fcst_path,
+                'init_date': init_date,
+                'lead_months': lead_months,
+                'fcst_mean_vals': fcst_mean_vals,
+                'fcst_std_vals': fcst_std_vals,
+                'obs_vals': obs_vals,
+            })
+            
+            # Update global y-axis range
+            if shared_ylim:
+                y_vals = np.concatenate([
+                    fcst_mean_vals - fcst_std_vals,
+                    fcst_mean_vals + fcst_std_vals,
+                    [v for v in obs_vals if not np.isnan(v)]
+                ])
+                global_ymin = min(global_ymin, np.nanmin(y_vals))
+                global_ymax = max(global_ymax, np.nanmax(y_vals))
+            
+            fcst_ds.close()
+            
+        except Exception as e:
+            print(f"    [!] Error loading {model_name}: {str(e)}")
+            continue
+    
+    # Add some padding to y-axis range
+    if shared_ylim and len(all_plot_data) > 0:
+        y_range = global_ymax - global_ymin
+        global_ymin -= 0.1 * y_range
+        global_ymax += 0.1 * y_range
+        print(f"  Using shared y-axis range: [{global_ymin:.2f}, {global_ymax:.2f}]")
+    
+    # Second pass: plot all models
+    for data in all_plot_data:
+        model_name = data['model_name']
+        print(f"  Processing {model_name}...")
+        print(f"    Looking for: {data['fcst_path']}")
+        
+        try:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            
+            ax.plot(data['lead_months'], data['fcst_mean_vals'], color='blue', lw=2, label='Ensemble Mean')
+            ax.fill_between(data['lead_months'], 
+                           data['fcst_mean_vals'] - data['fcst_std_vals'], 
+                           data['fcst_mean_vals'] + data['fcst_std_vals'],
+                           alpha=0.3, color='blue', label='±1 Std Dev')
+            
+            ax.plot(data['lead_months'], data['obs_vals'], color='black', lw=2, marker='o', 
                    markersize=4, label='Observed', alpha=0.8)
             
             ax.set_xlabel('Forecast Lead (months)', fontsize=11)
             ax.set_ylabel('Nino3.4 SSTA (C)', fontsize=11)
-            ax.set_title(f'{model_label}: Stochastic Forecast (Init: {init_date})', fontsize=12)
+            ax.set_title(f'{data["model_label"]}: Stochastic Forecast (Init: {data["init_date"]})', fontsize=12)
             ax.legend(fontsize=10)
             ax.grid(True, alpha=0.3)
             ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
+            
+            # Apply shared y-axis limits if enabled
+            if shared_ylim:
+                ax.set_ylim(global_ymin, global_ymax)
             
             plt.tight_layout()
             safe_name = model_name.replace(' ', '_').replace('(', '').replace(')', '').replace('+', 'p')
@@ -489,6 +544,8 @@ def plot_top_model_forecasts(results, base_dir, out_dir, top_n=5):
             print(f"    {str(e)}")
             traceback.print_exc()
             continue
+    
+    obs_ds.close()
 
 
 def plot_ensemble_mean_skill(results, out_dir):
@@ -1082,6 +1139,8 @@ def main():
                        help='Initialization dates for plume plots (format: YYYY-MM)')
     parser.add_argument('--spring_barrier', action='store_true',
                        help='Generate spring barrier test visualizations for major El Niño events (1982-83, 1997-98, 2015-16)')
+    parser.add_argument('--no_shared_ylim', action='store_true',
+                       help='Disable shared y-axis range across forecast plots (default: shared)')
     args = parser.parse_args()
     
     print("="*80)
@@ -1130,7 +1189,8 @@ def main():
     plot_metric_rankings(results, out_dir, top_n=10)
     
     print("\nGenerating forecast visualizations for top models...")
-    plot_top_model_forecasts(results, args.results_dir, out_dir, top_n=5)
+    plot_top_model_forecasts(results, args.results_dir, out_dir, top_n=5, 
+                             shared_ylim=not args.no_shared_ylim)
     
     # Generate plume plots if requested
     if args.plot_plumes:

@@ -10,6 +10,33 @@ import xarray as xr
 from dateutil.relativedelta import relativedelta
 
 
+def _should_retry_climpred_with_cf_stub(exc: Exception) -> bool:
+    text = str(exc)
+    needles = (
+        "cf-standard-name-table",
+        "Pooch could not create data cache folder",
+        "/pooch",
+        "raw.githubusercontent.com/cf-convention",
+    )
+    return any(needle in text for needle in needles)
+
+
+def _patch_cf_xarray_standard_name_table_stub() -> bool:
+    """Make cf_xarray work offline by stubbing the standard-name table parser."""
+    try:
+        import cf_xarray.utils as cfu
+        import cf_xarray.accessor as cfa
+    except Exception:
+        return False
+
+    def _stub_parse(source=None):
+        return {"version_number": "local-stub"}, {}, {}
+
+    cfu.parse_cf_standard_name_table = _stub_parse
+    cfa.parse_cf_standard_name_table = _stub_parse
+    return True
+
+
 def calc_forecast_skill(fcst_ds: xr.Dataset, ref_ds: xr.Dataset, metric: str = 'acc', is_mv3: bool = True,
                         comparison: str = "e2o", by_month: bool = False,
                         verify_periods: slice = slice('1979-01', '2022-12')) -> xr.Dataset:
@@ -34,7 +61,13 @@ def calc_forecast_skill(fcst_ds: xr.Dataset, ref_ds: xr.Dataset, metric: str = '
         ref_mv3 = ref_ds
 
     if HindcastEnsemble is not None:
-        hc = HindcastEnsemble(fcst_ds.sel(init=verify_periods))
+        try:
+            hc = HindcastEnsemble(fcst_ds.sel(init=verify_periods))
+        except Exception as exc:
+            if _should_retry_climpred_with_cf_stub(exc) and _patch_cf_xarray_standard_name_table_stub():
+                hc = HindcastEnsemble(fcst_ds.sel(init=verify_periods))
+            else:
+                raise
         try:
             hc = hc.add_observations(ref_mv3)
             skill = hc.verify(metric=metric, comparison=comparison, alignment="maximize",
@@ -63,16 +96,34 @@ def calc_forecast_skill(fcst_ds: xr.Dataset, ref_ds: xr.Dataset, metric: str = '
         stats_per_lead = []
         for L in leads:
             fc = fcst_sel[v].sel(lead=L)
-            target_times = init_times + pd.DateOffset(months=int(L))
-            obs = ref_mv3[v].sel(time=xr.DataArray(target_times, dims='init'))
-            fc, obs = xr.align(fc, obs, join='inner')
+            # Use reindex-based alignment so late leads can be scored with the
+            # available observations instead of failing when valid times extend
+            # beyond the observation record.
+            obs = _align_obs_for_lead(ref_mv3[v], init_times, int(L))
+            fc, obs = xr.align(fc, obs, join='left')
             if metric == 'acc':
-                val = xr.corr(fc, obs, dim='init', skipna=True)
+                if fc.sizes.get('init', 0) == 0 or obs.sizes.get('init', 0) == 0:
+                    val = xr.DataArray(np.float32(np.nan))
+                    stats_per_lead.append(val)
+                    continue
+                fc_np = np.asarray(fc.values)
+                obs_np = np.asarray(obs.values)
+                valid = np.isfinite(fc_np) & np.isfinite(obs_np)
+                if int(valid.sum()) < 2:
+                    val = xr.DataArray(np.float32(np.nan))
+                else:
+                    val = xr.DataArray(
+                        np.float32(np.corrcoef(fc_np[valid], obs_np[valid])[0, 1])
+                    )
             elif metric == 'rmse':
                 diff = fc - obs
                 val = np.sqrt((diff ** 2).mean(dim='init', skipna=True))
             else:
                 raise ValueError(f"Unsupported metric: {metric}")
+            try:
+                val = val.reset_coords(drop=True)
+            except Exception:
+                pass
             stats_per_lead.append(val)
         results[v] = xr.concat(stats_per_lead, dim='lead').assign_coords(lead=leads)
     return xr.Dataset(results)
@@ -133,6 +184,28 @@ def plot_forecast_plume(fcst_det: xr.Dataset, fcst_stoc: xr.Dataset, obs_ds: xr.
         plt.close()
 
 
+def _model_memory_depth(model) -> int:
+    return int(getattr(model, 'memory_depth', 0) or 0)
+
+
+def _uses_history_interface(model) -> bool:
+    return bool(hasattr(model, 'n_lags'))
+
+
+def _call_history_model(model, x_history: torch.Tensor, t_history: torch.Tensor,
+                        forecast_age: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """Call a history-interface model, optionally passing forecast age.
+
+    Existing memory models ignore ``forecast_age``; lead-adaptive models can use it.
+    """
+    if forecast_age is not None:
+        try:
+            return model(x_history, t_history, forecast_age)
+        except TypeError:
+            pass
+    return model(x_history, t_history)
+
+
 @torch.no_grad()
 def nxro_reforecast(model, init_ds: xr.Dataset, n_month: int = 21, var_order: Optional[list] = None,
                     device: str = 'cpu') -> xr.Dataset:
@@ -144,31 +217,59 @@ def nxro_reforecast(model, init_ds: xr.Dataset, n_month: int = 21, var_order: Op
         var_order = list(init_ds.data_vars)
     # time in decimal years
     time = init_ds.time.to_index()
-    years = time.year + (time.month - 1) / 12.0
+    years = np.asarray(time.year + (time.month - 1) / 12.0, dtype=np.float32)
     ncycle = 12
     dt = 1.0 / ncycle
+    memory_depth = _model_memory_depth(model)
+    uses_history = _uses_history_interface(model)
 
     X0_all = np.stack([init_ds[v].values for v in var_order], axis=-1)  # [T, n_vars]
     T = X0_all.shape[0]
     n_vars = X0_all.shape[1]
+    if memory_depth >= T:
+        raise ValueError(
+            f"Not enough history for memory_depth={memory_depth} with only {T} timesteps."
+        )
+
     lead = np.arange(0, n_month + 1, dtype=np.int32)
-    out = np.zeros((n_vars, len(lead), T), dtype=np.float32)
+    n_init = T if memory_depth == 0 else T - memory_depth
+    out = np.zeros((n_vars, len(lead), n_init), dtype=np.float32)
 
     model.eval()
-    for i in range(T):
-        x = torch.from_numpy(X0_all[i:i+1]).to(device)  # [1, n_vars]
-        t0 = float(years[i])
-        out[:, 0, i] = x.squeeze(0).cpu().numpy()
-        for j in range(1, len(lead)):
-            t_year = torch.tensor([t0 + (j - 1) * dt], dtype=torch.float32, device=device)
-            dxdt = model(x, t_year)
-            x = x + dxdt * dt
-            out[:, j, i] = x.squeeze(0).cpu().numpy()
+    if not uses_history:
+        for i in range(T):
+            x = torch.from_numpy(X0_all[i:i+1]).to(device)  # [1, n_vars]
+            t0 = float(years[i])
+            out[:, 0, i] = x.squeeze(0).cpu().numpy()
+            for j in range(1, len(lead)):
+                t_year = torch.tensor([t0 + (j - 1) * dt], dtype=torch.float32, device=device)
+                dxdt = model(x, t_year)
+                x = x + dxdt * dt
+                out[:, j, i] = x.squeeze(0).cpu().numpy()
+        init_coord = init_ds.time.values
+    else:
+        lag_offsets = (
+            torch.arange(memory_depth, -1, -1, dtype=torch.float32, device=device)
+            .unsqueeze(0) * dt
+        )
+        for init_idx, src_idx in enumerate(range(memory_depth, T)):
+            x_hist = torch.from_numpy(X0_all[src_idx - memory_depth:src_idx + 1][None, ...]).to(device)
+            t0 = float(years[src_idx])
+            out[:, 0, init_idx] = x_hist[:, -1, :].squeeze(0).cpu().numpy()
+            for j in range(1, len(lead)):
+                current_time = torch.tensor([[t0 + (j - 1) * dt]], dtype=torch.float32, device=device)
+                t_hist = current_time - lag_offsets
+                forecast_age = torch.tensor([(j - 1) * dt], dtype=torch.float32, device=device)
+                dxdt = _call_history_model(model, x_hist, t_hist, forecast_age)
+                x_new = x_hist[:, -1, :] + dxdt * dt
+                x_hist = torch.cat([x_hist[:, 1:, :], x_new.unsqueeze(1)], dim=1)
+                out[:, j, init_idx] = x_new.squeeze(0).cpu().numpy()
+        init_coord = init_ds.time.values if memory_depth == 0 else init_ds.time.values[memory_depth:]
 
     coords = {
         'ranky': np.arange(1, n_vars + 1, dtype=np.int32),
         'lead': lead,
-        'init': ('init', init_ds.time.values)
+        'init': ('init', init_coord)
     }
     da = xr.DataArray(out, dims=['ranky', 'lead', 'init'], coords=coords)
     # map to variables
@@ -573,4 +674,3 @@ def init_nxro_from_xro(xro_fit_ds: xr.Dataset, k_max: int = 2,
         init_dict['C_diag'] = C_diag
     
     return init_dict
-

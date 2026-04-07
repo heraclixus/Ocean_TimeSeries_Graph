@@ -9,6 +9,20 @@ import pandas as pd
 from XRO.core import XRO
 
 
+def _load_dataset_with_cesm2_support(nc_path: str) -> xr.Dataset:
+    """Load dataset with automatic CESM2-LENS variable renaming support.
+    
+    For CESM2-LENS climate mode files, variables are renamed to NXRO standard names
+    (e.g., ENSO -> Nino34, d20 -> WWV).
+    """
+    try:
+        from nxro.data import _load_obs_with_cesm2_support
+        return _load_obs_with_cesm2_support(nc_path)
+    except ImportError:
+        # Fallback if nxro.data not available
+        return xr.open_dataset(nc_path)
+
+
 def build_xro_coupling_graph(nc_path: str = 'data/XRO_indices_oras5.nc',
                              train_start: str = '1979-01', train_end: str = '2022-12',
                              var_order: list = None,
@@ -25,7 +39,7 @@ def build_xro_coupling_graph(nc_path: str = 'data/XRO_indices_oras5.nc',
     Returns:
         A (torch.Tensor): [V,V] adjacency strength (nonnegative), var_order list
     """
-    ds = xr.open_dataset(nc_path)
+    ds = _load_dataset_with_cesm2_support(nc_path)
     ds_train = ds.sel(time=slice(train_start, train_end))
     if var_order is None:
         var_order = list(ds_train.data_vars)
@@ -58,7 +72,7 @@ def build_corr_knn_graph(nc_path: str, train_start: str, train_end: str,
                          var_order: list, top_k: int = 2) -> torch.Tensor:
     import torch
     from nxro.models import build_edge_index_from_corr
-    ds = xr.open_dataset(nc_path).sel(time=slice(train_start, train_end))
+    ds = _load_dataset_with_cesm2_support(nc_path).sel(time=slice(train_start, train_end))
     X_np = np.stack([ds[v].values for v in var_order], axis=-1)
     X = torch.tensor(X_np, dtype=torch.float32)
     corr = torch.corrcoef(X.T)
@@ -167,7 +181,7 @@ def _load_series_matrix(data_path: str,
         X = df[var_order].to_numpy(dtype=np.float32)
         return X, var_order
     else:
-        ds = xr.open_dataset(data_path).sel(time=slice(train_start, train_end))
+        ds = _load_dataset_with_cesm2_support(data_path).sel(time=slice(train_start, train_end))
         if var_order is None:
             var_order = list(ds.data_vars)
         X = np.stack([ds[v].values for v in var_order], axis=-1).astype(np.float32)  # [T,V]

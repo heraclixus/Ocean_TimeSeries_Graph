@@ -17,6 +17,10 @@ import xarray as xr
 from utils.xro_utils import calc_forecast_skill
 
 
+def _uses_history_interface(model) -> bool:
+    return bool(hasattr(model, 'n_lags'))
+
+
 def simulate_nxro_longrun(model, X0_ds: xr.Dataset, var_order: list, nyear: int = 100, device: str = 'cpu') -> xr.Dataset:
     """Deterministic long-run simulation for seasonal stddev plots."""
     ncycle = 12
@@ -24,21 +28,45 @@ def simulate_nxro_longrun(model, X0_ds: xr.Dataset, var_order: list, nyear: int 
     start_time = pd.to_datetime(str(X0_ds.time.values[0]))
     n_months = nyear * ncycle
     time_index = pd.date_range(start=start_time, periods=n_months, freq='MS')
-    years = time_index.year + (time_index.month - 1) / 12.0
+    years = np.asarray(time_index.year + (time_index.month - 1) / 12.0, dtype=np.float32)
+    memory_depth = int(getattr(model, 'memory_depth', 0) or 0)
+    uses_history = _uses_history_interface(model)
 
-    X0 = np.stack([X0_ds[v].isel(time=0).item() for v in var_order], axis=-1).astype(np.float32)
-    x = torch.from_numpy(X0[None, :]).to(device)
-    n_vars = x.shape[1]
+    X_all = np.stack([X0_ds[v].values for v in var_order], axis=-1).astype(np.float32)
+    if memory_depth >= X_all.shape[0]:
+        raise ValueError(
+            f"Not enough history for memory_depth={memory_depth} with only {X_all.shape[0]} timesteps."
+        )
+
+    if not uses_history:
+        x = torch.from_numpy(X_all[0:1]).to(device)
+        n_vars = x.shape[1]
+    else:
+        x_hist = torch.from_numpy(X_all[:memory_depth + 1][None, ...]).to(device)
+        n_vars = x_hist.shape[-1]
     out = np.zeros((n_months, n_vars), dtype=np.float32)
-    out[0] = x.squeeze(0).cpu().numpy()
+    out[0] = (x if not uses_history else x_hist[:, -1, :]).squeeze(0).cpu().numpy()
 
     model.eval()
     with torch.no_grad():
+        if uses_history:
+            lag_offsets = (
+                torch.arange(memory_depth, -1, -1, dtype=torch.float32, device=device)
+                .unsqueeze(0) * dt
+            )
         for t in range(1, n_months):
-            t_year = torch.tensor([float(years[t-1])], dtype=torch.float32, device=device)
-            dxdt = model(x, t_year)
-            x = x + dxdt * dt
-            out[t] = x.squeeze(0).detach().cpu().numpy()
+            if not uses_history:
+                t_year = torch.tensor([float(years[t - 1])], dtype=torch.float32, device=device)
+                dxdt = model(x, t_year)
+                x = x + dxdt * dt
+                out[t] = x.squeeze(0).detach().cpu().numpy()
+            else:
+                current_time = torch.tensor([[float(years[t - 1])]], dtype=torch.float32, device=device)
+                t_hist = current_time - lag_offsets
+                dxdt = model(x_hist, t_hist)
+                x_new = x_hist[:, -1, :] + dxdt * dt
+                x_hist = torch.cat([x_hist[:, 1:, :], x_new.unsqueeze(1)], dim=1)
+                out[t] = x_new.squeeze(0).detach().cpu().numpy()
 
     ds = xr.Dataset({var: (['time'], out[:, i]) for i, var in enumerate(var_order)}, coords={'time': time_index})
     return ds
@@ -91,12 +119,21 @@ def pick_sample_inits(ds: xr.Dataset, n: int = 3) -> list:
     return out
 
 
-def load_all_eval_datasets():
-    """Load all available evaluation datasets."""
+def load_all_eval_datasets(exclude_vars=None):
+    """Load all available evaluation datasets.
+    
+    Args:
+        exclude_vars: Optional list of variable names to exclude (e.g., ['WWV']).
+    """
     datasets = {}
     
     # Primary dataset (always present)
-    datasets['ORAS5'] = xr.open_dataset('data/XRO_indices_oras5.nc')
+    ds = xr.open_dataset('data/XRO_indices_oras5.nc')
+    if exclude_vars:
+        for var in exclude_vars:
+            if var in ds.data_vars:
+                ds = ds.drop_vars(var)
+    datasets['ORAS5'] = ds
     
     # Find all preprocessed datasets
     all_nc_files = glob.glob('data/XRO_indices_*_preproc.nc')
@@ -105,7 +142,12 @@ def load_all_eval_datasets():
         dataset_name = basename.replace('XRO_indices_', '').replace('_preproc.nc', '').upper()
         if dataset_name and dataset_name != 'ORAS5':
             try:
-                datasets[dataset_name] = xr.open_dataset(nc_file)
+                ds = xr.open_dataset(nc_file)
+                if exclude_vars:
+                    for var in exclude_vars:
+                        if var in ds.data_vars:
+                            ds = ds.drop_vars(var)
+                datasets[dataset_name] = ds
                 print(f"  Loaded {dataset_name}: {nc_file}")
             except Exception as e:
                 print(f"  Warning: Could not load {nc_file}: {e}")
@@ -374,7 +416,15 @@ def generate_stochastic_ensemble(model, model_fcst, train_ds, obs_ds, var_order,
     # Determine noise source
     if args.use_sim_noise:
         print("  Fitting noise from simulation-observation differences...")
-        sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
+        # Prefer CESM2-LENS data if available, otherwise fall back to old XRO_indices files
+        from nxro.data import discover_cesm2_climate_mode_files
+        cesm2_paths = discover_cesm2_climate_mode_files()
+        if cesm2_paths:
+            print(f"  Using CESM2-LENS data ({len(cesm2_paths)} ensemble members)")
+            sim_paths = cesm2_paths
+        else:
+            print("  CESM2-LENS data not found, falling back to XRO_indices_*_preproc.nc")
+            sim_paths = glob.glob('data/XRO_indices_*_preproc.nc')
         a1_np, sigma_np = fit_noise_from_simulations(args.nc_path, sim_paths, var_order, train_period)
         noise_suffix = '_sim_noise'
     else:
@@ -442,4 +492,3 @@ def generate_stochastic_ensemble(model, model_fcst, train_ds, obs_ds, var_order,
     plot_skill_curves_dual(acc_train, rmse_train, acc_test, rmse_test,
                           sel_var='Nino34', out_prefix=f'{base_dir}/{model_name.upper()}_stochastic{combined_suffix}{fig_suffix}', 
                           label=f'{model_name.upper()} (stochastic mean)')
-

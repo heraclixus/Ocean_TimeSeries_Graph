@@ -1,0 +1,222 @@
+\documentclass[sigconf,review]{acmart}
+\usepackage[caption=false]{subfig}
+\usepackage{subcaption}
+
+\AtBeginDocument{%
+  \providecommand\BibTeX{{%
+    Bib\TeX}}}
+\setcopyright{acmlicensed}
+\copyrightyear{2026}
+\acmYear{2026}
+\acmDOI{XXXXXXX.XXXXXXX}
+%% These commands are for a PROCEEDINGS abstract or paper.
+\acmConference[KDD '26]{The 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining}
+  {August 9--13, 2026}{Jeju, Republic of Korea}
+
+%%
+%%  Uncomment \acmBooktitle if the title of the proceedings is different
+%%  from ``Proceedings of ...''!
+%%
+%%\acmBooktitle{Woodstock '18: ACM Symposium on Neural Gaze Detection,
+%%  June 03--05, 2018, Woodstock, NY}
+\acmISBN{978-1-4503-XXXX-X/2018/06}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\F}{\mathcal{F}}
+\newcommand{\1}{\mathbf{1}}
+\newcommand{\bphi}{\boldsymbol{\phi}}
+\newcommand{\bbeta}{\boldsymbol{\beta}}
+\newcommand{\bxi}{\boldsymbol{\xi}}
+\newcommand{\bX}{\mathbf{X}}
+\newcommand{\bL}{\mathbf{L}}
+\newcommand{\bN}{\mathbf{N}}
+\newcommand{\bC}{\mathbf{C}}
+\newcommand{\bw}{\mathbf{w}}
+\newcommand{\YS}[1]{\textcolor{red}{[YS: #1]}}
+
+
+%%
+%% Submission ID.
+%% Use this when submitting an article to a sponsored event. You'll
+%% receive a unique submission ID from the organizers
+%% of the event, and this ID should be used as the parameter to this command.
+%%\acmSubmissionID{123-A56-BU3}
+
+%%
+%% end of the preamble, start of the body of the document source.
+\begin{document}
+
+\title{Neural Hybrid Residual XRO Models for ENSO Forecasting}
+
+%%
+%% The "author" command and its associated commands are used to define
+%% the authors and their affiliations.
+%% Of note is the shared affiliation of the first two authors, and the
+%% "authornote" and "authornotemark" commands
+%% used to denote shared contribution to the research.
+\author{Fred Xu}
+\email{fredxu@cs.ucla.com}
+\affiliation{%
+  \institution{University of California, Los Angeles}
+  \city{Los Angeles}
+  \state{California}
+  \country{USA}
+}
+
+\author{Kezhou Lu}
+\email{melodylu@atmos.ucla.edu}
+\affiliation{%
+  \institution{University of California, Los Angeles}
+  \city{Los Angeles}
+  \state{California}
+  \country{USA}
+}
+
+\author{Dmitri Kondrashov}
+\email{dkondras@atmos.ucla.edu}
+\affiliation{%
+  \institution{University of California, Los Angeles}
+  \city{Los Angeles}
+  \state{California}
+  \country{USA}
+}
+
+
+\author{Gang Chen}
+\email{gchenpu@atmos.ucla.edu}
+\affiliation{%
+  \institution{University of California, Los Angeles}
+  \city{Los Angeles}
+  \state{California}
+  \country{USA}
+}
+
+\author{Yizhou Sun}
+\email{yzsun@cs.ucla.edu}
+\affiliation{%
+  \institution{University of California, Los Angeles}
+  \city{Los Angeles}
+  \state{California}
+  \country{USA}
+}
+
+%%
+%% By default, the full list of authors will be used in the page
+%% headers. Often, this list is too long, and will overlap
+%% other information printed in the page headers. This command allows
+%% the author to define a more concise list
+%% of authors' names for this purpose.
+% \renewcommand{\shortauthors}{Trovato et al.}
+
+%%
+%% The abstract is a short summary of the work to be presented in the
+%% article.
+\begin{abstract}
+We present Neural Residual Ordinary Differential Equation models for El Ni\~no-Southern Oscillation (ENSO) forecasting, combining physics-based structure with machine learning flexibility. ENSO is a primary source of seasonal predictability, and skillful ENSO forecasting delivers significant societal value. Improving forecast skill requires accurately representing ENSO's interactions with other ocean basins, but these teleconnections are complex and nonlinear. We develop a hybrid architecture that preserves the linear recharge-oscillator (RO) dynamics governing the coupled evolution of ENSO sea surface temperature and upper-ocean heat content, and employ a neural component to learn the nonlinear interactions between ENSO and other ocean basins. Our model builds on the state-of-art, physics-based Extended Recharge Oscillator (XRO), which simplifies ENSO's interactions with other ocean basins using polynomial operators. Despite only trained with scarce observational dataset, through extensive neural architecture search, we demonstrate that our architecture outperforms both the purely physics-based XRO baseline and pure deep learning models like transformers and fully non-linear neural ODEs. For deterministic forecasting, our model achieves 8.5\% reduction in RMSE over the XRO baseline while providing interpretability. For probabilistic forecasting, we introduce a two-stage stochastic training procedure with likelihood-optimized AR(1) noise, achieving 13\% improvement in Continuous Ranked Probability Score (CRPS) over XRO. Our results highlight the importance of physics-informed inductive biases for small-data climate forecasting problems and demonstrate the power of hybrid physics-neural models.
+\end{abstract}
+
+%%
+%% The code below is generated by the tool at http://dl.acm.org/ccs.cfm.
+%% Please copy and paste the code instead of the example below.
+%%
+% \begin{CCSXML}
+% <ccs2012>
+%  <concept>
+%   <concept_id>00000000.0000000.0000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>500</concept_significance>
+%  </concept>
+%  <concept>
+%   <concept_id>00000000.00000000.00000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>300</concept_significance>
+%  </concept>
+%  <concept>
+%   <concept_id>00000000.00000000.00000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>100</concept_significance>
+%  </concept>
+%  <concept>
+%   <concept_id>00000000.00000000.00000000</concept_id>
+%   <concept_desc>Do Not Use This Code, Generate the Correct Terms for Your Paper</concept_desc>
+%   <concept_significance>100</concept_significance>
+%  </concept>
+% </ccs2012>
+% \end{CCSXML}
+
+% \ccsdesc[500]{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+% \ccsdesc[300]{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+% \ccsdesc{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+% \ccsdesc[100]{Do Not Use This Code~Generate the Correct Terms for Your Paper}
+
+%%
+%% Keywords. The author(s) should pick words that accurately describe
+%% the work being presented. Separate the keywords with commas.
+\keywords{Climate Modeling, Neural ODE, ENSO Forecast, Time Series}
+%% A "teaser" image appears between the author and affiliation
+%% information and the body of the document, and typically spans the
+%% page.
+
+
+%% This command processes the author and affiliation and title
+%% information and builds the first part of the formatted document.
+\maketitle
+
+\input{sections/1-Introduction}
+
+\input{sections/2-Background_v2}
+
+\input{sections/3-Method}
+
+\input{sections/4-Experiments}
+
+% TODO: add related works ection.
+% \input{sections/5-RelatedWorks}
+
+\input{sections/6-Conclusion}
+
+\input{sections/7-Impact}
+
+\clearpage
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+
+% \section{Acknowledgments}
+% Identification of funding sources and other support, and thanks to
+% individuals and groups that assisted in the research and the
+% preparation of the work should be included in an acknowledgment
+% section, which is placed just before the reference section in your
+% document.
+
+% This section has a special environment:
+% \begin{verbatim}
+%   \begin{acks}
+%   ...
+%   \end{acks}
+% \end{verbatim}
+% so that the information contained therein can be more easily collected
+% during the article metadata extraction phase, and to ensure
+% consistency in the spelling of the section heading.
+
+% Authors should not prepare this section as a numbered or unnumbered {\verb|\section|}; please use the ``{\verb|acks|}'' environment.
+
+
+\newpage
+\appendix
+\onecolumn
+
+\input{sections/A-Appendix}
+
+\input{sections/B-Appendix}
+
+\input{sections/C-Appendix}
+
+% \input{sections/D-Appendix}
+
+\end{document}

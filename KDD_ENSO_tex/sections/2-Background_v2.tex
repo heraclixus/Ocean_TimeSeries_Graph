@@ -1,0 +1,70 @@
+\section{Background: ENSO Dynamics and the Extended Recharge Oscillator}
+\label{sec:background}
+
+In this section we provide background on El Ni\~no-Southern Oscillation and presents the mathematical formulation of the Extended Recharge Oscillator (XRO) model that serves as our physics-based foundation.
+
+\subsection{ENSO Dynamics}
+
+El Ni\~no-Southern Oscillation is a coupled ocean-atmosphere phenomenon centered in the tropical Pacific Ocean and is the leading source of global climate variability and predictability~\cite{mcphaden2006enso,timmermann2018enso}. ENSO profoundly influences global climate and weather, affecting monsoons, hurricane activity, and the frequencies of droughts and floods, with cascading impacts on ecosystem and human society worldwide. ENSO exhibits an oscillatory cycle in which sea surface temperature (SST) anomalies in the central-eastern tropical Pacific alternate between warm (El Ni\~no) and cool (La Ni\~na) phases, accompanied by changes in equatorial trade winds and a seesaw in tropical rainfall, typically recurring on approximately 2-7 year timescales. This oscillatory behavior can be interpreted using a conceptual recharge oscillator (RO) framework ~\cite{jin1997equatorial,ZebiakCane1987, Bjerknes1969Teleconnections}. When the equatorial Pacific surface warms, the trade winds weaken, which helps sustain the warming locally but also gradually redistributes upper-ocean warm water in a way that depletes equatorial upper-ocean heat content (a ``discharge''), eventually damping the warm SST anomalies. As the surface cools, the trade winds strengthen, equatorial heat content rebuilds (a ``recharge''), and conditions become favorable for the next warm phase. 
+
+% Traditionally it has been a challenging problem in climate science to forecast ENSO at medium and long range, a problem that is challenging even for machine learning models, which are data-hungry and often rely on climate simulation data to train. However, these climate simulation data can be biased, leading to ill-calibrated predictions \cite{KimJeongJin2017SciRep, Capotondi2015ModelBiasesENSO}. 
+
+\subsection{Cross-Basin ENSO Interactions and the Extended Recharge Oscillator (XRO) Model}
+
+While ENSO is primarily a tropical Pacific phenomenon, numerous studies show that interactions with other ocean basins could enhance the ENSO predictions (e.g. ~\cite{zhao2024xro, cai2019pantropical}). In fact, ~\cite{zhao2024xro} augmented the traditional recharge-oscillator framework by incorporating ENSO's seasonally varying interactions with SST patterns across the different ocean basins, yielding a purely physics-based forecast model that outperforms operational climate models and achieves prediction skill comparable to state-of-the-art AI models. To describe the cross-basin ENSO interactions, \cite{zhao2024xro} leverage SST anomaly-based climate indices spanning the Indian Ocean, the North and South Pacific, the equatorial Atlantic, and the North and South Atlantic, and incorporate them into the Extended Recharge Oscillator (XRO) model to quantify both linear and nonlinear relationships. The XRO model includes a deterministic and stochastic component, each used for the corresponding forecasting task. The full model takes the form: %\YS{can we also include the concrete form? $\phi(t)$ (Fourier features) is mentioned in next session, but not list here.} \YS{it contains stochastic term. Is it fair to compare with the deterministic version mentioned in the next section?} \textcolor{blue}{XRO in fact separated the deterministic and the stochastic parts when they are doing forecast. The $\xi$ is only used when they do stochastic forecast. We compared with both the deterministic and stochastic cases, so the comparison is fair.}
+\begin{align}
+    \frac{d\bX}{dt} = \bL(t) \cdot \bX + \bN(\bX, t) + \sigma_\xi \bxi, \quad \frac{d\bxi}{dt} = -r_\xi \bxi + w(t), \label{eq:xro_noise}
+\end{align}
+\noindent where $\bX = [\bX_{\text{ENSO}}^\top, \bX_M^\top]^\top$ is the state vector consisting an ENSO component ($\bX_{\text{ENSO}}^\top$) as well as climate modes representing sea surface temperature changes in other ocean basins ($\bX_M^\top$). The ENSO component $\bX_{\text{ENSO}} = [T, h]^\top$ contains SST anomaly in equatorial Pacific ($T$) and sub-surface ocean thermocline depth anomaly representing the ocean heat content ($h$). Eight climate indices are used to construct $\bX_M^\top$. The linear operator $\bL$ captures both seasonally-varying internal recharge-discharge behavior and the cross-basin interactions between $\bX_{\text{ENSO}}$ and $\bX_M^\top$ through Fourier expansion:
+\begin{equation}
+    \bL(t) = \sum_{k=0}^{K} \left[ \bL_k^c \cos(k\omega t) + \bL_k^s \sin(k\omega t) \right],
+    \label{eq:seasonal_L}
+\end{equation}
+where $\omega = 2\pi$ year$^{-1}$ is the annual frequency, $K$ is the number of harmonics retained (typically $K=2$ to capture semi-annual variations), and $\bL_k^c, \bL_k^s \in \R^{n \times n}$ are coefficient matrices. As  suggested by previous studies, ENSO exhibits amplitude-dependent behavior~\cite{an2004nonlinearity}: large El Ni\~no events decay differently than weaker events, and the warm and cold phases are asymmetric. The XRO model introduces quadratic nonlinear terms $\bN$ to capture these nonlinearities. In addition, the model includes a red-noise stochastic forcing term $\bxi(t)$ to represent unresolved atmospheric variability, such as the Madden-Julian Oscillation ~\cite{madden1971detection,zhang2005mjo} and westerly wind bursts~\cite{harrison1997westerly}, which can trigger or modify ENSO events; here $w(t)$ denotes white noise and $r_\xi$ is decorrelation time scale.
+
+% \paragraph{Teleconnection and Climate Modes: } An interesting and challenging phenomenon to model for climate indices is that climate variability is often characterized through spatial patterns called ``modes'' that capture the dominant structures of variability in the ocean-atmosphere system. Each mode is associated with a time-varying amplitude  that quantifies how strongly the pattern is expressed at any given time. For ENSO prediction, we work with a state vector comprising indices that capture both local ENSO dynamics and remote teleconnections that influence ENSO evolution \cite{bjerknes1969atmospheric}. We follow the setup of XRO \cite{zhao2024xro} and use the following climate indices, derived from the ORAS5 ocean reanalysis\cite{zuo2019oras5}: Ni\~no3.4 Index ($T$),  Warm Water Volume ($H$) \cite{meinen2000observations}, Indian Ocean Dipole (IOD) \cite{saji1999dipole}, Southern Indian Ocean Dipole (SIOD) \cite{Jo2022SIOD_CPEN}, Indian Ocean Basin (IOB), North Pacific Meridional Mode (NPMM) \cite{chiang2002tropical}, South Pacific Meridional Mode (SPMM)  \cite{ZhangClementDiNezio2014SPMM}, Tropical North Atlantic (TNA) \cite{HamEtAl2013NTAENSOTrigger}, Atlantic 3 (ATL3) \cite{HamKugPark2013AtlanticRoles},  and South Atlantic Subtropic Dipole (SASD) \cite{HamEtAl2021SouthAtlanticENSO}. 
+
+
+% \subsection{The Extended Recharge Oscillator (XRO) Model}
+
+% A well-known physical model that captures the essential ENSO dynamics in a minimal two-variable system is the Recharge Oscillator Model \cite{jin1997equatorial}. The Extended Recharge Oscillator~\cite{zhao2024xro} generalizes it by (1) coupling ENSO with autoregressive model representations for other climate modes, (2) adding seasonal modulation of all operator parameters, and (3) including nonlinearities that capture amplitude-dependent dynamics. The XRO model dynamics for the full state vector $\bX$ takes the form:
+% \begin{align}
+%     \frac{d\bX}{dt} &= \bL(t) \cdot \bX + \bN(\bX, t) + \sigma_\xi \bxi \label{eq:xro_full}\\
+%     \frac{d\bxi}{dt} &= -r_\xi \bxi + \bw(t) \label{eq:xro_noise}
+% \end{align}
+% where $\bX = [\bX_{\text{ENSO}}^\top, \bX_M^\top]^\top$ is the state vector consisting of ten variables. The ENSO component $\bX_{\text{ENSO}} = [T, h]^\top$ contains the Ni\~no3.4 sea surface temperature anomaly ($T$) and thermocline depth anomaly representing the warm water volume ($h$). The other climate modes $\bX_M = [T_{\text{NPMM}}, T_{\text{SPMM}}, T_{\text{IOB}}, T_{\text{IOD}}, T_{\text{SIOD}}, T_{\text{TNA}}, T_{\text{ATL3}}, T_{\text{SASD}}]^\top$ are SST indices that interact with ENSO. The model allows for two-way interactions between ENSO and these modes.
+
+% \paragraph{Linear Operator:} The linear operator $\bL$ has a block structure that captures both internal dynamics and inter-mode couplings:
+% \begin{equation}
+%     \bL = \begin{bmatrix} \bL_{\text{ENSO}} & \bC_1 \\ \bC_2 & \bL_M \end{bmatrix}
+%     \label{eq:L_structure}
+% \end{equation}
+% where $\bL_{\text{ENSO}}$ describes the internal ENSO recharge-discharge dynamics, $\bL_M$ represents the internal processes and interactions among other climate modes, $\bC_2$ describes the teleconnection impacts of ENSO on other modes, and $\bC_1$ describes the feedback of other modes onto ENSO. To incorporate the strong seasonal dependence of ENSO and other climate modes, the operator is parameterized through a Fourier expansion:
+% \begin{equation}
+%     \bL(t) = \bL_0 + \sum_{k=1}^{2} \left[ \bL_k^c \cos(k\omega t) + \bL_k^s \sin(k\omega t) \right]
+%     \label{eq:seasonal_L}
+% \end{equation}
+% where $\omega = 2\pi/(12 \text{ months})$ is the annual frequency, and subscripts 0, 1, and 2 indicate the mean, annual cycle, and semi-annual components, respectively.
+
+% \paragraph{Nonlinearities:} Observations and theoretical analysis indicate that ENSO exhibits amplitude-dependent behavior~\cite{an2004nonlinearity}: large El Ni\~no events decay differently than small ones, and the system shows asymmetry between warm and cold phases. XRO captures these effects through quadratic nonlinear terms. The full nonlinearity $\bN(\bX,t) = [\bN_{\text{ENSO}}^\top, \bN_M^\top]^\top$ consists of ENSO nonlinearities:
+% \begin{equation}
+%     \bN_{\text{ENSO}} = \begin{bmatrix} b_1 T^2 + b_2 T h \\ 0 \end{bmatrix}
+%     \label{eq:N_enso}
+% \end{equation}
+% These can be related to deterministic nonlinear ocean advection as well as atmospheric nonlinearity through the nonlinear SST-wind stress feedback. A local quadratic nonlinearity is also incorporated for the Indian Ocean Dipole to capture its observed asymmetry:
+% \begin{equation}
+%     \bN_M = [0, 0, 0, b_3 T_{\text{IOD}}^2, 0, 0, 0, 0]^\top
+%     \label{eq:N_iod}
+% \end{equation}
+% The nonlinear terms for modes other than IOD are set to zero given their smaller observed asymmetry and skewness. Like the linear operator, the nonlinear coefficients are seasonally modulated via Fourier expansion.
+
+% \paragraph{Stochastic Forcing:} The term $\bxi(t)$ represents stochastic forcing from unresolved atmospheric variability, particularly the Madden-Julian Oscillation~\cite{madden1971detection,zhang2005mjo} and westerly wind bursts~\cite{harrison1997westerly} that can trigger or modify ENSO events. This forcing is modeled as red noise with decorrelation time scales $r_\xi$ and amplitudes $\sigma_\xi$. In equation~\eqref{eq:xro_noise}, $\bw(t)$ denotes white noise with a Gaussian distribution $\mathcal{N}(0, r_\xi^2)$, ensuring that the variance of $\bxi$ is maintained at unit level.
+
+\subsection{Limitations Motivating Neural Extensions}
+
+While XRO achieves strong forecast skill and provides physically interpretable parameters, several limitations motivate the development of neural-augmented variants: 
+
+\begin{enumerate}
+    \item \textbf{Representation:} The quadratic nonlinearities assume specific functional forms derived from physical intuition. If the true dynamics contain nonlinearities outside this prescribed form, XRO cannot capture them.
+    \item \textbf{Optimization:} XRO parameters are estimated using multivariate linear regression with a forward-differencing scheme. This optimizes one-step prediction error for each equation. During multi-step forecasting, however, all variables evolve together in a coupled system where errors propagate and compound.
+\end{enumerate}

@@ -1,0 +1,59 @@
+\section{Background: ENSO Dynamics and the Extended Recharge Oscillator}
+\label{sec:background}
+
+In this section we provide background on El Ni\~no-Southern Oscillation and presents the mathematical formulation of the Extended Recharge Oscillator (XRO) model that serves as our physics-based foundation.
+
+\subsection{El Ni\~no-Southern Oscillation}
+
+El Ni\~no-Southern Oscillation is a coupled ocean-atmosphere phenomenon centered in the tropical Pacific Ocean that represents the largest source of interannual climate variability on Earth~\cite{mcphaden2006enso,timmermann2018enso} and profoundly influences global weather patterns, affecting monsoon systems, hurricane activity, drought and flood frequencies, and ecosystem dynamics across multiple continents. It exhibits an oscillatory behavior arising from a slower negative feedback known as the recharge-discharge mechanism~\cite{jin1997equatorial}. Traditionally it has been a challenging problem in climate science to forecast ENSO at medium and long range, a problem that is challenging even for machine learning models, which are data-hungry and often rely on climate simulation data to train. However, these climate simulation data can be biased, leading to ill-calibrated predictions \cite{KimJeongJin2017SciRep, Capotondi2015ModelBiasesENSO}. 
+
+
+\paragraph{Teleconnection and Climate Modes: } An interesting and challenging phenomenon to model for climate indices is that climate variability is often characterized through spatial patterns called ``modes'' that capture the dominant structures of variability in the ocean-atmosphere system. Each mode is associated with a time-varying amplitude  that quantifies how strongly the pattern is expressed at any given time. For ENSO prediction, we work with a state vector comprising indices that capture both local ENSO dynamics and remote teleconnections that influence ENSO evolution \cite{bjerknes1969atmospheric}. We follow the setup of XRO \cite{zhao2024xro} and use the following climate indices, derived from the ORAS5 ocean reanalysis\cite{zuo2019oras5}: Ni\~no3.4 Index ($T$),  Warm Water Volume ($H$) \cite{meinen2000observations}, Indian Ocean Dipole (IOD) \cite{saji1999dipole}, Southern Indian Ocean Dipole (SIOD) \cite{Jo2022SIOD_CPEN}, Indian Ocean Basin (IOB), North Pacific Meridional Mode (NPMM) \cite{chiang2002tropical}, South Pacific Meridional Mode (SPMM)  \cite{ZhangClementDiNezio2014SPMM}, Tropical North Atlantic (TNA) \cite{HamEtAl2013NTAENSOTrigger}, Atlantic 3 (ATL3) \cite{HamKugPark2013AtlanticRoles},  and South Atlantic Subtropic Dipole (SASD) \cite{HamEtAl2021SouthAtlanticENSO}. 
+
+
+\subsection{The Extended Recharge Oscillator (XRO) Model}
+
+A well-known physical model that captures the essential ENSO dynamics in a minimal two-variable system is the Recharge Oscillator Model \cite{jin1997equatorial}. The Extended Recharge Oscillator~\cite{zhao2024xro} generalizes it by (1) expanding to multiple climate modes, (2) adding seasonal modulation of all coupling coefficients, and (3) including  polynomial nonlinearities that capture amplitude-dependent dynamics. The full XRO model takes the form:
+\begin{equation}
+    \frac{d\bX}{dt} = \bL(t) \cdot \bX + \mathcal{N}_{\text{RO}}(T, H, t) + \mathcal{N}_{\text{Diag}}(\bX, t) + \bxi(t)
+    \label{eq:xro_full}
+\end{equation}
+
+\paragraph{Linear Operator:} $\bL(t) \in \R^{n \times n}$ captures the seasonally-modulated coupling between all state variables, parameterized through a Fourier expansion:
+\begin{equation}
+    \bL(t) = \sum_{k=0}^{K} \left[ \bL_k^c \cos(k\omega t) + \bL_k^s \sin(k\omega t) \right]
+    \label{eq:seasonal_L}
+\end{equation}
+where $\omega = 2\pi$ year$^{-1}$ is the annual frequency, $K$ is the number of harmonics retained, and $\bL_k^c, \bL_k^s \in \R^{n \times n}$ are coefficient matrices fitted using least square. 
+
+\paragraph{Recharge Oscillator Nonlinearities $\mathcal{N}_{RO}$:} Observations and theoretical analysis indicate that ENSO exhibits amplitude-dependent behavior~\cite{an2004nonlinearity}: large El Ni\~no events decay differently than small ones, and the system shows asymmetry between warm and cold phases. XRO captures these effects with polynomial nonlinear terms  coupling the core ENSO variables $T$ and $H$:
+\begin{align}
+    \mathcal{N}_T(T, H, t) &= \bbeta_T(t) \cdot \boldsymbol{\Phi}_{\text{RO}}(T, H) \\
+    \mathcal{N}_H(T, H, t) &= \bbeta_H(t) \cdot \boldsymbol{\Phi}_{\text{RO}}(T, H)
+\end{align}
+where $\bbeta_T(t), \bbeta_H(t) \in \R^5$ are seasonally-modulated coefficient vectors, each expanded in Fourier harmonics analogously to the linear operator. 
+
+\paragraph{Diagonal Nonlinearities:} In addition to the RO terms, each state variable may exhibit self-interaction through its own quadratic and cubic terms:
+\begin{equation}
+    \mathcal{N}_{\text{Diag},j}(\bX, t) = b_j(t) X_j^2 + c_j(t) X_j^3, \quad j = 1, \ldots, n
+\end{equation}
+where $b_j(t)$ and $c_j(t)$ are seasonally-modulated coefficients. These diagonal terms capture amplitude-dependent damping or growth specific to each climate mode. These components give the complete nonlinear contribution:
+\begin{equation}
+    \mathcal{N}(\bX, t) = \begin{bmatrix} \mathcal{N}_T(T, H, t) \\ \mathcal{N}_H(T, H, t) \\ \mathbf{0}_{n-2} \end{bmatrix} + \begin{bmatrix} b_1(t) X_1^2 + c_1(t) X_1^3 \\ \vdots \\ b_n(t) X_n^2 + c_n(t) X_n^3 \end{bmatrix}
+\end{equation}
+
+\paragraph{Stochastic Forcing:} The residual term $\bxi(t)$ represents stochastic forcing from unresolved atmospheric variability, particularly the Madden-Julian Oscillation~\cite{madden1971detection,zhang2005mjo} and westerly wind bursts~\cite{harrison1997westerly} that can trigger or modify ENSO events. Following standard practice in stochastic climate modeling~\cite{hasselmann1976stochastic,penland1993prediction}, this forcing is modeled as a red noise (AR(1)) process with seasonally-varying amplitude:
+\begin{equation}
+    \xi_{j,t+1} = a_{1,j} \cdot \xi_{j,t} + \sqrt{1 - a_{1,j}^2} \cdot \sigma_j(m) \cdot \varepsilon_{j,t+1}
+    \label{eq:noise}
+\end{equation}
+where $a_{1,j} \in [0, 1)$ is the AR(1) persistence parameter for variable $j$, $\sigma_j(m)$ is the standard deviation for calendar month $m \in \{1, \ldots, 12\}$, and $\varepsilon_{j,t} \sim \mathcal{N}(0, 1)$ is white noise innovation. The seasonal variance structure captures the observation that atmospheric noise amplitude varies throughout the year.
+
+\subsection{Limitations Motivating Neural Extensions}
+
+While XRO achieves strong forecast skill and provides physically interpretable parameters, several limitations motivate the development of neural-augmented variants: 
+
+\begin{enumerate}
+    \item \textbf{Representation:} The polynomial basis for nonlinearities assumes specific functional forms derived from physical intuition. If the true dynamics contain nonlinearities outside this basis, XRO cannot capture them.
+    \item \textbf{Optimization:} XRO adopts a variable-by-variable fitting procedure optimizes one-step prediction error for each equation independently. During multi-step forecasting, however, all variables evolve together in a coupled system where errors propagate and compound.
+\end{enumerate}

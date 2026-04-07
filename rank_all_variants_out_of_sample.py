@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore")
 import os
 import argparse
 import glob
+import re
 from typing import Dict, Tuple
 
 import matplotlib.pyplot as plt
@@ -27,6 +28,10 @@ import xarray as xr
 from XRO.core import XRO
 from nxro.models import (
     NXROLinearModel,
+    NXROMemoryAttentionModel,
+    NXROMemoryGraphModel,
+    NXROMemoryLinearModel,
+    NXROMemoryResModel,
     NXROROModel,
     NXRORODiagModel,
     NXROResModel,
@@ -38,6 +43,9 @@ from nxro.models import (
     NXRONeuralODEModel,
     NXROBilinearModel,
     NXROTransformerModel,
+    PureNeuralODEModel,
+    PureTransformerModel,
+    NXRODeepLearnableGCN,
 )
 from utils.xro_utils import calc_forecast_skill, nxro_reforecast
 from graph_construction import get_or_build_xro_graph, get_or_build_stat_knn_graph
@@ -47,49 +55,68 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
-def discover_all_checkpoints(search_dirs=None, ckpt_suffix=''):
+def discover_all_checkpoints(search_dirs=None, ckpt_suffix='', base_results_dir='results_out_of_sample'):
     """Discover all NXRO checkpoint files from out-of-sample results."""
     if search_dirs is None:
         search_dirs = [
-            'results_out_of_sample/linear',
-            'results_out_of_sample/ro',
-            'results_out_of_sample/rodiag',
-            'results_out_of_sample/res',
-            'results_out_of_sample/res_fullxro',
-            'results_out_of_sample/neural',
-            'results_out_of_sample/neural_phys',
-            'results_out_of_sample/attentive',
-            'results_out_of_sample/bilinear',
-            'results_out_of_sample/resmix',
-            'results_out_of_sample/graph',
-            'results_out_of_sample/graphpyg',
-            'results_out_of_sample/transformer',
+            f'{base_results_dir}/linear',
+            f'{base_results_dir}/memory_linear',
+            f'{base_results_dir}/memory_res',
+            f'{base_results_dir}/memory_attentive',
+            f'{base_results_dir}/memory_graph',
+            f'{base_results_dir}/ro',
+            f'{base_results_dir}/rodiag',
+            f'{base_results_dir}/res',
+            f'{base_results_dir}/res_fullxro',
+            f'{base_results_dir}/neural',
+            f'{base_results_dir}/neural_phys',
+            f'{base_results_dir}/attentive',
+            f'{base_results_dir}/bilinear',
+            f'{base_results_dir}/resmix',
+            f'{base_results_dir}/graph',
+            f'{base_results_dir}/graphpyg',
+            f'{base_results_dir}/deep_gcn',
+            f'{base_results_dir}/transformer',
+            f'{base_results_dir}/pure_neural_ode',
+            f'{base_results_dir}/pure_transformer',
         ]
     
     all_checkpoints = []
-    for base_dir in search_dirs:
-        if not os.path.exists(base_dir):
+    for dir_path in search_dirs:
+        if not os.path.exists(dir_path):
             continue
         # If ckpt_suffix is provided (e.g. "real_finetuned"), search for that specifically
         # otherwise use the standard pattern but potentially exclude "stage1" or "finetuned" if we are doing normal ranking
         
+        is_pure_baseline_dir = 'pure_neural_ode' in dir_path or 'pure_transformer' in dir_path
+        
         if ckpt_suffix:
-            pattern = f'{base_dir}/**/nxro_*_{ckpt_suffix}*.pt'
-        else:
-            pattern = f'{base_dir}/**/nxro_*_best*.pt'
+            # Search for NXRO checkpoints with the suffix
+            pattern_nxro = f'{dir_path}/**/nxro_*_{ckpt_suffix}*.pt'
+            matches = glob.glob(pattern_nxro, recursive=True)
             
-        matches = glob.glob(pattern, recursive=True)
+            # For pure baselines, two-stage uses "_extra_data" suffix instead of "_real_finetuned"
+            if is_pure_baseline_dir:
+                pattern_pure = f'{dir_path}/**/pure_*_best_extra_data*.pt'
+                matches.extend(glob.glob(pattern_pure, recursive=True))
+        else:
+            pattern_nxro = f'{dir_path}/**/nxro_*_best*.pt'
+            pattern_pure = f'{dir_path}/**/pure_*_best*.pt'
+            
+            matches = glob.glob(pattern_nxro, recursive=True)
+            matches.extend(glob.glob(pattern_pure, recursive=True))
         
         # Filter out two-stage models if we are doing normal ranking (suffix='')
         if not ckpt_suffix:
-            matches = [m for m in matches if 'real_finetuned' not in m and 'synthetic_pretrained' not in m]
+            matches = [m for m in matches if 'real_finetuned' not in m and 'synthetic_pretrained' not in m and 'extra_data' not in m]
             
         all_checkpoints.extend(matches)
     
+    # Also check the root of the results directory
     if ckpt_suffix:
-        root_pattern = f'results_out_of_sample/nxro_*_{ckpt_suffix}*.pt'
+        root_pattern = f'{base_results_dir}/nxro_*_{ckpt_suffix}*.pt'
     else:
-        root_pattern = f'results_out_of_sample/nxro_*_best*.pt'
+        root_pattern = f'{base_results_dir}/nxro_*_best*.pt'
         
     matches = glob.glob(root_pattern)
     if not ckpt_suffix:
@@ -154,10 +181,83 @@ def infer_model_class_and_kwargs(ckpt_path):
                         edges.append([j, i])
             edge_index = torch.tensor(edges, dtype=torch.long).T if edges else torch.empty(2, 0, dtype=torch.long)
             
+            # Infer hidden size from state_dict (conv1 output has shape [hidden, 1])
+            hidden = 16  # default
+            for key in ckpt['state_dict']:
+                if 'conv1' in key and 'weight' in key:
+                    hidden = ckpt['state_dict'][key].shape[0]
+                    break
+            
             return NXROGraphPyGModel, {'n_vars': n_vars, 'k_max': 2, 'edge_index': edge_index,
-                                       'hidden': 16, 'dropout': 0.1, 'use_gat': use_gat}
+                                       'hidden': hidden, 'dropout': 0.0, 'use_gat': use_gat}
         except Exception:
             return None, None
+    
+    elif 'memory_graph' in basename:
+        memory_depth = ckpt['state_dict'].get('L_basis_memory', torch.empty(0)).shape[0]
+        graph_mode = 'full_st' if 'W_full' in ckpt['state_dict'] else 'agg_spatial'
+        use_fixed_graph = 'A_param' not in ckpt['state_dict']
+        return NXROMemoryGraphModel, {
+            'n_vars': n_vars,
+            'memory_depth': int(memory_depth),
+            'k_max': 2,
+            'use_fixed_graph': use_fixed_graph,
+            'graph_mode': graph_mode,
+        }
+
+    elif 'memory_attentive' in basename or 'memory_attention' in basename:
+        memory_depth = ckpt['state_dict'].get('L_basis_memory', torch.empty(0)).shape[0]
+        d = 32
+        if 'token_in.weight' in ckpt['state_dict']:
+            d = ckpt['state_dict']['token_in.weight'].shape[0]
+        return NXROMemoryAttentionModel, {
+            'n_vars': n_vars,
+            'memory_depth': int(memory_depth),
+            'k_max': 2,
+            'd': d,
+            'n_heads': 1,
+            'dropout': 0.0,
+            'mask_mode': 'th_only',
+        }
+
+    elif 'memory_res' in basename:
+        memory_depth = ckpt['state_dict'].get('L_basis_memory', torch.empty(0)).shape[0]
+        hidden = 64
+        if 'residual.0.weight' in ckpt['state_dict']:
+            hidden = ckpt['state_dict']['residual.0.weight'].shape[0]
+        return NXROMemoryResModel, {
+            'n_vars': n_vars,
+            'memory_depth': int(memory_depth),
+            'k_max': 2,
+            'hidden': hidden,
+        }
+
+    elif 'memory_linear' in basename:
+        memory_depth = ckpt['state_dict'].get('L_basis_memory', torch.empty(0)).shape[0]
+        return NXROMemoryLinearModel, {
+            'n_vars': n_vars,
+            'memory_depth': int(memory_depth),
+            'k_max': 2,
+        }
+
+    elif 'deep_gcn' in basename or 'deepgcn' in basename:
+        # Deep Learnable GCN (best model from hyperparameter search)
+        # Infer hidden and n_layers from state_dict
+        hidden = 64  # default
+        n_layers = 3  # default
+        
+        # Count GCN layers from gcn_weights keys
+        gcn_layer_keys = [k for k in sd_keys if 'gcn_weights' in k and 'weight' in k]
+        if gcn_layer_keys:
+            n_layers = len(gcn_layer_keys)
+        
+        # Infer hidden from first GCN layer output
+        if 'gcn_weights.0.weight' in ckpt['state_dict']:
+            hidden = ckpt['state_dict']['gcn_weights.0.weight'].shape[0]
+        
+        return NXRODeepLearnableGCN, {'n_vars': n_vars, 'k_max': 2, 'hidden': hidden, 
+                                      'n_layers': n_layers, 'dropout': 0.0, 
+                                      'use_layer_norm': True}
     
     elif 'resmix' in basename or 'residualmix' in basename:
         alpha_learnable = any('alpha_param' in k for k in sd_keys)
@@ -167,16 +267,34 @@ def infer_model_class_and_kwargs(ckpt_path):
     elif 'rodiag' in basename:
         return NXRORODiagModel, {'n_vars': n_vars, 'k_max': 2}
     
+    elif 'pure_neural_ode' in basename:
+        # Pure Neural ODE baseline (no physical priors)
+        # Note: trained with dropout=0.1 in run_utils.py
+        return PureNeuralODEModel, {'n_vars': n_vars, 'hidden': 64, 'depth': 2, 
+                                    'dropout': 0.1, 'use_time': False}
+    
     elif 'neural' in basename:
         return NXRONeuralODEModel, {'n_vars': n_vars, 'k_max': 2, 'hidden': 64, 
                                     'depth': 2, 'dropout': 0.1}
     
     elif 'attentive' in basename or 'attention' in basename:
-        return NXROAttentiveModel, {'n_vars': n_vars, 'k_max': 2, 'd': 32, 
-                                    'dropout': 0.1, 'mask_mode': 'th_only'}
+        # Infer d (attention hidden size) from state_dict (Wq has shape [d, 1])
+        d = 32  # default
+        if 'Wq.weight' in ckpt['state_dict']:
+            d = ckpt['state_dict']['Wq.weight'].shape[0]
+        elif 'W_Q.weight' in ckpt['state_dict']:
+            d = ckpt['state_dict']['W_Q.weight'].shape[0]
+        return NXROAttentiveModel, {'n_vars': n_vars, 'k_max': 2, 'd': d, 
+                                    'dropout': 0.0, 'mask_mode': 'th_only'}
     
     elif 'bilinear' in basename:
         return NXROBilinearModel, {'n_vars': n_vars, 'k_max': 2, 'n_channels': 2, 'rank': 2}
+    
+    elif 'pure_transformer' in basename:
+        # Pure Transformer baseline (no physical priors)
+        return PureTransformerModel, {'n_vars': n_vars, 'd_model': 64, 'nhead': 4, 
+                                      'num_layers': 2, 'dim_feedforward': 256, 
+                                      'dropout': 0.1, 'use_time': False}
     
     elif 'transformer' in basename:
         return NXROTransformerModel, {'n_vars': n_vars, 'k_max': 2, 'd_model': 64, 
@@ -187,7 +305,11 @@ def infer_model_class_and_kwargs(ckpt_path):
         return None, None
     
     elif 'res' in basename:
-        return NXROResModel, {'n_vars': n_vars, 'k_max': 2, 'hidden': 64}
+        # Infer hidden size from state_dict (residual.0.weight has shape [hidden, in_dim])
+        hidden = 64  # default
+        if 'residual.0.weight' in ckpt['state_dict']:
+            hidden = ckpt['state_dict']['residual.0.weight'].shape[0]
+        return NXROResModel, {'n_vars': n_vars, 'k_max': 2, 'hidden': hidden}
     
     elif 'graph' in basename:
         use_fixed = 'fixed' in basename or 'learned' not in basename
@@ -208,6 +330,55 @@ def infer_model_class_and_kwargs(ckpt_path):
 def get_variant_label(ckpt_path):
     """Extract a human-readable label from checkpoint path."""
     basename = os.path.basename(ckpt_path)
+    basename_lower = basename.lower()
+
+    if 'memory_' in basename_lower:
+        label = None
+        if 'memory_linear' in basename_lower:
+            label = 'Memory-Linear'
+        elif 'memory_res' in basename_lower:
+            label = 'Memory-Res'
+        elif 'memory_attentive' in basename_lower or 'memory_attention' in basename_lower:
+            label = 'Memory-Attentive'
+        elif 'memory_graph' in basename_lower:
+            label = 'Memory-Graph'
+
+        md_match = re.search(r'(?:^|_)md(\d+)(?:_|$)', basename_lower)
+        if md_match:
+            label = f'{label} P={md_match.group(1)}'
+        elif 'best' in basename_lower:
+            try:
+                ckpt = torch.load(ckpt_path, map_location='cpu')
+                memory_depth = ckpt.get('state_dict', {}).get('L_basis_memory', torch.empty(0)).shape[0]
+                label = f'{label} P={int(memory_depth)}'
+            except Exception:
+                pass
+
+        if 'oras5' in basename_lower:
+            label = f'{label} ORAS5-only'
+        elif 'extra_data' in basename_lower:
+            label = f'{label} +ExtraData'
+
+        return label
+    
+    # Handle pure baseline models first (before removing prefixes)
+    if 'pure_neural_ode' in basename_lower:
+        two_stage_suffix = ''
+        if 'extra_data' in basename_lower or 'finetuned' in basename_lower:
+            two_stage_suffix = ' (Two-Stage)'
+        return 'Pure Neural ODE' + two_stage_suffix
+    
+    if 'pure_transformer' in basename_lower:
+        two_stage_suffix = ''
+        if 'extra_data' in basename_lower or 'finetuned' in basename_lower:
+            two_stage_suffix = ' (Two-Stage)'
+        return 'Pure Transformer' + two_stage_suffix
+    
+    if 'deep_gcn' in basename_lower:
+        two_stage_suffix = ''
+        if 'finetuned' in basename_lower or 'extra_data' in basename_lower:
+            two_stage_suffix = ' (Two-Stage)'
+        return 'Deep Gcn' + two_stage_suffix
     
     # Remove file extension and prefix
     label = basename.replace('.pt', '').replace('nxro_', '').replace('_best_test', '').replace('_best', '')
@@ -506,16 +677,25 @@ def main():
     parser.add_argument('--top_n', type=int, default=5, help='Number of top models to display/plot')
     parser.add_argument('--metric', type=str, choices=['acc', 'rmse', 'combined', 'usefulness'], default='rmse',
                        help='Ranking metric (evaluated on out-of-sample period)')
-    parser.add_argument('--output_dir', type=str, default='results_out_of_sample/rankings',
-                       help='Output directory for ranking results')
+    parser.add_argument('--output_dir', type=str, default=None,
+                       help='Output directory for ranking results (auto-set based on --remove_wwv)')
     parser.add_argument('--force', action='store_true', help='Force recomputation even if CSV exists')
     parser.add_argument('--two_stage', action='store_true', help='Rank two-stage models (trained on synthetic then fine-tuned)')
     parser.add_argument('--figure_one', action='store_true', help='Generate Figure 1 with selected models only')
+    parser.add_argument('--remove_wwv', action='store_true',
+                        help='Remove WWV variable from observation datasets for evaluation (must match training)')
     args = parser.parse_args()
+    
+    # Set default output_dir based on remove_wwv flag
+    if args.output_dir is None:
+        if args.remove_wwv:
+            args.output_dir = 'results_out_of_sample_no_wwv/rankings'
+        else:
+            args.output_dir = 'results_out_of_sample/rankings'
     
     # If --figure_one is specified, just generate that plot and exit
     if args.figure_one:
-        plot_figure_one(output_dir=args.output_dir, two_stage=args.two_stage)
+        plot_figure_one(output_dir=args.output_dir, two_stage=args.two_stage, exclude_vars=['WWV'] if args.remove_wwv else None)
         return
     
     # Out-of-sample setup
@@ -534,12 +714,15 @@ def main():
     print(f"Test period (out-of-sample): {test_start} to {test_end}")
     print(f"Ranking metric: {args.metric} (evaluated on out-of-sample)")
     print(f"Top N to display: {args.top_n}")
+    if args.remove_wwv:
+        print(f"Remove WWV: ENABLED (models trained without WWV)")
     print("="*80)
     print()
     
     # Check if cached results exist
     two_stage_suffix = '_two_stage' if args.two_stage else ''
-    output_csv = f'{args.output_dir}/all_variants_ranked_{args.metric}_out_of_sample{two_stage_suffix}.csv'
+    wwv_suffix = '_no_wwv' if args.remove_wwv else ''
+    output_csv = f'{args.output_dir}/all_variants_ranked_{args.metric}_out_of_sample{two_stage_suffix}{wwv_suffix}.csv'
     
     use_cache = os.path.exists(output_csv) and not args.force
     
@@ -559,6 +742,13 @@ def main():
         
         # Load data
         obs_ds = xr.open_dataset('data/XRO_indices_oras5.nc')
+        
+        # Drop WWV if requested
+        if args.remove_wwv:
+            if 'WWV' in obs_ds.data_vars:
+                obs_ds = obs_ds.drop_vars('WWV')
+                print("✓ Removed WWV from observation dataset (--remove_wwv flag)")
+        
         train_ds = obs_ds.sel(time=train_period)
         
         # Fit XRO baselines on train period only
@@ -608,12 +798,38 @@ def main():
         
         # Discover NXRO checkpoints
         print("Discovering NXRO variant checkpoints...")
+        
+        # Determine search directories based on remove_wwv flag
+        base_dir = 'results_out_of_sample_no_wwv' if args.remove_wwv else 'results_out_of_sample'
+        search_dirs = [
+            f'{base_dir}/linear',
+            f'{base_dir}/memory_linear',
+            f'{base_dir}/memory_res',
+            f'{base_dir}/memory_attentive',
+            f'{base_dir}/memory_graph',
+            f'{base_dir}/ro',
+            f'{base_dir}/rodiag',
+            f'{base_dir}/res',
+            f'{base_dir}/res_fullxro',
+            f'{base_dir}/neural',
+            f'{base_dir}/neural_phys',
+            f'{base_dir}/attentive',
+            f'{base_dir}/bilinear',
+            f'{base_dir}/resmix',
+            f'{base_dir}/graph',
+            f'{base_dir}/graphpyg',
+            f'{base_dir}/deep_gcn',
+            f'{base_dir}/transformer',
+            f'{base_dir}/pure_neural_ode',
+            f'{base_dir}/pure_transformer',
+        ]
+        
         if args.two_stage:
             # For two-stage, look for "real_finetuned" specifically
-            all_checkpoints = discover_all_checkpoints(ckpt_suffix='real_finetuned')
+            all_checkpoints = discover_all_checkpoints(search_dirs=search_dirs, ckpt_suffix='real_finetuned')
         else:
             # For standard, look for "best" and filter out two-stage ones
-            all_checkpoints = discover_all_checkpoints(ckpt_suffix='')
+            all_checkpoints = discover_all_checkpoints(search_dirs=search_dirs, ckpt_suffix='')
             
         print(f"  Found {len(all_checkpoints)} checkpoint files")
         print()
@@ -957,4 +1173,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

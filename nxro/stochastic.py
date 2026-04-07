@@ -5,6 +5,14 @@ import pandas as pd
 from typing import Tuple, List
 
 
+def _model_memory_depth(model) -> int:
+    return int(getattr(model, 'memory_depth', 0) or 0)
+
+
+def _uses_history_interface(model) -> bool:
+    return bool(hasattr(model, 'n_lags'))
+
+
 @torch.no_grad()
 def compute_residuals_series(model, ds: xr.Dataset, var_order: List[str], device: str = 'cpu') -> Tuple[np.ndarray, np.ndarray]:
     """Compute one-step residuals on a dataset given a deterministic model.
@@ -16,22 +24,39 @@ def compute_residuals_series(model, ds: xr.Dataset, var_order: List[str], device
     ncycle = 12
     dt = 1.0 / ncycle
     time_index = pd.DatetimeIndex(ds.time.values)
-    years = time_index.year + (time_index.month - 1) / 12.0
+    years = np.asarray(time_index.year + (time_index.month - 1) / 12.0, dtype=np.float32)
     T = len(time_index)
     n_vars = len(var_order)
-    residuals = np.zeros((T - 1, n_vars), dtype=np.float32)
-    months = time_index.month.values[:-1].astype(np.int32)
+    memory_depth = _model_memory_depth(model)
+    uses_history = _uses_history_interface(model)
+    if memory_depth >= T:
+        raise ValueError(
+            f"Not enough history for memory_depth={memory_depth} with only {T} timesteps."
+        )
+
+    n_resid = T - 1 - memory_depth
+    residuals = np.zeros((n_resid, n_vars), dtype=np.float32)
+    months = time_index.month.values[memory_depth:-1].astype(np.int32)
 
     model.eval()
-    for t in range(T - 1):
-        x_t = np.stack([ds[v].isel(time=t).item() for v in var_order], axis=-1).astype(np.float32)
-        x_tp1 = np.stack([ds[v].isel(time=t + 1).item() for v in var_order], axis=-1).astype(np.float32)
-        x = torch.from_numpy(x_t[None, :]).to(device)
-        t_year = torch.tensor([float(years[t])], dtype=torch.float32, device=device)
-        dxdt = model(x, t_year)
-        x_hat = x + dxdt * dt
-        e_t = x_tp1 - x_hat.squeeze(0).cpu().numpy()
-        residuals[t] = e_t
+    if not uses_history:
+        for t in range(T - 1):
+            x_t = np.stack([ds[v].isel(time=t).item() for v in var_order], axis=-1).astype(np.float32)
+            x_tp1 = np.stack([ds[v].isel(time=t + 1).item() for v in var_order], axis=-1).astype(np.float32)
+            x = torch.from_numpy(x_t[None, :]).to(device)
+            t_year = torch.tensor([float(years[t])], dtype=torch.float32, device=device)
+            dxdt = model(x, t_year)
+            x_hat = x + dxdt * dt
+            residuals[t] = x_tp1 - x_hat.squeeze(0).cpu().numpy()
+    else:
+        X_all = np.stack([ds[v].values for v in var_order], axis=-1).astype(np.float32)
+        for resid_idx, src_idx in enumerate(range(memory_depth, T - 1)):
+            x_hist = torch.from_numpy(X_all[src_idx - memory_depth:src_idx + 1][None, ...]).to(device)
+            t_hist = torch.from_numpy(years[src_idx - memory_depth:src_idx + 1][None, ...]).to(device)
+            x_tp1 = X_all[src_idx + 1]
+            dxdt = model(x_hist, t_hist)
+            x_hat = x_hist[:, -1, :] + dxdt * dt
+            residuals[resid_idx] = x_tp1 - x_hat.squeeze(0).cpu().numpy()
     return residuals, months
 
 
@@ -271,13 +296,19 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
     """
     Fit noise parameters from simulation-observation differences.
     
-    Uses differences between observations (ORAS5) and simulations (ERA5, GODAS, etc.)
+    Uses differences between observations (ORAS5) and simulations (CESM2-LENS or others)
     to estimate noise distribution independently of model residuals.
+    
+    Supports both CESM2-LENS climate mode files (with automatic variable renaming)
+    and legacy XRO_indices_*_preproc.nc files.
+    
+    For variables that exist in both obs and sim, uses obs-sim differences.
+    For variables only in obs, uses a fallback (scaled version of similar variable's noise).
     
     Args:
         obs_path: Path to observation NetCDF (ORAS5)
-        sim_paths: List of simulation NetCDF paths (ERA5, GODAS, etc.)
-        var_order: Variable names
+        sim_paths: List of simulation NetCDF paths (CESM2-LENS or other)
+        var_order: Variable names (in NXRO format, e.g., ['Nino34', 'WWV'])
         train_period: Time slice for training period
     
     Returns:
@@ -286,6 +317,7 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
     """
     import xarray as xr
     import pandas as pd
+    from nxro.data import is_cesm2_climate_mode_file, load_cesm2_climate_mode_file
     
     # Load full observations (don't restrict to train_period yet)
     obs_ds_full = xr.open_dataset(obs_path)
@@ -296,7 +328,39 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
     
     print(f"  Observation dataset: {len(obs_ds_full.time)} total timesteps")
     print(f"  Training period: {train_period} ({len(train_times)} timesteps)")
+    print(f"  Requested variables: {var_order}")
     print(f"  Scanning {len(sim_paths)} simulation files for overlaps...")
+    
+    # First, figure out which variables are available in the simulation data
+    # by checking the first file
+    sim_vars_available = set()
+    for sim_path in sim_paths[:1]:  # Just check first file
+        try:
+            if is_cesm2_climate_mode_file(sim_path):
+                sim_ds = load_cesm2_climate_mode_file(sim_path, target_vars=None, apply_default_time_slice=False)
+            else:
+                sim_ds = xr.open_dataset(sim_path)
+            sim_vars_available = set(sim_ds.data_vars)
+            sim_ds.close()
+            break
+        except Exception as e:
+            continue
+    
+    # Find common variables between obs and sim
+    obs_vars_available = set(obs_ds_full.data_vars)
+    common_vars = [v for v in var_order if v in obs_vars_available and v in sim_vars_available]
+    missing_vars = [v for v in var_order if v not in common_vars]
+    
+    print(f"  Simulation variables available: {sorted(sim_vars_available)}")
+    print(f"  Common variables for noise estimation: {common_vars}")
+    if missing_vars:
+        print(f"  Variables missing in simulation (will use fallback): {missing_vars}")
+    
+    if not common_vars:
+        print(f"  ERROR: No common variables between obs and simulation!")
+        print(f"  Obs vars: {sorted(obs_vars_available)}")
+        print(f"  Sim vars: {sorted(sim_vars_available)}")
+        raise ValueError("No common variables between observation and simulation data!")
     
     all_diffs = []
     all_months = []
@@ -304,7 +368,16 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
     
     for sim_path in sim_paths:
         try:
-            sim_ds = xr.open_dataset(sim_path)
+            # Check if this is a CESM2-LENS file and use appropriate loader
+            if is_cesm2_climate_mode_file(sim_path):
+                # Use CESM2 loader with variable mapping - only load common vars
+                sim_ds = load_cesm2_climate_mode_file(
+                    sim_path, 
+                    target_vars=common_vars,  # Only load common variables
+                    apply_default_time_slice=False,  # Load full time range
+                )
+            else:
+                sim_ds = xr.open_dataset(sim_path)
             
             # Convert simulation times to comparable format
             # Handle cftime objects (non-standard calendars like noleap)
@@ -325,6 +398,7 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
             common_date_keys = set(obs_dates.keys()) & set(sim_dates.keys()) & set(train_dates.keys())
             
             if len(common_date_keys) == 0:
+                sim_ds.close()
                 continue  # Skip without warning (expected for many files)
             
             # Get actual time values for selection
@@ -335,18 +409,19 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
             obs_aligned = obs_ds_full.sel(time=obs_times_select)
             sim_aligned = sim_ds.sel(time=sim_times_select)
             
-            # Compute difference (obs - sim)
+            # Compute difference (obs - sim) for common variables only
             diff_array = []
-            for v in var_order:
+            all_vars_found = True
+            for v in common_vars:
                 if v in obs_aligned and v in sim_aligned:
                     diff_vals = obs_aligned[v].values - sim_aligned[v].values
                     diff_array.append(diff_vals)
                 else:
-                    print(f"  Warning: Variable {v} missing in {sim_path}, skipping file")
-                    break  # Skip this file entirely if any variable is missing
+                    all_vars_found = False
+                    break
             
-            if len(diff_array) == len(var_order):
-                diff_array = np.stack(diff_array, axis=-1)  # [T, n_vars]
+            if all_vars_found and len(diff_array) == len(common_vars):
+                diff_array = np.stack(diff_array, axis=-1)  # [T, n_common_vars]
                 # Extract months from the sorted common date keys
                 months = np.array([key[1] for key in sorted(common_date_keys)], dtype=np.int32)
                 
@@ -357,6 +432,8 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
                     print(f"  ✓ First successful load: {len(diff_array)} samples from {sim_path}")
                 elif loaded_count <= 5 or loaded_count % 10 == 0:  # Print first 5, then every 10th
                     print(f"  [{loaded_count}] Loaded {len(diff_array)} samples")
+            
+            sim_ds.close()
             
         except Exception as e:
             print(f"  Error loading {sim_path}: {e}")
@@ -370,15 +447,37 @@ def fit_noise_from_simulations(obs_path: str, sim_paths: List[str], var_order: L
         raise ValueError("No simulation data could be loaded!")
     
     # Concatenate all differences
-    combined_diffs = np.concatenate(all_diffs, axis=0)  # [T_total, n_vars]
+    combined_diffs = np.concatenate(all_diffs, axis=0)  # [T_total, n_common_vars]
     combined_months = np.concatenate(all_months)
     
     print(f"  ✓ Successfully loaded {loaded_count}/{len(sim_paths)} simulation datasets")
     print(f"  ✓ Total samples from simulations: {len(combined_diffs)}")
-    print(f"  ✓ Skipped {len(sim_paths) - loaded_count} files (no overlap with training period)")
     
-    # Fit AR(1) from combined simulation-observation differences
-    a1, sigma = fit_seasonal_ar1_from_residuals(combined_diffs, combined_months)
+    # Fit AR(1) from combined simulation-observation differences for common vars
+    a1_common, sigma_common = fit_seasonal_ar1_from_residuals(combined_diffs, combined_months)
+    
+    # Now construct full a1, sigma arrays for all var_order variables
+    n_vars = len(var_order)
+    a1 = np.zeros((12, n_vars), dtype=np.float32)
+    sigma = np.zeros((12, n_vars), dtype=np.float32)
+    
+    # Map common variables to their indices
+    common_var_indices = {v: i for i, v in enumerate(common_vars)}
+    
+    # Fill in values for common variables
+    for i, v in enumerate(var_order):
+        if v in common_var_indices:
+            j = common_var_indices[v]
+            a1[:, i] = a1_common[:, j]
+            sigma[:, i] = sigma_common[:, j]
+        else:
+            # Fallback for missing variables: use mean of common variables' parameters
+            # This is a reasonable approximation assuming similar noise characteristics
+            a1[:, i] = a1_common.mean(axis=1)
+            sigma[:, i] = sigma_common.mean(axis=1)
+            print(f"  Note: Using mean noise params for missing variable '{v}'")
+    
+    print(f"  ✓ Noise parameters computed for all {n_vars} variables")
     
     return a1, sigma
 
@@ -492,33 +591,63 @@ def nxro_reforecast_stochastic(model, init_ds: xr.Dataset, n_month: int, var_ord
     ncycle = 12
     dt = 1.0 / ncycle
     n_vars = len(var_order)
-    n_init = len(init_ds.time)
+    memory_depth = _model_memory_depth(model)
+    uses_history = _uses_history_interface(model)
+    n_total = len(init_ds.time)
+    if memory_depth >= n_total:
+        raise ValueError(
+            f"Not enough history for memory_depth={memory_depth} with only {n_total} timesteps."
+        )
+    n_init = n_total if memory_depth == 0 else n_total - memory_depth
 
     # [V, L, I, M]
     out = np.zeros((n_vars, n_month, n_init, n_members), dtype=np.float32)
+    X_all = np.stack([init_ds[v].values for v in var_order], axis=-1).astype(np.float32)
+    init_time_index = pd.DatetimeIndex(init_ds.time.values)
+    years = np.asarray(init_time_index.year + (init_time_index.month - 1) / 12.0, dtype=np.float32)
 
     model.eval()
-    for i in range(n_init):
-        X0 = np.stack([init_ds[v].isel(time=i).item() for v in var_order], axis=-1).astype(np.float32)
-        base_date = pd.to_datetime(str(init_ds.time.values[i]))
+    lag_offsets = None
+    if uses_history:
+        lag_offsets = (
+            torch.arange(memory_depth, -1, -1, dtype=torch.float32, device=device)
+            .unsqueeze(0) * dt
+        )
+    for init_idx, src_idx in enumerate(range(memory_depth, n_total)):
+        base_date = pd.to_datetime(str(init_ds.time.values[src_idx]))
+        t0 = float(years[src_idx])
         for m in range(n_members):
-            x = torch.from_numpy(X0[None, :]).to(device)
-            xi = torch.zeros(x.shape[1], dtype=torch.float32, device=device)
-            out[:, 0, i, m] = x.squeeze(0).cpu().numpy()
-            for t_step in range(1, n_month):
-                current_dt = base_date + pd.DateOffset(months=t_step - 1)
-                month_idx = int(current_dt.month)
-                t_year = torch.tensor([float(current_dt.year + (current_dt.month - 1) / 12.0)],
-                                      dtype=torch.float32, device=device)
-                dxdt = model(x, t_year)
-                xi = noise_model.step(xi, month_idx)
-                x = x + dxdt * dt + xi.unsqueeze(0)
-                out[:, t_step, i, m] = x.squeeze(0).cpu().numpy()
+            xi = torch.zeros(n_vars, dtype=torch.float32, device=device)
+            if not uses_history:
+                x = torch.from_numpy(X_all[src_idx:src_idx + 1]).to(device)
+                out[:, 0, init_idx, m] = x.squeeze(0).cpu().numpy()
+                for t_step in range(1, n_month):
+                    current_dt = base_date + pd.DateOffset(months=t_step - 1)
+                    month_idx = int(current_dt.month)
+                    t_year = torch.tensor([float(current_dt.year + (current_dt.month - 1) / 12.0)],
+                                          dtype=torch.float32, device=device)
+                    dxdt = model(x, t_year)
+                    xi = noise_model.step(xi, month_idx)
+                    x = x + dxdt * dt + xi.unsqueeze(0)
+                    out[:, t_step, init_idx, m] = x.squeeze(0).cpu().numpy()
+            else:
+                x_hist = torch.from_numpy(X_all[src_idx - memory_depth:src_idx + 1][None, ...]).to(device)
+                out[:, 0, init_idx, m] = x_hist[:, -1, :].squeeze(0).cpu().numpy()
+                for t_step in range(1, n_month):
+                    current_dt = base_date + pd.DateOffset(months=t_step - 1)
+                    month_idx = int(current_dt.month)
+                    current_time = torch.tensor([[t0 + (t_step - 1) * dt]], dtype=torch.float32, device=device)
+                    t_hist = current_time - lag_offsets
+                    dxdt = model(x_hist, t_hist)
+                    xi = noise_model.step(xi, month_idx)
+                    x_new = x_hist[:, -1, :] + dxdt * dt + xi.unsqueeze(0)
+                    x_hist = torch.cat([x_hist[:, 1:, :], x_new.unsqueeze(1)], dim=1)
+                    out[:, t_step, init_idx, m] = x_new.squeeze(0).cpu().numpy()
 
     coords = {
         'ranky': np.arange(1, n_vars + 1),
         'lead': np.arange(0, n_month),
-        'init': ('init', init_ds.time.values),
+        'init': ('init', init_ds.time.values if memory_depth == 0 else init_ds.time.values[memory_depth:]),
         'member': np.arange(1, n_members + 1),
     }
     da = xr.DataArray(out, dims=['ranky', 'lead', 'init', 'member'], coords=coords)
@@ -534,33 +663,57 @@ def nxro_reforecast_stochastic_arp(model, init_ds: xr.Dataset, n_month: int, var
     ncycle = 12
     dt = 1.0 / ncycle
     n_vars = len(var_order)
-    n_init = len(init_ds.time)
+    memory_depth = _model_memory_depth(model)
+    uses_history = _uses_history_interface(model)
+    n_total = len(init_ds.time)
+    if memory_depth >= n_total:
+        raise ValueError(
+            f"Not enough history for memory_depth={memory_depth} with only {n_total} timesteps."
+        )
+    n_init = n_total if memory_depth == 0 else n_total - memory_depth
     p = noise_model.p
 
     # [V, L, I, M]
     out = np.zeros((n_vars, n_month, n_init, n_members), dtype=np.float32)
+    X_all = np.stack([init_ds[v].values for v in var_order], axis=-1).astype(np.float32)
+    init_time_index = pd.DatetimeIndex(init_ds.time.values)
+    years = np.asarray(init_time_index.year + (init_time_index.month - 1) / 12.0, dtype=np.float32)
 
     model.eval()
-    for i in range(n_init):
-        X0 = np.stack([init_ds[v].isel(time=i).item() for v in var_order], axis=-1).astype(np.float32)
-        base_date = pd.to_datetime(str(init_ds.time.values[i]))
+    lag_offsets = None
+    if uses_history:
+        lag_offsets = (
+            torch.arange(memory_depth, -1, -1, dtype=torch.float32, device=device)
+            .unsqueeze(0) * dt
+        )
+    for init_idx, src_idx in enumerate(range(memory_depth, n_total)):
+        base_date = pd.to_datetime(str(init_ds.time.values[src_idx]))
+        t0 = float(years[src_idx])
         for m_ens in range(n_members):
-            x = torch.from_numpy(X0[None, :]).to(device)
-            
             # xi history: [V, p]. Init with zeros (mean of noise)
             xi_history = torch.zeros(n_vars, p, dtype=torch.float32, device=device)
-            
-            out[:, 0, i, m_ens] = x.squeeze(0).cpu().numpy()
+
+            if not uses_history:
+                x = torch.from_numpy(X_all[src_idx:src_idx + 1]).to(device)
+                out[:, 0, init_idx, m_ens] = x.squeeze(0).cpu().numpy()
+            else:
+                x_hist = torch.from_numpy(X_all[src_idx - memory_depth:src_idx + 1][None, ...]).to(device)
+                out[:, 0, init_idx, m_ens] = x_hist[:, -1, :].squeeze(0).cpu().numpy()
+
             for t_step in range(1, n_month):
                 current_dt = base_date + pd.DateOffset(months=t_step - 1)
                 month_idx = int(current_dt.month)
-                t_year = torch.tensor([float(current_dt.year + (current_dt.month - 1) / 12.0)],
-                                      dtype=torch.float32, device=device)
-                
-                dxdt = model(x, t_year)
+                if not uses_history:
+                    t_year = torch.tensor([float(current_dt.year + (current_dt.month - 1) / 12.0)],
+                                          dtype=torch.float32, device=device)
+                    dxdt = model(x, t_year)
+                else:
+                    current_time = torch.tensor([[t0 + (t_step - 1) * dt]], dtype=torch.float32, device=device)
+                    t_hist = current_time - lag_offsets
+                    dxdt = model(x_hist, t_hist)
                 
                 # Get new noise
-                xi_new = noise_model.step(xi_history, month_idx) # [V]
+                xi_new = noise_model.step(xi_history, month_idx)  # [V]
                 
                 # Update history: shift right, put new at 0
                 # BUT: step expects xi_history where col 0 is lag 1.
@@ -570,14 +723,19 @@ def nxro_reforecast_stochastic_arp(model, init_ds: xr.Dataset, n_month: int, var
                     xi_history = torch.cat([xi_new.unsqueeze(1), xi_history[:, :-1]], dim=1)
                 else:
                     xi_history = xi_new.unsqueeze(1)
-                
-                x = x + dxdt * dt + xi_new.unsqueeze(0)
-                out[:, t_step, i, m_ens] = x.squeeze(0).cpu().numpy()
+
+                if not uses_history:
+                    x = x + dxdt * dt + xi_new.unsqueeze(0)
+                    out[:, t_step, init_idx, m_ens] = x.squeeze(0).cpu().numpy()
+                else:
+                    x_new = x_hist[:, -1, :] + dxdt * dt + xi_new.unsqueeze(0)
+                    x_hist = torch.cat([x_hist[:, 1:, :], x_new.unsqueeze(1)], dim=1)
+                    out[:, t_step, init_idx, m_ens] = x_new.squeeze(0).cpu().numpy()
 
     coords = {
         'ranky': np.arange(1, n_vars + 1),
         'lead': np.arange(0, n_month),
-        'init': ('init', init_ds.time.values),
+        'init': ('init', init_ds.time.values if memory_depth == 0 else init_ds.time.values[memory_depth:]),
         'member': np.arange(1, n_members + 1),
     }
     da = xr.DataArray(out, dims=['ranky', 'lead', 'init', 'member'], coords=coords)
