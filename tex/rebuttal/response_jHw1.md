@@ -66,7 +66,15 @@ We ran the requested classical baselines under the same test protocol:
 | **XRO** | **0.605** | 0.350 | 0.558 | 0.704 |
 | **NXRO-Attentive** | **0.555** | 0.289 | 0.456 | 0.659 |
 
-All classical baselines are substantially worse than XRO. VAR(3) — effectively a multivariate regression on lagged indices — achieves only 0.682, far from XRO's 0.605. Our Neural ODE baseline (hidden=64, depth=2) serves as a representative small neural network comparable in capacity to a compact LSTM/GRU; its RMSE of 0.782 confirms that small neural models without physics structure also fall short. NXRO variants beat all baselines at every lead time.
+All classical and neural baselines are substantially worse than XRO. We also ran the requested LSTM and GRU baselines (5 seeds each):
+
+| Model | Params | Avg RMSE | vs XRO |
+|-------|--------|----------|--------|
+| LSTM (h=64) | 20K | 0.698 +/- 0.013 | +15.4% |
+| LSTM (h=32) | 6K | 0.709 +/- 0.034 | +17.2% |
+| GRU (h=32) | 5K | 0.741 +/- 0.048 | +22.5% |
+
+Even with strong regularization (weight_decay=1e-3, grad clip, patience-200), compact LSTM/GRU models cannot match XRO. NXRO variants beat all baselines at every lead time.
 
 ![Per-lead Nino3.4 RMSE with baselines](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig7_skill_curves_combined.png)
 
