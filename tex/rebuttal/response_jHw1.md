@@ -31,7 +31,6 @@ We also verified with a **narrower 3-year val split** (val 1999--2001):
 
 Results are stable across validation choices.
 
-![Multi-seed results under strict train/val/test split](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig1_multiseed_barplot.png)
 
 ## Major 2: Preprocessing leakage
 
@@ -51,7 +50,6 @@ Both NXRO and XRO use the same preprocessed data, so any climatology overlap aff
 
 Stage 2 provides consistent but small improvement (~0.5%). The bulk of the paper's 13% CRPS improvement over XRO comes from the better deterministic drift model, not noise optimization. We will present this decomposition explicitly. Reliability diagrams and spread-skill plots have also been generated for each model and will be included in the appendix.
 
-![Stochastic ablation: CRPS by lead](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig5_stochastic_crps.png)
 
 ## Major 4: Stronger baselines
 
@@ -76,7 +74,6 @@ All classical and neural baselines are substantially worse than XRO. We also ran
 
 Even with strong regularization (weight_decay=1e-3, grad clip, patience-200), compact LSTM/GRU models cannot match XRO. NXRO variants beat all baselines at every lead time.
 
-![Per-lead Nino3.4 RMSE with baselines](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig7_skill_curves_combined.png)
 
 ## Major 5: Multi-seed variance
 

@@ -4,7 +4,7 @@ We thank the reviewer for the thorough feedback. Below we address each concern w
 
 ## W1: Lack of AI architectural innovation
 
-The novelty lies in the **hybrid decomposition itself** -- preserving physics-based linear dynamics while learning nonlinear corrections. Under rigorous validation (train/val/test split, 10 seeds), all NXRO variants beat XRO (0.605): Attentive (0.555 +/- 0.003), GNN (0.557 +/- 0.000), MLP (0.577 +/- 0.017). The structured variants have 6x lower variance than MLP, showing that our domain-specific choices -- the attention mask restricting interactions to T/H, the graph sparsity encoding observed teleconnections, and the seasonal gate -- provide crucial regularization beyond standard techniques. We will articulate these as architectural innovations.
+The novelty lies in the **hybrid decomposition itself** -- preserving physics-based linear dynamics while learning nonlinear corrections. Under rigorous validation (train/val/test split, 10 seeds), all NXRO variants beat XRO (0.605): Attentive (0.555 +/- 0.003), GNN (0.557 +/- 0.000), MLP (0.577 +/- 0.017). The structured variants have 6x lower variance than MLP, showing that our domain-specific choices, the attention mask restricting interactions to T/H, the graph sparsity encoding observed teleconnections, and the seasonal gate, provide crucial regularization beyond standard techniques. We will articulate these as architectural innovations.
 
 ## W2: Interpretability contradiction
 
@@ -21,7 +21,6 @@ We provide direct evidence of $R_\phi$'s physical role via a **seasonal gate abl
 
 The gate **selectively activates $R_\phi$ during spring/summer** (MAM/JJA), precisely when linear dynamics encounter the Spring Predictability Barrier. Without the gate, $R_\phi$ overcorrects year-round, degrading all seasons. This is not post-hoc alignment — it is a mechanistic role evidenced by ablation: $R_\phi$ compensates for nonlinear dynamics that intensify during ENSO's spring phase transition.
 
-![Seasonal gate ablation by season](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig3_seasonal_gate_ablation.png)
 
 ## W3: Insufficient addressing of SPB
 
@@ -43,7 +42,6 @@ Per-lead RMSE for MAM initializations:
 
 The gate effect grows with lead time (6--12 months), exactly where SPB manifests.
 
-![Spring barrier per-lead detail](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig4_spring_barrier_detail.png)
 
 ## W4: Limited baselines
 

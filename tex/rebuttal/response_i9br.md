@@ -42,7 +42,6 @@ We conducted a systematic data scarcity experiment with 3 models, 5 training siz
 
 **Practical implication:** For ocean basins or climate indices where only 10--15 years of reanalysis may be available, GNN is the recommended choice, while Attentive requires ~13 years to outperform the physics-only baseline.
 
-![Data scarcity curve](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig2_data_scarcity.png)
 
 ## On physics-based graph design
 

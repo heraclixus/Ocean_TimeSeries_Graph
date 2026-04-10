@@ -43,7 +43,6 @@ The three share the **same formulation**: $dX/dt = L_\theta(t) X + \alpha(t) R_\
 
 They represent a **spectrum from less to more structured**. The MLP has higher variance (0.017) than Attention/GNN (<=0.003), demonstrating that structured inductive biases provide both better accuracy and greater stability. Rather than three competing methods, this is a systematic study of how much structure helps in small-data regimes.
 
-![Validation-selected performance](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig6_decomposition.png)
 
 ## Q1: What does the residual learn?
 
