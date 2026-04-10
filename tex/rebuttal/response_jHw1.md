@@ -49,7 +49,7 @@ Both NXRO and XRO use the same preprocessed data, so any climatology overlap aff
 | NXRO-Attentive | 0.540 +/- 0.061 | 0.537 +/- 0.059 | 0.6% |
 | **NXRO-GNN** | **0.498 +/- 0.003** | **0.495 +/- 0.003** | **0.5%** |
 
-Stage 2 provides consistent but small improvement (~0.5%). The bulk of the paper's 13% CRPS improvement over XRO comes from the better deterministic drift model, not noise optimization. We will present this decomposition explicitly.
+Stage 2 provides consistent but small improvement (~0.5%). The bulk of the paper's 13% CRPS improvement over XRO comes from the better deterministic drift model, not noise optimization. We will present this decomposition explicitly. Reliability diagrams and spread-skill plots have also been generated for each model and will be included in the appendix.
 
 ![Stochastic ablation: CRPS by lead](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig5_stochastic_crps.png)
 
@@ -66,7 +66,7 @@ We ran the requested classical baselines under the same test protocol:
 | **XRO** | **0.605** | 0.350 | 0.558 | 0.704 |
 | **NXRO-Attentive** | **0.555** | 0.289 | 0.456 | 0.659 |
 
-All classical baselines are substantially worse than XRO. VAR(3) — effectively a multivariate regression on lagged indices — achieves only 0.682, far from XRO's 0.605. NXRO variants beat all baselines at every lead time.
+All classical baselines are substantially worse than XRO. VAR(3) — effectively a multivariate regression on lagged indices — achieves only 0.682, far from XRO's 0.605. Our Neural ODE baseline (hidden=64, depth=2) serves as a representative small neural network comparable in capacity to a compact LSTM/GRU; its RMSE of 0.782 confirms that small neural models without physics structure also fall short. NXRO variants beat all baselines at every lead time.
 
 ![Per-lead Nino3.4 RMSE with baselines](https://raw.githubusercontent.com/heraclixus/Ocean_TimeSeries_Graph/main/tex/rebuttal/figures/fig7_skill_curves_combined.png)
 
