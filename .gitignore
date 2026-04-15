@@ -113,6 +113,15 @@ missfont.log
 CLAUDE.md
 NXRO_memory.md
 REBUTTAL_RESULTS.md
+HYPERPARAM_SEARCH.md
+RESULTS.md
+STOCHASTIC_RESULTS.md
+TRANSFORMER_MODEL.md
+XRO.md
+stochastic_nxro.md
+xro_graph_variants_explore.md
+results_out_of_sample.md
+plots.md
 
 # =============================================================================
 # Miscellaneous generated files
