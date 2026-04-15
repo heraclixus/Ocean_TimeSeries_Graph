@@ -11,13 +11,13 @@ We re-ran all core models with a strict split, exactly as recommended:
 
 We ran **10 random seeds** per model:
 
-| Model | Test RMSE | +/- std | Paper RMSE | vs XRO (0.605) |
-|-------|-----------|---------|------------|----------------|
-| **NXRO-Attentive** | **0.555** | **0.003** | 0.554 | **-8.3%** |
-| **NXRO-GNN** | **0.557** | **0.000** | 0.561 | **-8.0%** |
-| **NXRO-MLP** | **0.577** | **0.017** | 0.579 | **-4.6%** |
-| Transformer | 0.676 | 0.025 | 0.701 | +11.8% |
-| Neural ODE | 0.782 | 0.018 | 0.918 | +29.2% |
+| Model | Test RMSE | +/- std | Paper RMSE | Improvement over XRO |
+|-------|-----------|---------|------------|----------------------|
+| **NXRO-Attentive** | **0.555** | **0.003** | 0.554 | **8.3%** |
+| **NXRO-GNN** | **0.557** | **0.000** | 0.561 | **8.0%** |
+| **NXRO-MLP** | **0.577** | **0.017** | 0.579 | **4.6%** |
+| Transformer | 0.676 | 0.025 | 0.701 | worse |
+| Neural ODE | 0.782 | 0.018 | 0.918 | worse |
 
 All NXRO variants match the paper and beat XRO (0.605), with very low variance for structured models (std <= 0.003). Pure neural baselines remain far worse than XRO, confirming the hybrid advantage is not an artifact of test-set selection.
 
@@ -66,11 +66,11 @@ We ran the requested classical baselines under the same test protocol:
 
 All classical and neural baselines are substantially worse than XRO. We also ran the requested LSTM and GRU baselines (5 seeds each):
 
-| Model | Params | Avg RMSE | vs XRO |
-|-------|--------|----------|--------|
-| LSTM (h=64) | 20K | 0.698 +/- 0.013 | +15.4% |
-| LSTM (h=32) | 6K | 0.709 +/- 0.034 | +17.2% |
-| GRU (h=32) | 5K | 0.741 +/- 0.048 | +22.5% |
+| Model | Params | Avg RMSE |
+|-------|--------|----------|
+| LSTM (h=64) | 20K | 0.698 +/- 0.013 |
+| LSTM (h=32) | 6K | 0.709 +/- 0.034 |
+| GRU (h=32) | 5K | 0.741 +/- 0.048 |
 
 Even with strong regularization (weight_decay=1e-3, grad clip, patience-200), compact LSTM/GRU models cannot match XRO. NXRO variants beat all baselines at every lead time.
 

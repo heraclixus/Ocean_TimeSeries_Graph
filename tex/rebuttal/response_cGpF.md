@@ -1,16 +1,14 @@
 # Response to Reviewer cGpF
 
-We thank the reviewer for the thorough feedback. Below we address each concern with new experimental evidence.
+We thank the reviewer for the thorough feedback. Below we address each concern.
 
 ## W1: Lack of AI architectural innovation
 
-The novelty lies in the **hybrid decomposition itself** -- preserving physics-based linear dynamics while learning nonlinear corrections. Under rigorous validation (train/val/test split, 10 seeds), all NXRO variants beat XRO (0.605): Attentive (0.555 +/- 0.003), GNN (0.557 +/- 0.000), MLP (0.577 +/- 0.017). The structured variants have 6x lower variance than MLP, showing that our domain-specific choices, the attention mask restricting interactions to T/H, the graph sparsity encoding observed teleconnections, and the seasonal gate, provide crucial regularization beyond standard techniques. We will articulate these as architectural innovations.
+The novelty lies in the **hybrid decomposition** — preserving physics-based linear dynamics while learning nonlinear corrections. Under rigorous validation (train/val/test split, 10 seeds), all NXRO variants beat XRO (0.605): Attentive (0.555 +/- 0.003), GNN (0.557 +/- 0.000), MLP (0.577 +/- 0.017). The structured variants have 6x lower variance than MLP, showing that domain-specific choices (attention mask on T/H, graph sparsity, seasonal gate) provide crucial regularization. We will articulate these as architectural innovations.
 
 ## W2: Interpretability contradiction
 
-We provide direct evidence of $R_\phi$'s physical role via a **seasonal gate ablation** (5 seeds each, with and without the gate):
-
-**RMSE by initialization season (all leads):**
+We provide direct evidence of $R_\phi$'s physical role via **seasonal gate ablation** (5 seeds each):
 
 | Model | Condition | DJF | MAM | JJA | SON |
 |-------|-----------|-----|-----|-----|-----|
@@ -19,48 +17,31 @@ We provide direct evidence of $R_\phi$'s physical role via a **seasonal gate abl
 | GNN | with gate | 0.637 | **0.725** | 0.668 | 0.606 |
 | GNN | no gate | 0.726 | **0.850** | 0.721 | 0.658 |
 
-The gate **selectively activates $R_\phi$ during spring/summer** (MAM/JJA), precisely when linear dynamics encounter the Spring Predictability Barrier. Without the gate, $R_\phi$ overcorrects year-round, degrading all seasons. This is not post-hoc alignment — it is a mechanistic role evidenced by ablation: $R_\phi$ compensates for nonlinear dynamics that intensify during ENSO's spring phase transition.
+The gate selectively activates $R_\phi$ during spring/summer, precisely when linear dynamics encounter the SPB. The four strong nonlinear relationships captured by NXRO-GNN (Fig. 5: ENSO with IOB, IOD, SIOD, ATL3) reflect known climate dynamics: IOB nonlinearity arises from asymmetric IOD phases and mixed-layer-depth asymmetry [1]; the IOD-ENSO relationship is strongly asymmetric due to nonlinear cloud-SST-radiation feedback [2]; SIOD influence on ENSO varies with background climate state [3]; and ATL3 asymmetrically favors La Nina via tropospheric temperature response differences [4,5]. These are not post-hoc alignments — they are mechanistic dynamics captured by the learned residual.
 
+[1] Hong et al. (2010), J.Clim 23:3563. [2] Cai et al. (2012), J.Clim 25:6318. [3] Huang et al. (2021), GRL 48:e2021GL094835. [4] Rodriguez-Fonseca et al. (2009), GRL. [5] vanRensch et al. (2024), GRL 51:e2023GL106585.
 
 ## W3: Insufficient addressing of SPB
 
-**Spring barrier focus — MAM initializations, leads 3--9 months:**
+MAM initializations, leads 3--9 months:
 
 | Model | with gate | no gate | Degradation |
 |-------|-----------|---------|-------------|
 | Attentive | 0.780 | 1.198 | **+54%** |
 | GNN | 0.815 | 0.899 | **+10%** |
 
-Per-lead RMSE for MAM initializations:
-
-| Lead | Attn (gate) | Attn (no gate) | GNN (gate) | GNN (no gate) |
-|------|-------------|----------------|------------|---------------|
-| 3 | 0.503 | 0.603 | 0.515 | 0.519 |
-| 6 | 0.821 | 1.205 | 0.868 | 0.939 |
-| 9 | 0.900 | 1.657 | 0.932 | 1.114 |
-| 12 | 0.611 | 1.188 | 0.575 | 0.799 |
-
 The gate effect grows with lead time (6--12 months), exactly where SPB manifests.
-
 
 ## W4: Limited baselines
 
-We added classical baselines. All are substantially worse than XRO:
-
-| Model | Avg Nino3.4 RMSE |
-|-------|-----------------|
-| Persistence | 1.027 |
-| ARIMA(2,0,1) | 0.754 |
-| VAR(3) | 0.682 |
-| XRO | 0.605 |
-| **NXRO-Attentive** | **0.555** |
-
-VAR(3) — the strongest classical alternative — achieves only 0.682, far from XRO's 0.605 which uses seasonal modulation and physics-informed coupling. We will discuss recent ENSO-specific models (Zhang et al.) as additional context.
+We added classical baselines (Persistence: 1.027, ARIMA: 0.754, VAR(3): 0.682), all worse than XRO (0.605). NXRO is not designed to learn spatial fields — it operates on basin-averaged climate indices in a low-dimensional framework. Attention-based spatial models (e.g., Zhang et al.) address subsurface mixing for a specific ENSO type in a particular model, rather than providing a general forecast framework. Our model improves upon XRO as a general ENSO forecast tool.
 
 ## W5: Transfer learning
 
-We will soften the claim to be specific to CESM2, discuss mitigations (domain adaptation, bias correction), and note consistency with known CESM2 biases in CMIP6 literature.
+Mean-state biases in the tropical Pacific exist across CMIP models and affect ENSO teleconnections [6]. Flux adjustment can improve model mean states [7] but is computationally costly and not yet applied to large ensembles. A broader assessment of how climate-model bias affects transfer learning is beyond the scope of the present study. We will soften the claim to be CESM2-specific.
+
+[6] Wills et al. (2022), GRL 49:e2022GL100011. [7] Zhuo et al. (2025), J.Clim 48:1037.
 
 ## On architectural innovation
 
-ENSO operates on basin-averaged indices, not spatial fields — standard equivariance is not directly applicable. The seasonal gate and attention mask are domain-specific innovations encoding the annual cycle and recharge-oscillator coupling. Energy-conserving dynamics are promising future work.
+ENSO operates on basin-averaged indices, not spatial fields — standard equivariance is not applicable. The seasonal gate and attention mask encode the annual cycle and recharge-oscillator coupling. Energy-conserving dynamics are promising future work.

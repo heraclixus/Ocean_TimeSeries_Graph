@@ -40,7 +40,7 @@ We conducted a systematic data scarcity experiment with 3 models, 5 training siz
 3. Both converge by ~16 years (RMSE ~0.560), with diminishing returns beyond that.
 4. NXRO-GNN has near-zero variance (std = 0.000) at all data sizes, reflecting the strong constraint from the physics-informed graph, making it the most reliable choice for limited-data settings.
 
-**Practical implication:** For ocean basins or climate indices where only 10--15 years of reanalysis may be available, GNN is the recommended choice, while Attentive requires ~13 years to outperform the physics-only baseline.
+**Practical implication:** For ocean basins or climate indices where only 10--15 years of reanalysis may be available, GNN is the recommended choice, while Attentive requires ~13 years to outperform the physics-only baseline. Future work may use synthetic millennial-scale climate-model simulations to further test sensitivity to training-sample size.
 
 
 ## On physics-based graph design
