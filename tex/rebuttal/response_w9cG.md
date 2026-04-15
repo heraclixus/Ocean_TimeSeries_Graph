@@ -12,7 +12,7 @@ Both sources contribute. Under a strict train/val/test split (10 seeds):
 | NXRO-Attentive (L + $R_\phi$) | 0.555 +/- 0.003 | **8.3%** |
 | NXRO-GNN (L + $R_\phi$) | 0.557 +/- 0.000 | **8.0%** |
 
-End-to-end optimization of L(t) contributes to the gain, but the neural residual $R_\phi$ is essential for two reasons:
+We note that the paper's Appendix Figure A.1 already includes NXRO-Linear (L(t) only, no $R_\phi$) and purely neural baselines (Neural ODE, Transformer) among the 43 ranked variants, enabling direct comparison of these ablation points. End-to-end optimization of L(t) contributes to the gain, but the neural residual $R_\phi$ is essential for two reasons:
 
 1. **Season-specific skill.** A seasonal gate ablation shows that removing $R_\phi$'s modulation degrades spring-initialized forecasts by **+54%** (MAM RMSE: 0.780 → 1.198). Linear dynamics alone cannot capture the amplitude-dependent nonlinearities during ENSO's spring phase transition.
 
@@ -39,7 +39,7 @@ All share the **same formulation**: $dX/dt = L_\theta(t) X + \alpha(t) R_\phi(X,
 | Attention | ~750 | 0.555 +/- 0.003 | 8.3% |
 | GNN | ~850 | 0.557 +/- 0.000 | 8.0% |
 
-This is a systematic study of how much structure helps in small-data regimes, not three competing methods.
+This is a systematic study of how much structure helps in small-data regimes, not three competing methods. The full ranking of all 43 variants (including purely neural models and linear-only ablations) is in Appendix Figure A.1.
 
 ## Q1: What does the residual learn?
 

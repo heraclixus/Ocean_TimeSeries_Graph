@@ -19,7 +19,7 @@ We ran **10 random seeds** per model:
 | Transformer | 0.676 | 0.025 | 0.701 | worse |
 | Neural ODE | 0.782 | 0.018 | 0.918 | worse |
 
-All NXRO variants match the paper and beat XRO (0.605), with very low variance for structured models (std <= 0.003). Pure neural baselines remain far worse than XRO, confirming the hybrid advantage is not an artifact of test-set selection.
+All NXRO variants match the paper and beat XRO (0.605), with very low variance for structured models (std <= 0.003). Pure neural baselines remain far worse than XRO, confirming the hybrid advantage is not an artifact of test-set selection. The full ranking of all 43 variants (including linear-only and purely neural ablations) is in Appendix Figure A.1.
 
 We also verified with a **narrower 3-year val split** (val 1999--2001):
 
