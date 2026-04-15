@@ -47,6 +47,14 @@ Thumbs.db
 *.h5
 *.hdf5
 
+# Raw data downloads (not needed; primary data is XRO_indices_oras5.nc)
+data/*.data
+data/*.csv
+!data/XRO_indices_oras5_train.csv
+!data/ocean_timeseries.csv
+!data/nina3.csv
+!data/pdo.csv
+
 # Archives
 *.zip
 *.tar.gz
@@ -130,6 +138,12 @@ results_rebuttal_classical_baselines.csv
 hyperparameter_search_summary.txt
 src/summary_*.csv
 src/df_hyperparams*.csv
+reference_table.tex
+
+# Old tex draft (KDD_ENSO_tex/ is the actual paper)
+tex/*.tex
+tex/*.bib
+tex/figures/
 
 # =============================================================================
 # Exploration / one-off scripts (not part of core codebase)
