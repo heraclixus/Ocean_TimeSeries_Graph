@@ -12,6 +12,8 @@ from .models import (
     NXROMemoryResModel,
     NXROMemoryAttentionModel,
     NXROMemoryGraphModel,
+    NXROMemoryDecayModel,
+    NXROMemoryGRUModel,
     NXROROModel,
     NXRORODiagModel,
     NXROResModel,
@@ -671,6 +673,122 @@ def train_nxro_memory_graph(
     return model, var_order, best_rmse, history
 
 
+def train_nxro_memory_decay(
+    nc_path: str = 'data/XRO_indices_oras5.nc',
+    train_start: str = '1979-01',
+    train_end: str = '2022-12',
+    test_start: str = '2023-01',
+    test_end: Optional[str] = None,
+    n_epochs: int = 2000,
+    batch_size: int = 128,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    memory_depth: int = 3,
+    k_max: int = 2,
+    device: str = 'cpu',
+    rollout_k: int = 1,
+    extra_train_nc_paths=None,
+    L_basis_init: Optional[torch.Tensor] = None,
+    pretrained_state_dict: Optional[dict] = None,
+    exclude_vars: Optional[list] = None,
+    include_only_vars: Optional[list] = None,
+    freeze_instantaneous: bool = False,
+    early_stop_patience: Optional[int] = 200,
+    early_stop_min_delta: float = 1e-4,
+):
+    dl_train, dl_test, var_order = get_dataloaders(
+        nc_path=nc_path,
+        train_slice=(train_start, train_end),
+        test_slice=(test_start, test_end),
+        batch_size=batch_size,
+        rollout_k=rollout_k,
+        memory_depth=memory_depth,
+        extra_train_nc_paths=extra_train_nc_paths,
+        exclude_vars=exclude_vars,
+        include_only_vars=include_only_vars,
+    )
+
+    n_vars = len(var_order)
+    model = NXROMemoryDecayModel(
+        n_vars=n_vars,
+        memory_depth=memory_depth,
+        k_max=k_max,
+        L_basis_init=L_basis_init,
+        freeze_instantaneous=freeze_instantaneous,
+    ).to(device)
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
+    model, best_rmse, history = _train_memory_model(
+        model, dl_train, dl_test, n_epochs=n_epochs, lr=lr,
+        weight_decay=weight_decay, device=device, rollout_k=rollout_k,
+        tag='MemoryDecay',
+        early_stop_patience=early_stop_patience,
+        early_stop_min_delta=early_stop_min_delta,
+    )
+    return model, var_order, best_rmse, history
+
+
+def train_nxro_memory_gru(
+    nc_path: str = 'data/XRO_indices_oras5.nc',
+    train_start: str = '1979-01',
+    train_end: str = '2022-12',
+    test_start: str = '2023-01',
+    test_end: Optional[str] = None,
+    n_epochs: int = 2000,
+    batch_size: int = 128,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    memory_depth: int = 3,
+    k_max: int = 2,
+    gru_hidden: int = 32,
+    device: str = 'cpu',
+    rollout_k: int = 1,
+    extra_train_nc_paths=None,
+    L_basis_init: Optional[torch.Tensor] = None,
+    pretrained_state_dict: Optional[dict] = None,
+    exclude_vars: Optional[list] = None,
+    include_only_vars: Optional[list] = None,
+    freeze_instantaneous: bool = False,
+    early_stop_patience: Optional[int] = 200,
+    early_stop_min_delta: float = 1e-4,
+):
+    dl_train, dl_test, var_order = get_dataloaders(
+        nc_path=nc_path,
+        train_slice=(train_start, train_end),
+        test_slice=(test_start, test_end),
+        batch_size=batch_size,
+        rollout_k=rollout_k,
+        memory_depth=memory_depth,
+        extra_train_nc_paths=extra_train_nc_paths,
+        exclude_vars=exclude_vars,
+        include_only_vars=include_only_vars,
+    )
+
+    n_vars = len(var_order)
+    model = NXROMemoryGRUModel(
+        n_vars=n_vars,
+        memory_depth=memory_depth,
+        k_max=k_max,
+        gru_hidden=gru_hidden,
+        L_basis_init=L_basis_init,
+        freeze_instantaneous=freeze_instantaneous,
+    ).to(device)
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict)
+        print("Loaded pretrained state dict.")
+
+    model, best_rmse, history = _train_memory_model(
+        model, dl_train, dl_test, n_epochs=n_epochs, lr=lr,
+        weight_decay=weight_decay, device=device, rollout_k=rollout_k,
+        tag='MemoryGRU',
+        early_stop_patience=early_stop_patience,
+        early_stop_min_delta=early_stop_min_delta,
+    )
+    return model, var_order, best_rmse, history
+
+
 def train_nxro_ro(
     nc_path: str = 'data/XRO_indices_oras5.nc',
     train_start: str = '1979-01',
@@ -690,26 +808,34 @@ def train_nxro_ro(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
     """Train NXRO-RO model (variants 2, 2a, 2a-Fix*).
-    
+
     Args:
         warmstart_init_dict: Dict with 'L_basis_init', 'W_T_init', 'W_H_init' for warm-start
         freeze_flags: Dict with 'freeze_linear', 'freeze_ro' flags
         pretrained_state_dict: Optional state dict to load weights from.
         exclude_vars: Optional list of variable names to exclude (e.g., ['WWV']).
         include_only_vars: If specified, filter to only these variables (for two-stage training).
+        val_start/val_end: If set, use validation split for early stopping instead of test.
     """
-    dl_train, dl_test, var_order = get_dataloaders(
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     
@@ -763,20 +889,41 @@ def train_nxro_ro(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[RO] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[RO] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[RO] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -799,26 +946,34 @@ def train_nxro_rodiag(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
     """Train NXRO-RO+Diag model (variants 3, 3a, 3a-Fix*).
-    
+
     Args:
         warmstart_init_dict: Dict with init parameters for warm-start
         freeze_flags: Dict with 'freeze_linear', 'freeze_ro', 'freeze_diag' flags
         pretrained_state_dict: Optional state dict to load weights from.
         exclude_vars: Optional list of variable names to exclude (e.g., ['WWV']).
         include_only_vars: If specified, filter to only these variables (for two-stage training).
+        val_start/val_end: If set, use validation split for early stopping instead of test.
     """
-    dl_train, dl_test, var_order = get_dataloaders(
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     
@@ -872,20 +1027,41 @@ def train_nxro_rodiag(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[RO+Diag] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[RO+Diag] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[RO+Diag] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -950,17 +1126,24 @@ def train_nxro_neural_phys(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
-    dl_train, dl_test, var_order = get_dataloaders(
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     model = NXRONeuralODEModel(n_vars=n_vars, k_max=k_max, hidden=hidden, depth=depth,
@@ -1013,20 +1196,41 @@ def train_nxro_neural_phys(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[NeuralPhys] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[NeuralPhys] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[NeuralPhys] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -1254,18 +1458,30 @@ def train_nxro_graph(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
-    """Train NXRO-Graph model (variants 5b, 5b-WS, 5b-FixL)."""
-    dl_train, dl_test, var_order = get_dataloaders(
+    """Train NXRO-Graph model (variants 5b, 5b-WS, 5b-FixL).
+
+    Args:
+        val_start/val_end: If set, use validation split for early stopping instead of test.
+    """
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
+
     n_vars = len(var_order)
     # Choose adjacency prior
     adj_init = None
@@ -1338,20 +1554,41 @@ def train_nxro_graph(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[Graph] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[Graph] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[Graph] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -1377,11 +1614,15 @@ def train_nxro_neural(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
-    dl_train, dl_test, var_order = get_dataloaders(
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
@@ -1389,10 +1630,13 @@ def train_nxro_neural(
         include_only_vars=include_only_vars,
     )
 
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
+
     n_vars = len(var_order)
     model = NXRONeuralODEModel(n_vars=n_vars, k_max=k_max, hidden=hidden, depth=depth,
                                dropout=dropout, allow_cross=allow_cross, mask_mode=mask_mode).to(device)
-    
+
     if pretrained_state_dict is not None:
         model.load_state_dict(pretrained_state_dict)
         print("Loaded pretrained state dict.")
@@ -1434,20 +1678,41 @@ def train_nxro_neural(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[NeuralODE] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[NeuralODE] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[NeuralODE] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -1763,17 +2028,24 @@ def train_nxro_bilinear(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
-    dl_train, dl_test, var_order = get_dataloaders(
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     model = NXROBilinearModel(n_vars=n_vars, k_max=k_max, n_channels=n_channels, rank=rank).to(device)
@@ -1817,20 +2089,41 @@ def train_nxro_bilinear(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[Bilinear] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[Bilinear] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[Bilinear] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -2004,17 +2297,28 @@ def train_nxro_resmix(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
-    """Train NXRO-ResidualMix model (variants 5d, 5d-WS, 5d-Fix*)."""
-    dl_train, dl_test, var_order = get_dataloaders(
+    """Train NXRO-ResidualMix model (variants 5d, 5d-WS, 5d-Fix*).
+
+    Args:
+        val_start/val_end: If set, use validation split for early stopping instead of test.
+    """
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     
@@ -2068,20 +2372,41 @@ def train_nxro_resmix(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[ResMix] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[ResMix] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[ResMix] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -2104,32 +2429,40 @@ def train_nxro_res_fullxro(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
     """Train NXRO-Res-FullXRO model (variant 4b): Frozen full XRO + trainable MLP.
-    
+
     All XRO components (L, RO, Diag) are frozen. Only residual MLP is trainable.
-    
+
     Args:
         xro_init_dict: REQUIRED dict with 'L_basis', 'W_T', 'W_H', 'B_diag', 'C_diag' from XRO
         exclude_vars: Optional list of variable names to exclude (e.g., ['WWV']).
         include_only_vars: If specified, filter to only these variables (for two-stage training).
+        val_start/val_end: If set, use validation split for early stopping instead of test.
     """
     from .models import NXROResFullXROModel
-    
+
     assert xro_init_dict is not None, "Variant 4b requires XRO initialization!"
     assert all(k in xro_init_dict for k in ['L_basis', 'W_T', 'W_H', 'B_diag', 'C_diag']), \
         "xro_init_dict must contain all XRO components!"
-    
-    dl_train, dl_test, var_order = get_dataloaders(
+
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     
@@ -2191,20 +2524,41 @@ def train_nxro_res_fullxro(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[Res-FullXRO] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[Res-FullXRO] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[Res-FullXRO] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -2230,9 +2584,11 @@ def train_nxro_transformer(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
     """Train NXRO-Transformer model.
-    
+
     Args:
         nc_path: Path to NetCDF data file
         train_start, train_end: Training period
@@ -2253,23 +2609,29 @@ def train_nxro_transformer(
         pretrained_state_dict: Optional state dict to load weights from (for two-stage training)
         exclude_vars: Optional list of variable names to exclude (e.g., ['WWV']).
         include_only_vars: If specified, filter to only these variables (for two-stage training).
-    
+        val_start/val_end: If set, use validation split for early stopping instead of test.
+
     Returns:
         model: Trained model
         var_order: Variable order
         best_rmse: Best test RMSE achieved
         history: Training history dict
     """
-    dl_train, dl_test, var_order = get_dataloaders(
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     model = NXROTransformerModel(
@@ -2323,20 +2685,41 @@ def train_nxro_transformer(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        print(f"[Transformer] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        if dl_val is not None:
+            print(f"[Transformer] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f}")
+        else:
+            print(f"[Transformer] Epoch {epoch:03d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
 
 
@@ -2530,17 +2913,19 @@ def train_nxro_deep_gcn(
     pretrained_state_dict: Optional[dict] = None,
     exclude_vars: Optional[list] = None,
     include_only_vars: Optional[list] = None,
+    val_start: Optional[str] = None,
+    val_end: Optional[str] = None,
 ):
     """Train NXRO-DeepLearnableGCN model.
-    
+
     This is the best performing model from hyperparameter search:
     - 3-layer GCN with hidden=64
     - Layer normalization
     - Learnable adjacency with zero L1 regularization
     - Cosine annealing LR scheduler
-    
+
     Achieves val_rmse=0.4633, beating previous best of 0.4974 (6.9% improvement).
-    
+
     Args:
         nc_path: Path to NetCDF data file
         train_start, train_end: Training period
@@ -2563,7 +2948,8 @@ def train_nxro_deep_gcn(
         pretrained_state_dict: Optional state dict to load weights from
         exclude_vars: Optional list of variable names to exclude
         include_only_vars: If specified, filter to only these variables
-    
+        val_start/val_end: If set, use validation split for early stopping instead of test.
+
     Returns:
         model: Trained model
         var_order: Variable order
@@ -2571,17 +2957,22 @@ def train_nxro_deep_gcn(
         history: Training history dict
     """
     from torch.optim.lr_scheduler import CosineAnnealingLR
-    
-    dl_train, dl_test, var_order = get_dataloaders(
+
+    val_slice = (val_start, val_end) if val_start else None
+    dl_train, dl_val, dl_test, var_order = _get_dataloaders_with_val(
         nc_path=nc_path,
         train_slice=(train_start, train_end),
         test_slice=(test_start, test_end),
+        val_slice=val_slice,
         batch_size=batch_size,
         rollout_k=rollout_k,
         extra_train_nc_paths=extra_train_nc_paths,
         exclude_vars=exclude_vars,
         include_only_vars=include_only_vars,
     )
+
+    # Use val for model selection if available, else test
+    dl_select = dl_val if dl_val is not None else dl_test
 
     n_vars = len(var_order)
     model = NXRODeepLearnableGCN(
@@ -2644,22 +3035,43 @@ def train_nxro_deep_gcn(
 
     best_rmse = float('inf')
     best_state = None
-    train_hist, test_hist = [], []
+    best_epoch = 0
+    train_hist, test_hist, val_hist = [], [], []
     for epoch in range(1, n_epochs + 1):
         train_rmse = run_epoch(dl_train, train=True)
-        test_rmse = run_epoch(dl_test, train=False)
+        select_rmse = run_epoch(dl_select, train=False)
         train_hist.append(float(train_rmse))
-        test_hist.append(float(test_rmse))
+        if dl_val is not None:
+            val_hist.append(float(select_rmse))
+            test_rmse = run_epoch(dl_test, train=False)
+            test_hist.append(float(test_rmse))
+        else:
+            test_hist.append(float(select_rmse))
         if scheduler:
             scheduler.step()
-        if test_rmse < best_rmse:
-            best_rmse = test_rmse
+        if select_rmse < best_rmse:
+            best_rmse = select_rmse
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         if epoch % 100 == 0 or epoch == 1:
             lr_now = scheduler.get_last_lr()[0] if scheduler else lr
-            print(f"[DeepGCN] Epoch {epoch:04d} | train RMSE: {train_rmse:.4f} | test RMSE: {test_rmse:.4f} | lr: {lr_now:.6f}")
+            if dl_val is not None:
+                print(f"[DeepGCN] Epoch {epoch:04d} | train RMSE: {train_rmse:.4f} | val RMSE: {select_rmse:.4f} | test RMSE: {test_rmse:.4f} | lr: {lr_now:.6f}")
+            else:
+                print(f"[DeepGCN] Epoch {epoch:04d} | train RMSE: {train_rmse:.4f} | test RMSE: {select_rmse:.4f} | lr: {lr_now:.6f}")
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    history = {"train_rmse": train_hist, "test_rmse": test_hist}
+    history = {
+        "train_rmse": train_hist,
+        "test_rmse": test_hist,
+        "best_epoch": int(best_epoch) if best_epoch else None,
+        "best_test_rmse": float(best_rmse) if np.isfinite(best_rmse) else None,
+        "epochs_completed": len(train_hist),
+    }
+    if val_hist:
+        history["val_rmse"] = val_hist
+        history["selection_on"] = "val"
+    else:
+        history["selection_on"] = "test"
     return model, var_order, best_rmse, history
